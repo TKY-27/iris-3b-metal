@@ -10,9 +10,15 @@
   modulated residual adds, RMSNorm and the 16 -> 64 -> 16 GELU MLP) plus the
   RMSNorm that feeds the next block, one thread per pixel.
 
-Rows are normalized, scaled by the FP32 gain and modulated entirely in FP32
-and rounded once on store. Queries and keys are bounded by their RMSNorm, so
-they may be stored in FP16, which holds them with 8x the precision of BF16.
+Rounding is deliberately coarser-grained than the upstream autocast path,
+which rounds after nearly every elementwise op: norms, gains, modulation and
+rotation are computed in FP32 and rounded once on store. That is closer to an
+FP32 forward, not bit-identical to the reference. Queries and keys are bounded
+by their RMSNorm, so they may be stored in FP16, which holds them with 8x the
+precision of BF16.
+
+The ``float*`` kernel arguments (norm gains, rotary tables, modulation) must
+be FP32; the wrappers check this, since a BF16 gain would be misread silently.
 """
 
 from functools import cache
@@ -87,8 +93,6 @@ INSTANTIATE(float, float);
 INSTANTIATE(bfloat, bfloat);
 INSTANTIATE(bfloat, half);
 INSTANTIATE(bfloat, float);
-INSTANTIATE(half, half);
-INSTANTIATE(float, half);
 
 // One SIMD group per token row; ``width`` is a multiple of 128 and lane i
 // owns the 4-vectors i, i + 32, ... so loads coalesce across the group.
@@ -169,7 +173,6 @@ kernel void gated_residual_rms_norm(
       uint2);
 
 INSTANTIATE_ROW(float, bfloat);
-INSTANTIATE_ROW(bfloat, bfloat);
 INSTANTIATE_ROW(float, float);
 
 #define INSTANTIATE_RESIDUAL(T)                                                                 \
@@ -180,9 +183,9 @@ INSTANTIATE_ROW(float, float);
 INSTANTIATE_RESIDUAL(bfloat);
 INSTANTIATE_RESIDUAL(float);
 
-// Pixel stage, one thread per pixel with its 16 channels in registers. The
-// upstream pixel stream is BF16, so every value that path materializes in
-// BF16 (the stream, matmul inputs, matmul outputs) is rounded to BF16 here.
+// Pixel stage, one thread per pixel with its 16 channels in registers. Like
+// the upstream autocast path, the stream and the MLP's matmul inputs and
+// outputs are stored in BF16; modulation and norms run in FP32 and round once.
 constant constexpr int PIX = 16;
 constant constexpr int PIX_HIDDEN = 64;
 
@@ -283,6 +286,16 @@ kernel void pixel_mlp(
 _TYPE_NAMES = {torch.float32: "float", torch.bfloat16: "bfloat", torch.float16: "half"}
 
 
+def _require(condition: bool, message: str) -> None:
+    if not condition:
+        raise ValueError(message)
+
+
+def _require_fp32(**tensors: torch.Tensor) -> None:
+    for name, tensor in tensors.items():
+        _require(tensor.dtype == torch.float32 and tensor.is_contiguous(), f"{name} must be contiguous FP32")
+
+
 @cache
 def _library():
     return torch.mps.compile_shader(_SOURCE)
@@ -338,8 +351,21 @@ def qk_norm_rope(
         rows = slice(offset, offset + tokens)
         out[:, :, rows] = qk_norm_rope_reference(cols, weight, cos[rows], sin[rows], eps, out.dtype)
         return out
-    if col_offset + heads * HEAD_DIM > width or not x.is_contiguous() or not out.is_contiguous():
-        raise ValueError("qk_norm_rope needs a contiguous [B, N, W] input holding the heads")
+    _require(
+        col_offset + heads * HEAD_DIM <= width and x.is_contiguous(),
+        "qk_norm_rope needs a contiguous [B, N, W] input holding the heads",
+    )
+    _require(
+        out.shape[:2] == (batch, heads) and out.shape[3] == HEAD_DIM and out.is_contiguous(),
+        f"qk_norm_rope output must be a contiguous [{batch}, {heads}, N, {HEAD_DIM}] tensor",
+    )
+    _require(
+        cos.shape == sin.shape == (cos.shape[0], HEAD_DIM // 2)
+        and offset + tokens <= min(cos.shape[0], out.shape[2]),
+        "qk_norm_rope rotary tables or output do not cover the written rows",
+    )
+    _require_fp32(weight=weight, cos=cos, sin=sin)
+    _require(weight.numel() == HEAD_DIM, f"qk_norm_rope gain must have {HEAD_DIM} entries")
     name = f"qk_norm_rope_{_TYPE_NAMES[x.dtype]}_{_TYPE_NAMES[out.dtype]}"
     getattr(_library(), name)(
         x,
@@ -383,8 +409,11 @@ def rms_norm_modulate(
     if x.device.type != "mps":
         normed = torch.nn.functional.rms_norm(x.float(), (width,), weight, eps)
         return torch.addcmul(shift, normed, 1 + scale).to(out_dtype)
-    if width % 128 or not x.is_contiguous():
-        raise ValueError("rms_norm_modulate needs a contiguous input whose width is a multiple of 128")
+    _require(
+        width % 128 == 0 and x.is_contiguous(), "rms_norm_modulate needs a contiguous input, width % 128 == 0"
+    )
+    _require_fp32(weight=weight)
+    _require(weight.numel() == width, "rms_norm_modulate gain width mismatch")
     out = torch.empty(x.shape, device=x.device, dtype=out_dtype)
     name = f"rms_norm_modulate_{_TYPE_NAMES[x.dtype]}_{_TYPE_NAMES[out_dtype]}"
     getattr(_library(), name)(
@@ -410,10 +439,10 @@ def gated_residual_rms_norm_(
     if residual.device.type != "mps":
         normed = torch.nn.functional.rms_norm(branch.float(), (width,), weight, eps)
         return residual.addcmul_(gate, normed)
-    if residual.dtype != torch.float32 or width % 128:
-        raise ValueError("gated_residual_rms_norm_ needs an FP32 residual whose width is a multiple of 128")
-    if not (residual.is_contiguous() and branch.is_contiguous()):
-        raise ValueError("gated_residual_rms_norm_ needs contiguous tensors")
+    _require(width % 128 == 0 and branch.shape == residual.shape, "gated_residual_rms_norm_ shape mismatch")
+    _require(branch.is_contiguous(), "gated_residual_rms_norm_ needs a contiguous branch")
+    _require_fp32(residual=residual, weight=weight)
+    _require(weight.numel() == width, "gated_residual_rms_norm_ gain width mismatch")
     getattr(_library(), f"gated_residual_rms_norm_{_TYPE_NAMES[branch.dtype]}")(
         residual,
         branch,
@@ -435,6 +464,10 @@ def pixel_rms_norm(pixels: torch.Tensor, weight: torch.Tensor, eps: float) -> to
     """``rms_norm(pixels) * weight`` over the 16 channels of each pixel, in the pixel dtype."""
     if pixels.device.type != "mps" or pixels.dtype != torch.bfloat16:
         return torch.nn.functional.rms_norm(pixels.float(), pixels.shape[-1:], weight, eps).to(pixels.dtype)
+    _require(
+        pixels.shape[-1] == PIXEL_WIDTH and pixels.is_contiguous(), "pixel_rms_norm needs 16-wide pixels"
+    )
+    _require_fp32(weight=weight)
     out = torch.empty_like(pixels)
     n_pixels = pixels.numel() // PIXEL_WIDTH
     _library().pixel_rms_norm(pixels, out, weight, n_pixels, float(eps), threads=n_pixels, group_size=256)
@@ -484,14 +517,20 @@ def pixel_mlp_(
     """
     if pixels.device.type != "mps" or pixels.dtype != torch.bfloat16:
         return pixel_mlp_reference(pixels, branch, mods, norm_weight, fc1, fc2, next_norm_weight, eps)
-    widths_ok = (
+    _require(
         pixels.shape[-1] == PIXEL_WIDTH
-        and mods.shape[-1] == 4 * PIXEL_WIDTH
+        and branch.shape == pixels.shape
+        and mods.shape == (*pixels.shape[:-1], 4 * PIXEL_WIDTH)
         and fc1.weight.shape == (PIXEL_HIDDEN, PIXEL_WIDTH)
+        and fc2.weight.shape == (PIXEL_WIDTH, PIXEL_HIDDEN),
+        "pixel_mlp_ needs the released pixel-stage widths",
     )
-    tensors = (pixels, branch, mods, fc1.weight, fc2.weight)
-    if not widths_ok or not all(t.dtype == torch.bfloat16 and t.is_contiguous() for t in tensors):
-        raise ValueError("pixel_mlp_ needs contiguous BF16 tensors of the released pixel-stage widths")
+    tensors = (pixels, branch, mods, fc1.weight, fc1.bias, fc2.weight, fc2.bias)
+    _require(
+        all(t.dtype == torch.bfloat16 and t.is_contiguous() for t in tensors),
+        "pixel_mlp_ needs contiguous BF16 activations and MLP parameters",
+    )
+    _require_fp32(norm_weight=norm_weight, next_norm_weight=next_norm_weight)
     next_input = torch.empty_like(pixels)
     n_pixels = pixels.numel() // PIXEL_WIDTH
     _library().pixel_mlp(

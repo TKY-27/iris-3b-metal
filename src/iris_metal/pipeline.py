@@ -49,9 +49,8 @@ class IrisPipeline:
             self._engine = MetalIris(dit, attention_dtype=self.attention_dtype)
         return self._engine
 
-    def encode_prompts(self, prompts: list[str], negative_prompt: str = "") -> tuple[Encoding, Encoding]:
-        """Encoder ``(states, mask)`` for the prompts (batched) and for the CFG negative."""
-        texts = [*prompts, negative_prompt]
+    def encode(self, texts: list[str]) -> list[Encoding]:
+        """Text-encoder ``(states, mask)`` of each text; missing ones are encoded in one pass."""
         for text in texts:
             if text in self._encodings:
                 self._encodings[text] = self._encodings.pop(text)  # most recently used last
@@ -61,15 +60,15 @@ class IrisPipeline:
                 self._text_encoder = StreamingQwen3VLEncoder(self.cfg.text_encoder, self.device)
             encoding = self._text_encoder.encode(missing)
             for i, text in enumerate(missing):
-                self._encodings[text] = (encoding.embeddings[i : i + 1], encoding.mask[i : i + 1])
-
-        positive = tuple(
-            torch.cat(parts) for parts in zip(*(self._encodings[p] for p in prompts), strict=True)
-        )
-        negative = self._encodings[negative_prompt]
+                # clones, so an evicted entry does not keep its whole batch alive
+                self._encodings[text] = (
+                    encoding.embeddings[i : i + 1].clone(),
+                    encoding.mask[i : i + 1].clone(),
+                )
+        result = [self._encodings[text] for text in texts]
         while len(self._encodings) > self.ENCODING_CACHE_SIZE:
             self._encodings.pop(next(iter(self._encodings)))
-        return positive, negative
+        return result
 
     @torch.no_grad()
     def __call__(
@@ -88,10 +87,12 @@ class IrisPipeline:
         cfg_scale = sample.cfg_scale if cfg_scale is None else cfg_scale
         negative_prompt = sample.negative_prompt if negative_prompt is None else negative_prompt
 
-        (states, mask), (null_states, null_mask) = self.encode_prompts(prompts, negative_prompt)
+        guided = cfg_scale != 1.0
+        encodings = self.encode([*prompts, negative_prompt] if guided else prompts)
         engine = self.engine
+        states, mask = (torch.cat(parts) for parts in zip(*encodings[: len(prompts)], strict=True))
         cond = engine.encode_text(states, mask)
-        uncond = engine.encode_text(null_states, null_mask).expand_as(cond)
+        uncond = engine.encode_text(*encodings[-1]).expand_as(cond) if guided else None
 
         step = 0
 
@@ -116,7 +117,7 @@ class IrisPipeline:
         x = solver.sample(
             noise.to(self.device),
             cond,
-            uncond if cfg_scale != 1.0 else None,
+            uncond,
             steps=steps,
             order=sample.order,
             shift=self.cfg.flow.shift,

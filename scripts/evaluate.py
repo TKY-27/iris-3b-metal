@@ -62,7 +62,7 @@ def main() -> None:
         if (out / f"{entry['id']}.png").exists():
             continue
         # encode and load before the clock starts: "seconds" is sampling time
-        pipe.encode_prompts([entry["prompt"]])
+        pipe.encode([entry["prompt"], pipe.cfg.sample.negative_prompt])
         pipe.engine  # noqa: B018
         width, height = scaled(entry["size"], args.scale)
         began = time.perf_counter()

@@ -75,7 +75,7 @@ def main() -> None:
     timings = {}
 
     start = time.perf_counter()
-    pipe.encode_prompts([args.prompt])
+    pipe.encode([args.prompt, pipe.cfg.sample.negative_prompt])
     timings["text_encoding_s"] = time.perf_counter() - start
 
     start = time.perf_counter()

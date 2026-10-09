@@ -1,7 +1,8 @@
 import pytest
 import torch
+from safetensors.torch import save_file
 
-from iris3b.config import ModelConfig, PixelStageConfig
+from iris3b.config import Config, ModelConfig, PixelStageConfig
 from iris3b.models.dit import IrisDiT
 from iris_metal.kernels import (
     gated_residual_rms_norm_,
@@ -11,6 +12,7 @@ from iris_metal.kernels import (
     qk_norm_rope_reference,
     rms_norm_modulate,
 )
+from iris_metal.loading import linear_parameter_names, load_dit
 from iris_metal.model import MetalIris
 
 requires_mps = pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an Apple GPU")
@@ -35,7 +37,7 @@ RELEASED_TOPOLOGY = ModelConfig(
     text_lap_num_layers=3,
     text_lap_num_heads=4,
     repa_layer=1,
-    pixel=PixelStageConfig(depth=2, hidden_size=8, attn_hidden_size=256, num_heads=2, modulation="post"),
+    pixel=PixelStageConfig(depth=2, hidden_size=16, attn_hidden_size=256, num_heads=2, modulation="post"),
 )
 
 
@@ -114,22 +116,31 @@ def test_mps_forward_matches_upstream():
 
 
 @requires_mps
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-def test_row_kernels_match_reference(dtype):
+@pytest.mark.parametrize("branch_dtype", [torch.float32, torch.bfloat16])
+def test_row_kernels_match_reference(branch_dtype):
     gen = torch.Generator().manual_seed(0)
-    x = torch.randn(2, 7, 384, generator=gen).to(dtype)
+    x = torch.randn(2, 7, 384, generator=gen)
+    branch = torch.randn(2, 7, 384, generator=gen).to(branch_dtype)
     weight = torch.rand(384, generator=gen) + 0.5
     shift, scale, gate = (torch.randn(2, 1, 384, generator=gen) for _ in range(3))
-    residual = torch.randn(2, 7, 384, generator=gen)
     to_mps = lambda *ts: [t.to("mps") for t in ts]  # noqa: E731
 
     expected = rms_norm_modulate(x, weight, shift, scale, 1e-6, torch.bfloat16)
     actual = rms_norm_modulate(*to_mps(x, weight, shift, scale), 1e-6, torch.bfloat16)
     torch.testing.assert_close(actual.cpu(), expected, rtol=8e-3, atol=1e-5)
 
-    expected = gated_residual_rms_norm_(residual.clone(), x, weight, gate, 1e-6)
-    actual = gated_residual_rms_norm_(*to_mps(residual.clone(), x, weight, gate), 1e-6)
+    expected = gated_residual_rms_norm_(x.clone(), branch, weight, gate, 1e-6)
+    actual = gated_residual_rms_norm_(*to_mps(x.clone(), branch, weight, gate), 1e-6)
     torch.testing.assert_close(actual.cpu(), expected, rtol=1e-5, atol=1e-5)
+
+
+@requires_mps
+def test_kernels_reject_non_fp32_gains():
+    x = torch.randn(1, 4, 128, device="mps")
+    gain = torch.ones(128, device="mps", dtype=torch.bfloat16)
+    zeros = torch.zeros(1, 1, 128, device="mps")
+    with pytest.raises(ValueError, match="FP32"):
+        rms_norm_modulate(x, gain, zeros, zeros, 1e-6, torch.bfloat16)
 
 
 @requires_mps
@@ -164,3 +175,45 @@ def test_pixel_kernels_match_reference():
         rtol=1e-2,
         atol=1e-2,
     )
+
+
+def _relative_error(actual: torch.Tensor, expected: torch.Tensor) -> float:
+    return ((actual.float() - expected.float()).norm() / expected.float().norm()).item()
+
+
+def _save_checkpoint(model: IrisDiT, directory) -> Config:
+    save_file({k: v.contiguous() for k, v in model.state_dict().items()}, directory / "model.safetensors")
+    return Config(model=RELEASED_TOPOLOGY)
+
+
+def test_load_dit_stores_linears_in_bf16_and_the_rest_in_fp32(tmp_path):
+    model = _randomized_model()
+    loaded = load_dit(tmp_path, _save_checkpoint(model, tmp_path), torch.device("cpu"))
+    linear = linear_parameter_names(loaded)
+    for name, param in loaded.named_parameters():
+        assert param.dtype == (torch.bfloat16 if name in linear else torch.float32), name
+        torch.testing.assert_close(param, model.get_parameter(name).to(param.dtype), rtol=0, atol=0)
+    MetalIris(loaded)  # the dtype split is exactly what the engine accepts
+
+
+@requires_mps
+def test_shipped_bf16_path_is_as_accurate_as_upstream_autocast(tmp_path):
+    """The default configuration (BF16 linears, fused kernels, FP16 attention) against
+    upstream under BF16 autocast, both measured against the FP32 forward."""
+    model = _randomized_model()
+    x, t, states, mask = _inputs()
+    with torch.no_grad():
+        exact = model(x, t, states, y_mask=mask).x
+        gpu = [x.to("mps"), t.to("mps"), states.to("mps")]
+        upstream = model.to("mps")
+        with torch.autocast("mps", dtype=torch.bfloat16):
+            reference = upstream(*gpu, y_mask=mask.to("mps")).x.float().cpu()
+        engine = MetalIris(
+            load_dit(tmp_path, _save_checkpoint(model.cpu(), tmp_path), torch.device("mps")),
+            attention_dtype=torch.float16,
+        )
+        actual = engine(gpu[0], gpu[1], engine.encode_text(states, mask)).cpu()
+    reference_error = _relative_error(reference, exact)
+    print(f"engine {_relative_error(actual, exact):.4f}  upstream autocast {reference_error:.4f}")
+    assert 0 < reference_error < 0.05
+    assert _relative_error(actual, exact) < 1.2 * reference_error

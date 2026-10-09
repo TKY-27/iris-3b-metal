@@ -15,10 +15,15 @@ REPO_ID = "speridlabs/iris-3b"
 REVISION = "7445443349bc9abe3c96f01ff793e2098ca012b3"
 
 
-def resolve_checkpoint(name: str, revision: str) -> Path:
-    """A local checkpoint directory, or the text-to-image files of a Hugging Face repo."""
+def resolve_checkpoint(name: str, revision: str | None) -> Path:
+    """A local checkpoint directory, or the text-to-image files of a Hugging Face repo.
+
+    Without an explicit revision, the official repo resolves to the validated one.
+    """
     if Path(name).is_dir():
         return Path(name)
+    if revision is None and name == REPO_ID:
+        revision = REVISION
     from huggingface_hub import snapshot_download
 
     # the repo also hosts the depth and upscaler fine-tunes (12 GB each)
@@ -32,8 +37,8 @@ def parse_size(text: str) -> tuple[int, int]:
     if not match:
         raise argparse.ArgumentTypeError("size must look like 1024x1024 (width x height)")
     width, height = int(match[1]), int(match[2])
-    if width % 16 or height % 16:
-        raise argparse.ArgumentTypeError("width and height must be multiples of 16")
+    if width < 16 or height < 16 or width % 16 or height % 16:
+        raise argparse.ArgumentTypeError("width and height must be positive multiples of 16")
     return width, height
 
 
@@ -55,12 +60,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--negative-prompt", default="")
     parser.add_argument("--checkpoint", default=REPO_ID, help="local directory or Hugging Face repo")
-    parser.add_argument("--revision", default=REVISION, help="Hugging Face revision of --checkpoint")
+    parser.add_argument("--revision", help="Hugging Face revision of --checkpoint (default: validated)")
     parser.add_argument(
         "--attention",
         choices=("float16", "bfloat16"),
         default="float16",
-        help="attention input precision; bfloat16 matches the upstream CUDA recipe",
+        help="attention input precision; bfloat16 is what the upstream CUDA recipe uses",
     )
     args = parser.parse_args(argv)
     if not torch.backends.mps.is_available():

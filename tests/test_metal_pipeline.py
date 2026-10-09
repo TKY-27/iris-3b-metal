@@ -28,20 +28,20 @@ def _pipeline(tmp_path, monkeypatch, cache_size=16):
     return IrisPipeline(tmp_path, device="cpu")
 
 
+def _values(encodings):
+    return [states.item() for states, _ in encodings]
+
+
 def test_missing_texts_are_encoded_once_in_one_batch(tmp_path, monkeypatch):
     pipe = _pipeline(tmp_path, monkeypatch)
-    (positive, _), (negative, _) = pipe.encode_prompts(["aa", "b", "aa"], "")
-    assert positive.flatten().tolist() == [2, 1, 2]
-    assert negative.flatten().tolist() == [0]
-    pipe.encode_prompts(["b"], "")
+    assert _values(pipe.encode(["aa", "b", "aa", ""])) == [2, 1, 2, 0]
+    assert _values(pipe.encode(["b", ""])) == [1, 0]
     assert FakeEncoder.batches == [["aa", "b", ""]]
 
 
-def test_cached_negative_survives_eviction(tmp_path, monkeypatch):
+def test_requested_texts_survive_eviction(tmp_path, monkeypatch):
     pipe = _pipeline(tmp_path, monkeypatch, cache_size=2)
     for prompt in ("a", "bb", "ccc", "a"):
-        (positive, _), (negative, _) = pipe.encode_prompts([prompt])
-        assert positive.item() == len(prompt)
-        assert negative.item() == 0
+        assert _values(pipe.encode([prompt, ""])) == [len(prompt), 0]
     # "a" was evicted by the size-2 cache and re-encoded; the negative never was
     assert FakeEncoder.batches == [["a", ""], ["bb"], ["ccc"], ["a"]]

@@ -1,10 +1,12 @@
 """Inference-only forward pass over the weights of an upstream ``IrisDiT``.
 
 The upstream model is evaluated in its released configuration: FP32 master
-weights under BF16 autocast. This module reproduces that arithmetic with BF16
-linear weights (autocast would round them identically on every call) and FP32
-norm gains, biases and residual streams, while restructuring the computation
-for Apple GPUs:
+weights under BF16 autocast. This module follows that recipe with BF16 linear
+weights and biases (autocast rounds them the same way on every call) and FP32
+norm gains, adaLN biases and residual streams. Elementwise work is fused and
+rounded less often than under autocast, and attention inputs default to FP16
+(see ``kernels``), so results are closer to an FP32 forward rather than
+bit-identical to the reference. The computation is restructured for Apple GPUs:
 
 - the text adapter depends only on the prompt and runs once per prompt, not
   once per sampling step;
@@ -60,6 +62,42 @@ class RopeTable:
         return cls(cis[..., 0], cis[..., 1])
 
 
+def check_supported(dit: IrisDiT) -> None:
+    """Reject topologies and parameter dtypes the fused forward does not handle."""
+    cfg = dit.cfg
+    requirements = {
+        "a pixel stage with post-modulated blocks": cfg.pixel.enabled and cfg.pixel.modulation == "post",
+        "shared_bias modulation with a dual-stream prefix": cfg.modulation == "shared_bias"
+        and cfg.dual_depth > 0,
+        "a single-stream final block": isinstance(dit.blocks[-1], SingleStreamBlock),
+        "grouped-query, gated, sandwich-normed, QK-normed attention": (
+            cfg.num_kv_heads is not None
+            and cfg.num_kv_heads < cfg.num_heads
+            and cfg.gated_attention
+            and cfg.sandwich_norm
+            and cfg.qk_norm
+        ),
+        f"{HEAD_DIM}-wide attention heads": (
+            cfg.hidden_size // cfg.num_heads == HEAD_DIM
+            and cfg.pixel.attn_hidden_size // cfg.pixel.num_heads == HEAD_DIM
+        ),
+        "a masked text adapter with text RoPE and position table": (
+            cfg.text_adapter != "linear" and cfg.text_rope and cfg.text_abs_pos_embed
+        ),
+    }
+    missing = [name for name, ok in requirements.items() if not ok]
+    if missing:
+        raise ValueError(f"MetalIris supports the released Iris-3B topology; this model lacks {missing}")
+
+    # the Metal kernels read norm gains, adaLN biases and tables as FP32
+    linear_params = {id(p) for m in dit.modules() if isinstance(m, nn.Linear) for p in m.parameters()}
+    compute = dit.s_embedder.proj.weight.dtype
+    for name, param in dit.named_parameters():
+        expected = compute if id(param) in linear_params else torch.float32
+        if param.dtype != expected:
+            raise ValueError(f"{name} is {param.dtype}, expected {expected}; load weights with load_dit")
+
+
 class MetalIris:
     """Velocity predictor ``(x, t, text) -> v`` for a loaded ``IrisDiT``.
 
@@ -67,13 +105,8 @@ class MetalIris:
     """
 
     def __init__(self, dit: IrisDiT, attention_dtype: torch.dtype | None = None):
+        check_supported(dit)
         cfg = dit.cfg
-        if not cfg.pixel.enabled or cfg.modulation != "shared_bias" or not cfg.text_rope:
-            raise ValueError("MetalIris supports the released Iris-3B topology only")
-        if not isinstance(dit.blocks[-1], SingleStreamBlock):
-            raise ValueError("MetalIris expects a single-stream final block")
-        if cfg.hidden_size // cfg.num_heads != HEAD_DIM:
-            raise ValueError(f"MetalIris needs {HEAD_DIM}-wide attention heads")
         self.dit = dit
         self.cfg = cfg
         self.device = dit.s_embedder.proj.weight.device

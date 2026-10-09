@@ -31,6 +31,8 @@ from iris3b.text.qwen3_vl import _PROMPT_PREFIX, _PROMPT_SUFFIX
 logger = logging.getLogger(__name__)
 
 _FILES = ["config.json", "tokenizer*", "vocab.json", "merges.txt", "model*.safetensors*"]
+# the Qwen3-VL-4B-Instruct snapshot the engine was validated against
+VALIDATED_REVISIONS = {"Qwen/Qwen3-VL-4B-Instruct": "ebb281ec70b05090aa6165b016eac8ec08e71b17"}
 _PREFIX = "model.language_model."
 
 
@@ -52,12 +54,21 @@ class StreamingQwen3VLEncoder:
         self.device = device
         self.dtype = dtype
         self.hidden_layers = tuple(cfg.hidden_layers)
+        if cfg.on_caption_overflow not in ("warn", "error", "silent"):
+            raise ValueError(f"unknown text_encoder.on_caption_overflow {cfg.on_caption_overflow!r}")
         root = Path(cfg.pretrained)
         if not root.is_dir():
-            root = Path(snapshot_download(cfg.pretrained, allow_patterns=_FILES))
+            revision = VALIDATED_REVISIONS.get(cfg.pretrained)
+            root = Path(snapshot_download(cfg.pretrained, revision=revision, allow_patterns=_FILES))
         config = json.loads((root / "config.json").read_text())["text_config"]
-        if config["hidden_size"] != cfg.dim or not self.hidden_layers:
-            raise ValueError("text encoder config does not match the Iris text adapter")
+        if config["hidden_size"] != cfg.dim:
+            raise ValueError(f"text encoder width {config['hidden_size']} != text_encoder.dim {cfg.dim}")
+        # the deepest hidden state transformers reports is normed; only earlier layers are raw
+        last = config["num_hidden_layers"] - 1
+        if not self.hidden_layers or list(self.hidden_layers) != sorted(set(self.hidden_layers)):
+            raise ValueError("text_encoder.hidden_layers must be sorted, unique and non-empty")
+        if self.hidden_layers[0] < 1 or self.hidden_layers[-1] > last:
+            raise ValueError(f"text_encoder.hidden_layers must lie in [1, {last}]")
         self.heads = config["num_attention_heads"]
         self.kv_heads = config["num_key_value_heads"]
         self.head_dim = config["head_dim"]
@@ -73,6 +84,8 @@ class StreamingQwen3VLEncoder:
         self._prefix = self.tokenizer.encode(_PROMPT_PREFIX, add_special_tokens=False)
         self._suffix = self.tokenizer.encode(_PROMPT_SUFFIX, add_special_tokens=False)
         self.caption_budget = cfg.max_length - len(self._suffix)
+        if self.caption_budget < 1:
+            raise ValueError(f"text_encoder.max_length={cfg.max_length} leaves no room for a caption")
 
     def _reader(self, name: str) -> safe_open:
         path = self._weight_map[_PREFIX + name]
