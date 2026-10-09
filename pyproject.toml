@@ -1,28 +1,35 @@
 [project]
-name = "iris-3b"
+name = "iris-3b-metal"
 version = "0.1.0"
-description = "Iris-3B: a pixel-space text-to-image diffusion transformer"
+description = "Iris-3B pixel-space text-to-image inference on Apple Silicon GPUs"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
-    "torch>=2.7.1",
-    "torchvision>=0.21",
+    "torch>=2.14",
     "transformers>=4.57.0",
-    "accelerate>=1.2",
     "omegaconf>=2.3",
     "safetensors>=0.4",
     "huggingface_hub>=0.26",
-    "wandb>=0.18",
     "pillow>=10.0",
     "numpy>=1.26",
-    "matplotlib>=3.8",
-    "dion @ git+https://github.com/microsoft/dion.git@58d38adb5fcd403a116cb16157a5ca824f8538a5",
 ]
 
 [project.optional-dependencies]
+# the upstream CUDA training and fine-tuning stack
+train = [
+    "torchvision>=0.21",
+    "accelerate>=1.2",
+    "wandb>=0.18",
+    "matplotlib>=3.8",
+    "dion @ git+https://github.com/microsoft/dion.git@58d38adb5fcd403a116cb16157a5ca824f8538a5",
+]
+eval = ["lpips>=0.1.4"]
 dev = ["pytest>=8.0", "ruff>=0.8"]
 ui = ["gradio>=5.49,<6", "spaces"]
+
+[project.scripts]
+iris-metal = "iris_metal.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -45,3 +52,4 @@ ignore = ["E501", "B008", "SIM108"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src", "tests"]
