@@ -43,6 +43,6 @@ def load_dit(
         keys = reader.keys()
         for key in keys:
             target = dtype if key in low_precision else torch.float32
-            state[key] = reader.get_tensor(key).to(target).to(device)
+            state[key] = reader.get_tensor(key).to(device).to(target)
     model.load_state_dict(state, strict=True, assign=True)
     return model.eval().requires_grad_(False)

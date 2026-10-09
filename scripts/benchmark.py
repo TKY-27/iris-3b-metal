@@ -4,9 +4,9 @@ Usage:
     python scripts/benchmark.py --checkpoint iris-3b --size 1024 --steps 100 --out bench.json
 
 Every phase a user waits for is timed separately (text encoding, model load,
-sampling) on a cold process. Peak memory is the process's lifetime maximum
-physical footprint as reported by the kernel, which on Apple Silicon includes
-Metal allocations; it is the number Activity Monitor calls "Memory".
+sampling) on a cold process. Memory is the process's peak physical footprint
+per phase, as reported by the kernel, in GiB; on Apple Silicon it includes
+Metal allocations and is the number Activity Monitor calls "Memory".
 """
 
 import argparse
@@ -26,15 +26,17 @@ import torch
 from iris_metal.pipeline import IrisPipeline
 
 _RUSAGE_INFO_V4 = 4
-_LIFETIME_MAX_FOOTPRINT = 28  # uint64 index of ri_lifetime_max_phys_footprint after the uuid
+# rusage_info_v4 fields, as uint64 indices after the 16-byte uuid
+_LIFETIME_MAX_FOOTPRINT = 28
+_INTERVAL_MAX_FOOTPRINT = 33  # reset by every read
 
 
-def peak_footprint_gb() -> float:
+def peak_footprint_gib(field: int) -> float:
     libc = ctypes.CDLL("/usr/lib/libSystem.dylib")
     buffer = (ctypes.c_uint64 * 64)()
     if libc.proc_pid_rusage(os.getpid(), _RUSAGE_INFO_V4, ctypes.byref(buffer)):
         raise OSError("proc_pid_rusage failed")
-    return buffer[2 + _LIFETIME_MAX_FOOTPRINT] / 1024**3  # 16-byte uuid = two uint64 slots
+    return buffer[2 + field] / 1024**3
 
 
 def swap_used_mb() -> float:
@@ -72,16 +74,19 @@ def main() -> None:
 
     swap_before = swap_used_mb()
     pipe = IrisPipeline(args.checkpoint, attention_dtype=getattr(torch, args.attention))
-    timings = {}
+    timings, peaks = {}, {}
+    peak_footprint_gib(_INTERVAL_MAX_FOOTPRINT)
 
     start = time.perf_counter()
     pipe.encode([args.prompt, pipe.cfg.sample.negative_prompt])
     timings["text_encoding_s"] = time.perf_counter() - start
+    peaks["text_encoding"] = peak_footprint_gib(_INTERVAL_MAX_FOOTPRINT)
 
     start = time.perf_counter()
     pipe.engine  # noqa: B018  (loads the diffusion model)
     torch.mps.synchronize()
     timings["model_load_s"] = time.perf_counter() - start
+    peaks["model_load"] = peak_footprint_gib(_INTERVAL_MAX_FOOTPRINT)
 
     step_times = []
     last = time.perf_counter()
@@ -100,11 +105,13 @@ def main() -> None:
     timings["sampling_s"] = time.perf_counter() - start  # the prompt encoding is cached by now
     timings["step_median_s"] = sorted(step_times)[len(step_times) // 2]
     timings["first_step_s"] = step_times[0]
+    peaks["sampling"] = peak_footprint_gib(_INTERVAL_MAX_FOOTPRINT)
+    peaks["process"] = peak_footprint_gib(_LIFETIME_MAX_FOOTPRINT)
 
     report = {
         "config": vars(args),
         "timings": {k: round(v, 3) for k, v in timings.items()},
-        "peak_memory_gb": round(peak_footprint_gb(), 2),
+        "peak_footprint_gib": {k: round(v, 2) for k, v in peaks.items()},
         "swap_growth_mb": round(swap_used_mb() - swap_before, 1),
         "environment": environment(),
     }
