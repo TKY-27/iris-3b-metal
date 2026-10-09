@@ -1,10 +1,18 @@
-"""Fused Metal kernel for the attention input path, with a PyTorch reference.
+"""Fused Metal kernels for the transformer trunk, with PyTorch references.
 
-``qk_norm_rope`` replaces the upstream sequence ``RMSNorm -> apply_rope ->
-transpose`` for one query or key projection. The row is normalized, scaled by
-the FP32 gain and rotated entirely in FP32, then rounded once on store. The
-store dtype may differ from the input dtype: queries and keys are bounded by
-the RMSNorm, so FP16 holds them with 8x the precision of BF16.
+- ``qk_norm_rope``: per-head RMSNorm + RoPE + ``[B, N, H, D] -> [B, H, N, D]``
+  for one query or key projection.
+- ``rms_norm_modulate``: RMSNorm + adaLN modulation + downcast, the input of
+  every attention and MLP branch.
+- ``gated_residual_rms_norm_``: sandwich post-norm + adaLN gate + residual add,
+  in place on the FP32 residual stream.
+- ``pixel_mlp_``: the per-pixel half of a pixel-transformer block (both
+  modulated residual adds, RMSNorm and the 16 -> 64 -> 16 GELU MLP) plus the
+  RMSNorm that feeds the next block, one thread per pixel.
+
+Rows are normalized, scaled by the FP32 gain and modulated entirely in FP32
+and rounded once on store. Queries and keys are bounded by their RMSNorm, so
+they may be stored in FP16, which holds them with 8x the precision of BF16.
 """
 
 from functools import cache
@@ -14,6 +22,7 @@ import torch
 HEAD_DIM = 128
 
 _SOURCE = r"""
+#include <c10/metal/special_math.h>
 #include <metal_stdlib>
 using namespace metal;
 
@@ -80,6 +89,195 @@ INSTANTIATE(bfloat, half);
 INSTANTIATE(bfloat, float);
 INSTANTIATE(half, half);
 INSTANTIATE(float, half);
+
+// One SIMD group per token row; ``width`` is a multiple of 128 and lane i
+// owns the 4-vectors i, i + 32, ... so loads coalesce across the group.
+template <typename T>
+inline float inv_rms(device const T* x, uint lane, long width, float eps) {
+  device const vec<T, 4>* x4 = reinterpret_cast<device const vec<T, 4>*>(x);
+  float ss = 0.0f;
+  for (long j = lane; j < width / 4; j += 32) {
+    const float4 v = float4(x4[j]);
+    ss += dot(v, v);
+  }
+  return rsqrt(simd_sum(ss) / float(width) + eps);
+}
+
+template <typename T, typename U>
+kernel void rms_norm_modulate(
+    device const T* x [[buffer(0)]],
+    device U* out [[buffer(1)]],
+    device const float* weight [[buffer(2)]],
+    device const float* shift [[buffer(3)]],
+    device const float* scale [[buffer(4)]],
+    constant long& rows [[buffer(5)]],
+    constant long& rows_per_batch [[buffer(6)]],
+    constant long& width [[buffer(7)]],
+    constant float& eps [[buffer(8)]],
+    uint2 pos [[thread_position_in_grid]]) {
+  const uint lane = pos.x;
+  const long row = pos.y;
+  if (row >= rows) {
+    return;
+  }
+  device const T* xr = x + row * width;
+  const float r = inv_rms(xr, lane, width, eps);
+  const long batch = row / rows_per_batch;
+  device const vec<T, 4>* x4 = reinterpret_cast<device const vec<T, 4>*>(xr);
+  device vec<U, 4>* o4 = reinterpret_cast<device vec<U, 4>*>(out + row * width);
+  device const float4* w4 = reinterpret_cast<device const float4*>(weight);
+  device const float4* sh4 = reinterpret_cast<device const float4*>(shift + batch * width);
+  device const float4* sc4 = reinterpret_cast<device const float4*>(scale + batch * width);
+  for (long j = lane; j < width / 4; j += 32) {
+    const float4 h = float4(x4[j]) * r * w4[j];
+    o4[j] = vec<U, 4>(h * (1.0f + sc4[j]) + sh4[j]);
+  }
+}
+
+template <typename T>
+kernel void gated_residual_rms_norm(
+    device float* residual [[buffer(0)]],
+    device const T* branch [[buffer(1)]],
+    device const float* weight [[buffer(2)]],
+    device const float* gate [[buffer(3)]],
+    constant long& rows [[buffer(4)]],
+    constant long& rows_per_batch [[buffer(5)]],
+    constant long& width [[buffer(6)]],
+    constant float& eps [[buffer(7)]],
+    uint2 pos [[thread_position_in_grid]]) {
+  const uint lane = pos.x;
+  const long row = pos.y;
+  if (row >= rows) {
+    return;
+  }
+  device const T* br = branch + row * width;
+  const float r = inv_rms(br, lane, width, eps);
+  const long batch = row / rows_per_batch;
+  device const vec<T, 4>* b4 = reinterpret_cast<device const vec<T, 4>*>(br);
+  device float4* x4 = reinterpret_cast<device float4*>(residual + row * width);
+  device const float4* w4 = reinterpret_cast<device const float4*>(weight);
+  device const float4* g4 = reinterpret_cast<device const float4*>(gate + batch * width);
+  for (long j = lane; j < width / 4; j += 32) {
+    x4[j] += g4[j] * (float4(b4[j]) * r * w4[j]);
+  }
+}
+
+#define INSTANTIATE_ROW(T, U)                                                                  \
+  template [[host_name("rms_norm_modulate_" #T "_" #U)]] kernel void rms_norm_modulate<T, U>(   \
+      device const T*, device U*, device const float*, device const float*,                    \
+      device const float*, constant long&, constant long&, constant long&, constant float&,    \
+      uint2);
+
+INSTANTIATE_ROW(float, bfloat);
+INSTANTIATE_ROW(bfloat, bfloat);
+INSTANTIATE_ROW(float, float);
+
+#define INSTANTIATE_RESIDUAL(T)                                                                 \
+  template [[host_name("gated_residual_rms_norm_" #T)]] kernel void gated_residual_rms_norm<T>( \
+      device float*, device const T*, device const float*, device const float*,                 \
+      constant long&, constant long&, constant long&, constant float&, uint2);
+
+INSTANTIATE_RESIDUAL(bfloat);
+INSTANTIATE_RESIDUAL(float);
+
+// Pixel stage, one thread per pixel with its 16 channels in registers. The
+// upstream pixel stream is BF16, so every value that path materializes in
+// BF16 (the stream, matmul inputs, matmul outputs) is rounded to BF16 here.
+constant constexpr int PIX = 16;
+constant constexpr int PIX_HIDDEN = 64;
+
+inline float round_bf16(float x) {
+  return float(bfloat(x));
+}
+
+inline void store_normed(device bfloat* out, thread const float* x, device const float* weight, float eps) {
+  float ss = 0.0f;
+  for (int c = 0; c < PIX; ++c) {
+    ss += x[c] * x[c];
+  }
+  const float r = rsqrt(ss / PIX + eps);
+  for (int c = 0; c < PIX; ++c) {
+    out[c] = bfloat(x[c] * r * weight[c]);
+  }
+}
+
+kernel void pixel_rms_norm(
+    device const bfloat* pixels [[buffer(0)]],
+    device bfloat* out [[buffer(1)]],
+    device const float* weight [[buffer(2)]],
+    constant long& n_pixels [[buffer(3)]],
+    constant float& eps [[buffer(4)]],
+    uint idx [[thread_position_in_grid]]) {
+  if (idx >= n_pixels) {
+    return;
+  }
+  float x[PIX];
+  for (int c = 0; c < PIX; ++c) {
+    x[c] = float(pixels[idx * PIX + c]);
+  }
+  store_normed(out + idx * PIX, x, weight, eps);
+}
+
+// mods per pixel: scale1, shift1, scale2, shift2 (16 each), the "post" PiT layout.
+kernel void pixel_mlp(
+    device bfloat* pixels [[buffer(0)]],
+    device const bfloat* branch [[buffer(1)]],
+    device const bfloat* mods [[buffer(2)]],
+    device const float* norm_weight [[buffer(3)]],
+    device const bfloat* fc1_weight [[buffer(4)]],
+    device const bfloat* fc1_bias [[buffer(5)]],
+    device const bfloat* fc2_weight [[buffer(6)]],
+    device const bfloat* fc2_bias [[buffer(7)]],
+    device const float* next_norm_weight [[buffer(8)]],
+    device bfloat* next_input [[buffer(9)]],
+    constant long& n_pixels [[buffer(10)]],
+    constant float& eps [[buffer(11)]],
+    uint idx [[thread_position_in_grid]]) {
+  if (idx >= n_pixels) {
+    return;
+  }
+  device const bfloat* mod = mods + idx * 4 * PIX;
+  float x[PIX];
+  for (int c = 0; c < PIX; ++c) {
+    const float attn = float(branch[idx * PIX + c]);
+    const float modulated = round_bf16(attn * (1.0f + float(mod[c])) + float(mod[PIX + c]));
+    x[c] = round_bf16(float(pixels[idx * PIX + c]) + modulated);
+  }
+
+  float ss = 0.0f;
+  for (int c = 0; c < PIX; ++c) {
+    ss += x[c] * x[c];
+  }
+  const float r = rsqrt(ss / PIX + eps);
+  float h[PIX];
+  for (int c = 0; c < PIX; ++c) {
+    h[c] = round_bf16(x[c] * r * norm_weight[c]);
+  }
+
+  float out[PIX];
+  for (int c = 0; c < PIX; ++c) {
+    out[c] = float(fc2_bias[c]);
+  }
+  for (int j = 0; j < PIX_HIDDEN; ++j) {
+    float a = float(fc1_bias[j]);
+    for (int c = 0; c < PIX; ++c) {
+      a += h[c] * float(fc1_weight[j * PIX + c]);
+    }
+    a = round_bf16(a);
+    const float g = round_bf16(0.5f * a * (1.0f + c10::metal::erf(a * M_SQRT1_2_F)));
+    for (int c = 0; c < PIX; ++c) {
+      out[c] += g * float(fc2_weight[c * PIX_HIDDEN + j]);
+    }
+  }
+
+  for (int c = 0; c < PIX; ++c) {
+    const float mlp = round_bf16(out[c]);
+    const float modulated = round_bf16(mlp * (1.0f + float(mod[2 * PIX + c])) + float(mod[3 * PIX + c]));
+    x[c] = round_bf16(x[c] + modulated);
+    pixels[idx * PIX + c] = bfloat(x[c]);
+  }
+  store_normed(next_input + idx * PIX, x, next_norm_weight, eps);
+}
 """
 
 _TYPE_NAMES = {torch.float32: "float", torch.bfloat16: "bfloat", torch.float16: "half"}
@@ -160,3 +358,156 @@ def qk_norm_rope(
         group_size=[32, 8, 1],
     )
     return out
+
+
+def _row_launch(rows: int) -> dict:
+    return {"threads": [32, rows, 1], "group_size": [32, 8, 1]}
+
+
+def _per_batch(vector: torch.Tensor, batch: int, width: int) -> torch.Tensor:
+    """``[B, 1, D]`` modulation slice -> contiguous FP32 ``[B, D]``."""
+    return vector.reshape(batch, width).float().contiguous()
+
+
+def rms_norm_modulate(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    shift: torch.Tensor,
+    scale: torch.Tensor,
+    eps: float,
+    out_dtype: torch.dtype,
+) -> torch.Tensor:
+    """``(rms_norm(x) * weight * (1 + scale) + shift).to(out_dtype)`` for ``x``: ``[B, N, D]``
+    and per-sample ``shift``/``scale``: ``[B, 1, D]``."""
+    batch, tokens, width = x.shape
+    if x.device.type != "mps":
+        normed = torch.nn.functional.rms_norm(x.float(), (width,), weight, eps)
+        return torch.addcmul(shift, normed, 1 + scale).to(out_dtype)
+    if width % 128 or not x.is_contiguous():
+        raise ValueError("rms_norm_modulate needs a contiguous input whose width is a multiple of 128")
+    out = torch.empty(x.shape, device=x.device, dtype=out_dtype)
+    name = f"rms_norm_modulate_{_TYPE_NAMES[x.dtype]}_{_TYPE_NAMES[out_dtype]}"
+    getattr(_library(), name)(
+        x,
+        out,
+        weight,
+        _per_batch(shift, batch, width),
+        _per_batch(scale, batch, width),
+        batch * tokens,
+        tokens,
+        width,
+        float(eps),
+        **_row_launch(batch * tokens),
+    )
+    return out
+
+
+def gated_residual_rms_norm_(
+    residual: torch.Tensor, branch: torch.Tensor, weight: torch.Tensor, gate: torch.Tensor, eps: float
+) -> torch.Tensor:
+    """``residual += gate * rms_norm(branch) * weight`` in place; ``residual``: FP32 ``[B, N, D]``."""
+    batch, tokens, width = residual.shape
+    if residual.device.type != "mps":
+        normed = torch.nn.functional.rms_norm(branch.float(), (width,), weight, eps)
+        return residual.addcmul_(gate, normed)
+    if residual.dtype != torch.float32 or width % 128:
+        raise ValueError("gated_residual_rms_norm_ needs an FP32 residual whose width is a multiple of 128")
+    if not (residual.is_contiguous() and branch.is_contiguous()):
+        raise ValueError("gated_residual_rms_norm_ needs contiguous tensors")
+    getattr(_library(), f"gated_residual_rms_norm_{_TYPE_NAMES[branch.dtype]}")(
+        residual,
+        branch,
+        weight,
+        _per_batch(gate, batch, width),
+        batch * tokens,
+        tokens,
+        width,
+        float(eps),
+        **_row_launch(batch * tokens),
+    )
+    return residual
+
+
+PIXEL_WIDTH, PIXEL_HIDDEN = 16, 64
+
+
+def pixel_rms_norm(pixels: torch.Tensor, weight: torch.Tensor, eps: float) -> torch.Tensor:
+    """``rms_norm(pixels) * weight`` over the 16 channels of each pixel, in the pixel dtype."""
+    if pixels.device.type != "mps" or pixels.dtype != torch.bfloat16:
+        return torch.nn.functional.rms_norm(pixels.float(), pixels.shape[-1:], weight, eps).to(pixels.dtype)
+    out = torch.empty_like(pixels)
+    n_pixels = pixels.numel() // PIXEL_WIDTH
+    _library().pixel_rms_norm(pixels, out, weight, n_pixels, float(eps), threads=n_pixels, group_size=256)
+    return out
+
+
+def pixel_mlp_reference(
+    pixels: torch.Tensor,
+    branch: torch.Tensor,
+    mods: torch.Tensor,
+    norm_weight: torch.Tensor,
+    fc1: torch.nn.Linear,
+    fc2: torch.nn.Linear,
+    next_norm_weight: torch.Tensor,
+    eps: float,
+) -> torch.Tensor:
+    """The upstream post-modulated PiT update after attention; values the autocast
+    path materializes are rounded to the pixel dtype."""
+    f = torch.nn.functional
+    dtype = pixels.dtype
+    scale1, shift1, scale2, shift2 = mods.float().chunk(4, dim=-1)
+    modulated = (branch.float() * (1 + scale1) + shift1).to(dtype)
+    x = (pixels.float() + modulated.float()).to(dtype)
+    h = f.rms_norm(x.float(), x.shape[-1:], norm_weight, eps).to(dtype)
+    a = f.linear(h.float(), fc1.weight.float(), fc1.bias.float()).to(dtype)
+    g = f.gelu(a.float()).to(dtype)
+    mlp = f.linear(g.float(), fc2.weight.float(), fc2.bias.float()).to(dtype)
+    modulated = (mlp.float() * (1 + scale2) + shift2).to(dtype)
+    pixels.copy_((x.float() + modulated.float()).to(dtype))
+    return f.rms_norm(pixels.float(), pixels.shape[-1:], next_norm_weight, eps).to(dtype)
+
+
+def pixel_mlp_(
+    pixels: torch.Tensor,
+    branch: torch.Tensor,
+    mods: torch.Tensor,
+    norm_weight: torch.Tensor,
+    fc1: torch.nn.Linear,
+    fc2: torch.nn.Linear,
+    next_norm_weight: torch.Tensor,
+    eps: float,
+) -> torch.Tensor:
+    """Finish a post-modulated PiT block in place; return the next block's normed input.
+
+    ``pixels``/``branch``: BF16 ``[..., 16]`` (stream, attention branch);
+    ``mods``: BF16 ``[..., 64]`` per pixel (scale1, shift1, scale2, shift2).
+    """
+    if pixels.device.type != "mps" or pixels.dtype != torch.bfloat16:
+        return pixel_mlp_reference(pixels, branch, mods, norm_weight, fc1, fc2, next_norm_weight, eps)
+    widths_ok = (
+        pixels.shape[-1] == PIXEL_WIDTH
+        and mods.shape[-1] == 4 * PIXEL_WIDTH
+        and fc1.weight.shape == (PIXEL_HIDDEN, PIXEL_WIDTH)
+    )
+    tensors = (pixels, branch, mods, fc1.weight, fc2.weight)
+    if not widths_ok or not all(t.dtype == torch.bfloat16 and t.is_contiguous() for t in tensors):
+        raise ValueError("pixel_mlp_ needs contiguous BF16 tensors of the released pixel-stage widths")
+    next_input = torch.empty_like(pixels)
+    n_pixels = pixels.numel() // PIXEL_WIDTH
+    _library().pixel_mlp(
+        pixels,
+        branch,
+        mods,
+        norm_weight,
+        fc1.weight,
+        fc1.bias,
+        fc2.weight,
+        fc2.bias,
+        next_norm_weight,
+        next_input,
+        n_pixels,
+        float(eps),
+        threads=n_pixels,
+        group_size=256,
+    )
+    return next_input

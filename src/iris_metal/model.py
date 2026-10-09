@@ -9,7 +9,9 @@ for Apple GPUs:
 - the text adapter depends only on the prompt and runs once per prompt, not
   once per sampling step;
 - the shared adaLN cores run once per step instead of once per block;
-- QK-RMSNorm, RoPE and the head transpose are one Metal kernel;
+- QK-RMSNorm, RoPE and the head transpose are one Metal kernel, and so are
+  each branch's input norm + modulation and its post-norm + gated residual;
+- the per-pixel half of every pixel block is one Metal kernel;
 - grouped-query attention uses the native SDPA path, without expanding K/V;
 - the single-stream tail keeps one ``[text | image]`` token tensor instead of
   re-concatenating it in every block, and the last block skips text rows that
@@ -26,19 +28,14 @@ from iris3b.models.blocks.single_stream import SingleStreamBlock
 from iris3b.models.dit import IrisDiT
 from iris3b.nn.norms import RMSNorm
 from iris3b.nn.rope import rope_1d, rope_2d
-from iris_metal.kernels import HEAD_DIM, qk_norm_rope
-
-
-def rms_norm(x: torch.Tensor, norm: RMSNorm) -> torch.Tensor:
-    """Upstream ``RMSNorm`` with an FP32 gain: normalize in FP32, round to the
-    input dtype, scale in FP32. FP32 output."""
-    if x.dtype == torch.float32:
-        return F.rms_norm(x, (x.shape[-1],), norm.weight, norm.eps)
-    return F.rms_norm(x, (x.shape[-1],), eps=norm.eps) * norm.weight
-
-
-def modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
-    return torch.addcmul(shift, x, 1 + scale)
+from iris_metal.kernels import (
+    HEAD_DIM,
+    gated_residual_rms_norm_,
+    pixel_mlp_,
+    pixel_rms_norm,
+    qk_norm_rope,
+    rms_norm_modulate,
+)
 
 
 def linear(x: torch.Tensor, layer: nn.Linear) -> torch.Tensor:
@@ -145,31 +142,62 @@ class MetalIris:
         cond = F.silu(t_emb)
         cores = {name: linear(cond, core) for name, core in dit.modulation_cores.items()}
 
+        # residual streams are FP32 and updated in place
+        image, text = image.float(), text.float().clone()
         tokens = None
         for i, block in enumerate(dit.blocks):
             if isinstance(block, MMDiTBlock):
-                image, text = self._dual_block(block, image, text, cores, rope)
+                self._dual_block(block, image, text, cores, rope)
                 continue
             if tokens is None:
-                tokens = torch.cat([text, image.float()], dim=1)
+                tokens = torch.cat([text, image], dim=1)
             last = i == len(dit.blocks) - 1
             tokens = self._single_block(block, tokens, n_text, cores["adaln_img"], rope, last)
         image = tokens  # the final block returns image rows only
 
         s_cond = F.silu(t_emb + image).reshape(batch * grid[0] * grid[1], -1)
         pixels = dit.pixel_embedder(x.to(self.dtype))
-        for block in dit.pixel_blocks:
-            pixels = self._pixel_block(block, pixels, s_cond, grid, pixel_rope)
-        out = linear(rms_norm(pixels, dit.final_layer.norm), dit.final_layer.linear)
+        blocks = dit.pixel_blocks
+        h = pixel_rms_norm(pixels, blocks[0].norm1.weight, blocks[0].norm1.eps)
+        for i, block in enumerate(blocks):
+            next_norm = blocks[i + 1].norm1 if i + 1 < len(blocks) else dit.final_layer.norm
+            h = self._pixel_block(block, pixels, h, s_cond, grid, pixel_rope, next_norm)
+        out = linear(h, dit.final_layer.linear)
         out = out.reshape(batch, grid[0], grid[1], p, p, channels).permute(0, 5, 1, 3, 2, 4)
         return out.reshape(batch, channels, height, width).float()
 
     # -- blocks ------------------------------------------------------------
+    def _norm_modulate(
+        self, x: torch.Tensor, norm: RMSNorm, shift: torch.Tensor, scale: torch.Tensor
+    ) -> torch.Tensor:
+        return rms_norm_modulate(x, norm.weight, shift, scale, norm.eps, self.dtype)
+
+    @staticmethod
+    def _residual(residual: torch.Tensor, gate: torch.Tensor, branch: torch.Tensor, norm: RMSNorm) -> None:
+        gated_residual_rms_norm_(residual, branch, norm.weight, gate, norm.eps)
+
+    def _heads(
+        self, projection: torch.Tensor, norm: RMSNorm, rope: RopeTable, heads: int, **kwargs
+    ) -> torch.Tensor:
+        return qk_norm_rope(
+            projection,
+            norm.weight,
+            rope.cos,
+            rope.sin,
+            norm.eps,
+            heads,
+            out_dtype=self.attention_dtype,
+            **kwargs,
+        )
+
     def _attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
-        """``[B, H, N, 128]`` heads (K/V possibly grouped) -> ``[B, N, H*128]``."""
-        v = v.to(q.dtype)
-        out = F.scaled_dot_product_attention(q, k, v, enable_gqa=k.shape[1] != q.shape[1])
-        return out.transpose(1, 2).to(self.dtype).flatten(2)
+        """``q``, ``k``: ``[B, H, N, 128]`` (K possibly grouped); ``v``: ``[B, N, H_kv*128]``.
+        Returns ``[B, N, H*128]`` in the compute dtype."""
+        batch, heads, tokens, _ = q.shape
+        v_heads = k.new_empty(k.shape).copy_(v.unflatten(2, (k.shape[1], HEAD_DIM)).transpose(1, 2))
+        out = F.scaled_dot_product_attention(q, k, v_heads, enable_gqa=k.shape[1] != heads)
+        merged = q.new_empty(batch, tokens, heads, HEAD_DIM, dtype=self.dtype).copy_(out.transpose(1, 2))
+        return merged.flatten(2)
 
     def _dual_block(
         self,
@@ -178,56 +206,37 @@ class MetalIris:
         y: torch.Tensor,
         cores: dict[str, torch.Tensor],
         rope: RopeTable,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> None:
+        """Updates the FP32 image ``x`` and text ``y`` streams in place."""
         mods_x = cores["adaln_img"] + block.adaln_img.bias
         mods_y = cores["adaln_txt"] + block.adaln_txt.bias
         xs1, xc1, xg1, xs2, xc2, xg2 = mods_x.chunk(6, dim=-1)
         ys1, yc1, yg1, ys2, yc2, yg2 = mods_y.chunk(6, dim=-1)
         attn = block.attn
         n_text, n_tokens = y.shape[1], y.shape[1] + x.shape[1]
-        hx = modulate(rms_norm(x, block.norm_x1), xs1, xc1).to(self.dtype)
-        hy = modulate(rms_norm(y, block.norm_y1), ys1, yc1).to(self.dtype)
+        hx = self._norm_modulate(x, block.norm_x1, xs1, xc1)
+        hy = self._norm_modulate(y, block.norm_y1, ys1, yc1)
 
-        batch, eps = x.shape[0], attn.q_norm_x.eps
+        batch = x.shape[0]
         q = x.new_empty(batch, attn.num_heads, n_tokens, HEAD_DIM, dtype=self.attention_dtype)
         k = x.new_empty(batch, attn.num_kv_heads, n_tokens, HEAD_DIM, dtype=self.attention_dtype)
         for h, proj_q, proj_k, norm_q, norm_k, offset in (
             (hy, attn.q_proj_y, attn.k_proj_y, attn.q_norm_y, attn.k_norm_y, 0),
             (hx, attn.q_proj_x, attn.k_proj_x, attn.q_norm_x, attn.k_norm_x, n_text),
         ):
-            qk_norm_rope(
-                linear(h, proj_q),
-                norm_q.weight,
-                rope.cos,
-                rope.sin,
-                eps,
-                attn.num_heads,
-                out=q,
-                offset=offset,
-            )
-            qk_norm_rope(
-                linear(h, proj_k),
-                norm_k.weight,
-                rope.cos,
-                rope.sin,
-                eps,
-                attn.num_kv_heads,
-                out=k,
-                offset=offset,
-            )
+            self._heads(linear(h, proj_q), norm_q, rope, attn.num_heads, out=q, offset=offset)
+            self._heads(linear(h, proj_k), norm_k, rope, attn.num_kv_heads, out=k, offset=offset)
         v = torch.cat([linear(hy, attn.v_proj_y), linear(hx, attn.v_proj_x)], dim=1)
-        v = v.unflatten(2, (attn.num_kv_heads, HEAD_DIM)).transpose(1, 2)
         out = self._attention(q, k, v)
 
         out_x = out[:, n_text:] * torch.sigmoid(linear(hx, block.attn_gate_x))
         out_y = out[:, :n_text] * torch.sigmoid(linear(hy, block.attn_gate_y))
-        x = torch.addcmul(x, xg1, rms_norm(linear(out_x, attn.proj_x), block.attn_post_norm_x))
-        y = torch.addcmul(y, yg1, rms_norm(linear(out_y, attn.proj_y), block.attn_post_norm_y))
-        mlp_x = swiglu(modulate(rms_norm(x, block.norm_x2), xs2, xc2), block.mlp_x)
-        mlp_y = swiglu(modulate(rms_norm(y, block.norm_y2), ys2, yc2), block.mlp_y)
-        x = torch.addcmul(x, xg2, rms_norm(mlp_x, block.mlp_post_norm_x))
-        y = torch.addcmul(y, yg2, rms_norm(mlp_y, block.mlp_post_norm_y))
-        return x, y
+        self._residual(x, xg1, linear(out_x, attn.proj_x), block.attn_post_norm_x)
+        self._residual(y, yg1, linear(out_y, attn.proj_y), block.attn_post_norm_y)
+        mlp_x = swiglu(self._norm_modulate(x, block.norm_x2, xs2, xc2), block.mlp_x)
+        mlp_y = swiglu(self._norm_modulate(y, block.norm_y2, ys2, yc2), block.mlp_y)
+        self._residual(x, xg2, mlp_x, block.mlp_post_norm_x)
+        self._residual(y, yg2, mlp_y, block.mlp_post_norm_y)
 
     def _single_block(
         self,
@@ -238,78 +247,49 @@ class MetalIris:
         rope: RopeTable,
         image_only: bool,
     ) -> torch.Tensor:
-        """``tokens``: FP32 ``[B, T + L, D]``. With ``image_only`` the text rows
-        still feed attention but are dropped from the output."""
+        """``tokens``: FP32 ``[B, T + L, D]``, updated in place. With ``image_only``
+        the text rows still feed attention but are dropped from the output."""
         s1, c1, g1, s2, c2, g2 = (core + block.adaln.bias).chunk(6, dim=-1)
-        h = modulate(rms_norm(tokens, block.norm1), s1, c1).to(self.dtype)
-        eps = block.q_norm.eps
-        q = qk_norm_rope(
-            linear(h, block.q_proj),
-            block.q_norm.weight,
-            rope.cos,
-            rope.sin,
-            eps,
-            block.num_heads,
-            out_dtype=self.attention_dtype,
-        )
-        k = qk_norm_rope(
-            linear(h, block.k_proj),
-            block.k_norm.weight,
-            rope.cos,
-            rope.sin,
-            eps,
-            block.num_kv_heads,
-            out_dtype=self.attention_dtype,
-        )
-        v = linear(h, block.v_proj).unflatten(2, (block.num_kv_heads, HEAD_DIM)).transpose(1, 2)
-        out = self._attention(q, k, v)
+        h = self._norm_modulate(tokens, block.norm1, s1, c1)
+        q = self._heads(linear(h, block.q_proj), block.q_norm, rope, block.num_heads)
+        k = self._heads(linear(h, block.k_proj), block.k_norm, rope, block.num_kv_heads)
+        out = self._attention(q, k, linear(h, block.v_proj))
         if image_only:
-            out, h, tokens = out[:, n_text:], h[:, n_text:], tokens[:, n_text:]
+            out, h, tokens = out[:, n_text:], h[:, n_text:], tokens[:, n_text:].contiguous()
         out = out * torch.sigmoid(linear(h, block.attn_gate))
-        tokens = torch.addcmul(tokens, g1, rms_norm(linear(out, block.attn_proj), block.attn_post_norm))
-        mlp = swiglu(modulate(rms_norm(tokens, block.norm2), s2, c2), block.mlp)
-        return torch.addcmul(tokens, g2, rms_norm(mlp, block.mlp_post_norm))
+        self._residual(tokens, g1, linear(out, block.attn_proj), block.attn_post_norm)
+        mlp = swiglu(self._norm_modulate(tokens, block.norm2, s2, c2), block.mlp)
+        self._residual(tokens, g2, mlp, block.mlp_post_norm)
+        return tokens
 
     def _pixel_block(
         self,
         block: PiTBlock,
         pixels: torch.Tensor,
+        h: torch.Tensor,
         cond: torch.Tensor,
         grid: tuple[int, int],
         rope: RopeTable,
+        next_norm: RMSNorm,
     ) -> torch.Tensor:
-        """``pixels``: BF16 ``[B*L, p*p, d_pix]``; ``cond``: FP32 ``[B*L, D]``.
+        """Updates ``pixels`` in place and returns ``next_norm(pixels)``.
 
-        The upstream pixel stream stays in BF16 under autocast; so does this one.
+        ``pixels``: ``[B*L, p*p, d_pix]`` in the compute dtype, like the upstream
+        autocast pixel stream; ``h``: ``block.norm1(pixels)``; ``cond``: FP32 ``[B*L, D]``.
         """
         if block.modulation != "post":
             raise ValueError("MetalIris supports post-modulated PiT blocks only")
         mods = linear(cond, block.adaln).unflatten(1, (block.pixels_per_patch, -1))
-        scale1, shift1, scale2, shift2 = mods.chunk(4, dim=-1)
-
         n_patches = grid[0] * grid[1]
-        batch = pixels.shape[0] // n_patches
-        h = rms_norm(pixels, block.norm1).to(self.dtype).reshape(batch, n_patches, -1)
-        compact = linear(h, block.compress)
+        h = h.reshape(pixels.shape[0] // n_patches, n_patches, -1)
         attn = block.attn
-        qkv = linear(compact, attn.qkv)
-        width, eps = attn.num_heads * HEAD_DIM, attn.q_norm.eps
-        q = qk_norm_rope(
-            qkv, attn.q_norm.weight, rope.cos, rope.sin, eps, attn.num_heads, out_dtype=self.attention_dtype
-        )
-        k = qk_norm_rope(
-            qkv,
-            attn.k_norm.weight,
-            rope.cos,
-            rope.sin,
-            eps,
-            attn.num_heads,
-            col_offset=width,
-            out_dtype=self.attention_dtype,
-        )
-        v = qkv[..., 2 * width :].unflatten(2, (attn.num_heads, HEAD_DIM)).transpose(1, 2)
-        out = linear(self._attention(q, k, v), attn.proj)
+        qkv = linear(linear(h, block.compress), attn.qkv)
+        width = attn.num_heads * HEAD_DIM
+        q = self._heads(qkv, attn.q_norm, rope, attn.num_heads)
+        k = self._heads(qkv, attn.k_norm, rope, attn.num_heads, col_offset=width)
+        out = linear(self._attention(q, k, qkv[..., 2 * width :]), attn.proj)
         out = linear(out, block.expand).reshape_as(pixels)
-        pixels = pixels + modulate(out, shift1, scale1)
-        mlp = linear(F.gelu(linear(rms_norm(pixels, block.norm2), block.mlp.fc1)), block.mlp.fc2)
-        return pixels + modulate(mlp, shift2, scale2)
+        mlp = block.mlp
+        return pixel_mlp_(
+            pixels, out, mods, block.norm2.weight, mlp.fc1, mlp.fc2, next_norm.weight, next_norm.eps
+        )
