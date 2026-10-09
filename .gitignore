@@ -27,3 +27,7 @@ wids-meta.json
 .DS_Store
 .idea/
 .vscode/
+
+# local model checkpoint
+/iris-3b/
+/.scratch/

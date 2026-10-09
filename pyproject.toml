@@ -32,7 +32,7 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/iris3b"]
+packages = ["src/iris3b", "src/iris_metal"]
 
 [tool.ruff]
 line-length = 110
