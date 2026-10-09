@@ -1,0 +1,30 @@
+{
+  "dev": [
+    {"id": "landscape-valley", "category": "landscape", "size": [1280, 768], "prompt": "A misty pine forest valley at sunrise, rays of light through the fog, distant snowy peaks"},
+    {"id": "portrait-fisherman", "category": "portrait", "size": [1024, 1024], "prompt": "Close-up portrait of an elderly fisherman with a weathered face and a white beard, natural window light, 85mm photograph"},
+    {"id": "hands-pottery", "category": "anatomy", "size": [1024, 1024], "prompt": "A potter's hands shaping wet clay on a spinning wheel, close-up, studio lighting"},
+    {"id": "dancer-studio", "category": "anatomy", "size": [896, 1152], "prompt": "A ballet dancer mid-leap in an empty rehearsal studio, wooden floor, tall windows"},
+    {"id": "texture-wool", "category": "texture", "size": [1024, 1024], "prompt": "Macro photograph of a knitted wool sweater, individual fibers and stitches visible"},
+    {"id": "cathedral-vaults", "category": "architecture", "size": [896, 1152], "prompt": "Gothic cathedral interior with ribbed vaults and stained glass windows, symmetrical view"},
+    {"id": "sign-bread", "category": "typography", "size": [1152, 896], "prompt": "A vintage wooden shop sign that reads \"FRESH BREAD\" in painted gold letters"},
+    {"id": "watches-gears", "category": "small objects", "size": [1024, 1024], "prompt": "Antique pocket watches, brass keys and tiny gears arranged on dark velvet, tabletop photograph"},
+    {"id": "city-windows", "category": "repetitive structure", "size": [1024, 1024], "prompt": "Aerial view of a dense city at night, thousands of lit windows in a grid of streets"},
+    {"id": "cat-window", "category": "animal", "size": [1024, 1024], "prompt": "A tabby cat sitting on a windowsill, raindrops on the glass, soft daylight"},
+    {"id": "watercolor-lighthouse", "category": "illustration", "size": [1152, 896], "prompt": "A watercolor illustration of a lighthouse on a rocky coast, loose brushstrokes"},
+    {"id": "ramen-bowl", "category": "food", "size": [1024, 1024], "prompt": "A bowl of ramen with a soft-boiled egg, sliced pork and scallions, overhead shot"}
+  ],
+  "holdout": [
+    {"id": "hills-road", "category": "landscape", "size": [1280, 768], "prompt": "Rolling green hills with a winding country road and a lone oak tree, summer afternoon"},
+    {"id": "portrait-freckles", "category": "portrait", "size": [896, 1152], "prompt": "Portrait of a young woman with curly red hair and freckles, overcast light, shallow depth of field"},
+    {"id": "hands-piano", "category": "anatomy", "size": [1152, 896], "prompt": "Two hands playing a grand piano, close-up of the fingers on the keys"},
+    {"id": "violinist-alley", "category": "anatomy", "size": [768, 1280], "prompt": "A street musician playing the violin in a cobblestone alley, full body, evening light"},
+    {"id": "texture-bark", "category": "texture", "size": [1024, 1024], "prompt": "Close-up of tree bark covered in green moss and lichen"},
+    {"id": "skyscraper-glass", "category": "architecture", "size": [768, 1280], "prompt": "A modern glass skyscraper reflecting clouds, low angle view"},
+    {"id": "chalkboard-menu", "category": "typography", "size": [1024, 1024], "prompt": "A chalkboard menu that says \"TODAY'S SPECIAL: TOMATO SOUP\" in neat handwriting"},
+    {"id": "marbles-table", "category": "small objects", "size": [1024, 1024], "prompt": "Colorful glass marbles scattered on a white table, sharp reflections"},
+    {"id": "fence-brick", "category": "repetitive structure", "size": [1024, 1024], "prompt": "A chain-link fence in front of a red brick wall, harsh midday sun"},
+    {"id": "red-panda", "category": "animal", "size": [1024, 1024], "prompt": "A red panda climbing a tree branch in a bamboo forest"},
+    {"id": "isometric-village", "category": "illustration", "size": [1024, 1024], "prompt": "An isometric illustration of a small island village with tiny houses and boats"},
+    {"id": "sushi-slate", "category": "food", "size": [1152, 896], "prompt": "A plate of salmon nigiri and tuna maki on a slate board"}
+  ]
+}

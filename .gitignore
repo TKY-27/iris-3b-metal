@@ -31,3 +31,4 @@ wids-meta.json
 # local model checkpoint
 /iris-3b/
 /.scratch/
+/runs/
