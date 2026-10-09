@@ -1,6 +1,5 @@
 """Text-to-image generation with Iris-3B on an Apple GPU."""
 
-import gc
 from collections.abc import Callable
 from pathlib import Path
 
@@ -8,18 +7,12 @@ import numpy as np
 import torch
 from PIL import Image
 
-import iris3b.text  # noqa: F401  (registers the Qwen3-VL encoder)
 from iris3b.flow.solver import FlowDPMSolver
-from iris3b.registry import TEXT_ENCODERS
-from iris3b.text.base import TextEncoder
 from iris_metal.loading import load_config, load_dit
 from iris_metal.model import MetalIris
+from iris_metal.text import StreamingQwen3VLEncoder
 
-
-def release_memory() -> None:
-    gc.collect()
-    if torch.backends.mps.is_available():
-        torch.mps.empty_cache()
+Encoding = tuple[torch.Tensor, torch.Tensor]  # (states, mask)
 
 
 def to_images(samples: torch.Tensor) -> list[Image.Image]:
@@ -29,32 +22,25 @@ def to_images(samples: torch.Tensor) -> list[Image.Image]:
 
 
 class IrisPipeline:
-    """Loads lazily: the text encoder when a prompt needs encoding, the
-    diffusion model when sampling starts.
+    """Loads the diffusion model on first use and keeps it resident.
 
-    The text encoder (about 8 GB) is released after encoding unless
-    ``keep_text_encoder`` is set, so a first call never holds both models.
-    The most recent prompt encodings are kept on the CPU, so repeating a
-    prompt does not reload the encoder.
+    Prompts are encoded by streaming the text encoder layer by layer, so it
+    never holds more than one layer; the encodings of the most recent texts
+    are kept on the CPU.
     """
 
-    ENCODING_CACHE_SIZE = 8
+    ENCODING_CACHE_SIZE = 16
 
     def __init__(
-        self,
-        checkpoint: str | Path,
-        device: str = "mps",
-        attention_dtype: torch.dtype = torch.float16,
-        keep_text_encoder: bool = False,
+        self, checkpoint: str | Path, device: str = "mps", attention_dtype: torch.dtype = torch.float16
     ):
         self.checkpoint = Path(checkpoint)
         self.cfg = load_config(self.checkpoint)
         self.device = torch.device(device)
         self.attention_dtype = attention_dtype
-        self.keep_text_encoder = keep_text_encoder
-        self._text_encoder: TextEncoder | None = None
+        self._text_encoder: StreamingQwen3VLEncoder | None = None
         self._engine: MetalIris | None = None
-        self._encodings: dict[tuple[str, ...], tuple[torch.Tensor, torch.Tensor]] = {}
+        self._encodings: dict[str, Encoding] = {}
 
     @property
     def engine(self) -> MetalIris:
@@ -63,30 +49,27 @@ class IrisPipeline:
             self._engine = MetalIris(dit, attention_dtype=self.attention_dtype)
         return self._engine
 
-    def encode_prompts(
-        self, prompts: list[str], negative_prompt: str = ""
-    ) -> tuple[tuple[torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]]:
-        """Raw encoder ``(states, mask)`` for the prompts and for the CFG negative."""
-        positive_key, negative_key = tuple(prompts), ("negative", negative_prompt)
-        missing = [key for key in (positive_key, negative_key) if key not in self._encodings]
+    def encode_prompts(self, prompts: list[str], negative_prompt: str = "") -> tuple[Encoding, Encoding]:
+        """Encoder ``(states, mask)`` for the prompts (batched) and for the CFG negative."""
+        texts = [*prompts, negative_prompt]
+        for text in texts:
+            if text in self._encodings:
+                self._encodings[text] = self._encodings.pop(text)  # most recently used last
+        missing = list(dict.fromkeys(text for text in texts if text not in self._encodings))
         if missing:
             if self._text_encoder is None:
-                self._text_encoder = TEXT_ENCODERS.build(
-                    self.cfg.text_encoder.name, self.cfg.text_encoder, device=self.device
-                )
-            for key in missing:
-                encoding = (
-                    self._text_encoder.null(negative_prompt)
-                    if key is negative_key
-                    else self._text_encoder.encode(prompts)
-                )
-                self._encodings[key] = (encoding.embeddings.cpu(), encoding.mask.cpu())
-            while len(self._encodings) > self.ENCODING_CACHE_SIZE:
-                self._encodings.pop(next(iter(self._encodings)))
-            if not self.keep_text_encoder:
-                self._text_encoder = None
-                release_memory()
-        return self._encodings[positive_key], self._encodings[negative_key]
+                self._text_encoder = StreamingQwen3VLEncoder(self.cfg.text_encoder, self.device)
+            encoding = self._text_encoder.encode(missing)
+            for i, text in enumerate(missing):
+                self._encodings[text] = (encoding.embeddings[i : i + 1], encoding.mask[i : i + 1])
+
+        positive = tuple(
+            torch.cat(parts) for parts in zip(*(self._encodings[p] for p in prompts), strict=True)
+        )
+        negative = self._encodings[negative_prompt]
+        while len(self._encodings) > self.ENCODING_CACHE_SIZE:
+            self._encodings.pop(next(iter(self._encodings)))
+        return positive, negative
 
     @torch.no_grad()
     def __call__(
