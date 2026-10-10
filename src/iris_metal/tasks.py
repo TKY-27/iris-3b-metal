@@ -20,7 +20,7 @@ from iris3b.downstream.depth import DepthPredictor, IrisDepth
 from iris3b.downstream.restoration import Restorer
 from iris3b.models.dit import IrisDiT
 from iris_metal.loading import load_weights
-from iris_metal.model import MetalIris
+from iris_metal.model import MetalIris, require_finite
 
 TASK_FOLDERS = {"depth": "depth", "restoration": "upscaler"}
 
@@ -69,7 +69,7 @@ class MetalDepth(DepthPredictor):
         def predict(rgb: torch.Tensor, embeddings: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
             x = torch.cat([rgb, rgb.new_zeros(rgb.shape[0], 1, *rgb.shape[2:])], dim=1)
             t = rgb.new_full((rgb.shape[0],), time)
-            return reducer(engine(x, t, text.expand(rgb.shape[0], -1, -1)))
+            return require_finite(reducer(engine(x, t, text.expand(rgb.shape[0], -1, -1))))
 
         # the upstream __call__ evaluates self.model(rgb, self.embeddings, self.mask)
         self.model = predict
@@ -99,4 +99,4 @@ class MetalRestorer(Restorer):
     def restore_tile(self, x: torch.Tensor) -> torch.Tensor:
         t = torch.full((x.shape[0],), self.time, device=x.device)
         v = self.engine(x, t, self.text.expand(x.shape[0], -1, -1))
-        return x.float() - self.sigma * v
+        return require_finite(x.float() - self.sigma * v)

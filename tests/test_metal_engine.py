@@ -12,8 +12,8 @@ from iris_metal.kernels import (
     qk_norm_rope_reference,
     rms_norm_modulate,
 )
-from iris_metal.loading import linear_parameter_names, load_dit
-from iris_metal.model import MetalIris
+from iris_metal.loading import linear_dtypes, load_dit
+from iris_metal.model import MetalIris, require_finite
 
 requires_mps = pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an Apple GPU")
 
@@ -186,14 +186,22 @@ def _save_checkpoint(model: IrisDiT, directory) -> Config:
     return Config(model=RELEASED_TOPOLOGY)
 
 
-def test_load_dit_stores_linears_in_bf16_and_the_rest_in_fp32(tmp_path):
+def test_load_dit_precision_plan(tmp_path):
     model = _randomized_model()
     loaded = load_dit(tmp_path, _save_checkpoint(model, tmp_path), torch.device("cpu"))
-    linear = linear_parameter_names(loaded)
+    linear = linear_dtypes(loaded, torch.float16)
     for name, param in loaded.named_parameters():
-        assert param.dtype == (torch.bfloat16 if name in linear else torch.float32), name
+        assert param.dtype == linear.get(name, torch.float32), name
         torch.testing.assert_close(param, model.get_parameter(name).to(param.dtype), rtol=0, atol=0)
-    MetalIris(loaded)  # the dtype split is exactly what the engine accepts
+    assert linear["blocks.1.q_proj.weight"] == torch.float16  # trunk
+    assert linear["pixel_blocks.0.adaln.weight"] == torch.bfloat16  # pixel stage: range
+    assert linear["y_embedder.refiner.proj.weight"] == torch.bfloat16  # text adapter
+    engine = MetalIris(loaded)  # the plan is exactly what the engine accepts
+    assert (engine.dtype, engine.pixel_dtype, engine.text_dtype) == (
+        torch.float16,
+        torch.bfloat16,
+        torch.bfloat16,
+    )
 
 
 @requires_mps
@@ -217,3 +225,12 @@ def test_shipped_bf16_path_is_as_accurate_as_upstream_autocast(tmp_path):
     print(f"engine {_relative_error(actual, exact):.4f}  upstream autocast {reference_error:.4f}")
     assert 0 < reference_error < 0.05
     assert _relative_error(actual, exact) < 1.2 * reference_error
+
+
+@requires_mps
+def test_require_finite_rejects_overflow():
+    ok = torch.zeros(2, 3)
+    assert require_finite(ok) is ok
+    for bad in (float("inf"), float("nan")):
+        with pytest.raises(FloatingPointError):
+            require_finite(torch.tensor([0.0, bad]))

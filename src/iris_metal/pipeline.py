@@ -10,7 +10,7 @@ from PIL import Image
 
 from iris3b.flow.solver import FlowDPMSolver
 from iris_metal.loading import load_config, load_dit
-from iris_metal.model import MetalIris
+from iris_metal.model import MetalIris, require_finite
 from iris_metal.text import StreamingQwen3VLEncoder
 
 Encoding = tuple[torch.Tensor, torch.Tensor]  # (states, mask)
@@ -140,4 +140,4 @@ class IrisPipeline:
             order=sample.order,
             shift=self.cfg.flow.shift,
         )
-        return to_images(x)
+        return to_images(require_finite(x))

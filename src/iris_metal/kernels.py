@@ -93,6 +93,8 @@ INSTANTIATE(float, float);
 INSTANTIATE(bfloat, bfloat);
 INSTANTIATE(bfloat, half);
 INSTANTIATE(bfloat, float);
+INSTANTIATE(half, half);
+INSTANTIATE(half, float);
 
 // One SIMD group per token row; ``width`` is a multiple of 128 and lane i
 // owns the 4-vectors i, i + 32, ... so loads coalesce across the group.
@@ -174,6 +176,7 @@ kernel void gated_residual_rms_norm(
 
 INSTANTIATE_ROW(float, bfloat);
 INSTANTIATE_ROW(float, float);
+INSTANTIATE_ROW(float, half);
 
 #define INSTANTIATE_RESIDUAL(T)                                                                 \
   template [[host_name("gated_residual_rms_norm_" #T)]] kernel void gated_residual_rms_norm<T>( \
@@ -182,6 +185,7 @@ INSTANTIATE_ROW(float, float);
 
 INSTANTIATE_RESIDUAL(bfloat);
 INSTANTIATE_RESIDUAL(float);
+INSTANTIATE_RESIDUAL(half);
 
 // Pixel stage, one thread per pixel with its 16 channels in registers. Like
 // the upstream autocast path, the stream and the MLP's matmul inputs and

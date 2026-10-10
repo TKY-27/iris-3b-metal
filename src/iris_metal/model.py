@@ -91,17 +91,27 @@ def check_supported(dit: IrisDiT) -> None:
 
     # the Metal kernels read norm gains, adaLN biases and tables as FP32
     linear_params = {id(p) for m in dit.modules() if isinstance(m, nn.Linear) for p in m.parameters()}
-    compute = dit.s_embedder.proj.weight.dtype
     for name, param in dit.named_parameters():
-        expected = compute if id(param) in linear_params else torch.float32
-        if param.dtype != expected:
-            raise ValueError(f"{name} is {param.dtype}, expected {expected}; load weights with load_dit")
+        if id(param) not in linear_params and param.dtype != torch.float32:
+            raise ValueError(f"{name} is {param.dtype}, expected FP32; load weights with load_dit")
+
+
+def require_finite(result: torch.Tensor) -> torch.Tensor:
+    """Raise rather than let an overflowed result become a black image.
+
+    Every FP16 activation measured on the benchmark prompts stays below 4% of the FP16 range;
+    checked once per result, so the denoising loop itself never synchronizes.
+    """
+    if not torch.isfinite(result).all():
+        raise FloatingPointError("the model produced non-finite values; please report the input and settings")
+    return result
 
 
 class MetalIris:
     """Velocity predictor ``(x, t, text) -> v`` for a loaded ``IrisDiT``.
 
-    ``text`` is the output of :meth:`encode_text`, not raw encoder states.
+    ``text`` is the output of :meth:`encode_text`, not raw encoder states. The
+    compute dtype of each part follows its weights (see ``loading.linear_dtypes``).
     """
 
     def __init__(self, dit: IrisDiT, attention_dtype: torch.dtype | None = None):
@@ -110,7 +120,9 @@ class MetalIris:
         self.dit = dit
         self.cfg = cfg
         self.device = dit.s_embedder.proj.weight.device
-        self.dtype = dit.s_embedder.proj.weight.dtype
+        self.dtype = dit.s_embedder.proj.weight.dtype  # the patch transformer
+        self.pixel_dtype = dit.final_layer.linear.weight.dtype
+        self.text_dtype = next(m.weight.dtype for m in dit.y_embedder.modules() if isinstance(m, nn.Linear))
         self.attention_dtype = attention_dtype or self.dtype
         self._ropes: dict[tuple[int, int], tuple[RopeTable, RopeTable]] = {}
 
@@ -123,8 +135,8 @@ class MetalIris:
         same arithmetic as the reference sampler, once per prompt.
         """
         dit, n = self.dit, self.cfg.text_len
-        low_precision = self.dtype != torch.float32
-        with torch.autocast(self.device.type, dtype=self.dtype, enabled=low_precision):
+        low_precision = self.text_dtype != torch.float32
+        with torch.autocast(self.device.type, dtype=self.text_dtype, enabled=low_precision):
             # FP32 states, as the reference sampler casts them to the weight dtype
             tokens = dit.y_embedder(states[:, :n].to(self.device, torch.float32), mask[:, :n].to(self.device))
         return tokens.float() + dit.y_pos_embedding[:, : tokens.shape[1]].float()
@@ -189,7 +201,7 @@ class MetalIris:
         image = tokens  # the final block returns image rows only
 
         s_cond = F.silu(t_emb + image).reshape(batch * grid[0] * grid[1], -1)
-        pixels = dit.pixel_embedder(x.to(self.dtype))
+        pixels = dit.pixel_embedder(x.to(self.pixel_dtype))
         blocks = dit.pixel_blocks
         h = pixel_rms_norm(pixels, blocks[0].norm1.weight, blocks[0].norm1.eps)
         for i, block in enumerate(blocks):

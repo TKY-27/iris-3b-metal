@@ -29,7 +29,7 @@ wids-meta.json
 .vscode/
 
 # local model checkpoint
-/iris-3b/
+/iris-3b
 /.scratch/
 /runs/
 
