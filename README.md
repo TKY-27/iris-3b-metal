@@ -8,9 +8,11 @@ Iris-3B generates RGB pixels directly — no VAE — and its fine-tunes also
 estimate depth and restore and upscale images. This project runs the
 unmodified official weights with an inference engine written for Apple GPUs:
 fused Metal kernels, a restructured forward pass, a text encoder that is
-streamed one layer at a time, and an FP16 transformer trunk. Its images are
-about three times closer to the upstream code's FP32 result than those of the
-BF16 recipe the model ships with (see [Image quality](#image-quality)).
+streamed one layer at a time, and an FP16 transformer trunk. Against the
+upstream code run in FP32, its images have about a third of the error of the
+BF16 recipe the model ships with over eight 512 × 512 generations, and a bit
+over half on the one 1024 × 1024 image compared (see
+[Image quality](#image-quality)).
 
 <p align="center">
 <img src="assets/metal/portrait-fisherman.jpg" height="230" alt="Close-up portrait of an elderly fisherman with a weathered face and a white beard in window light">
@@ -25,14 +27,14 @@ BF16 recipe the model ships with (see [Image quality](#image-quality)).
 
 ## What you get
 
-- **Text-to-image** at the model's native resolutions (about one megapixel,
-  21 aspect ratios from 2048 × 512 to 512 × 2048), with the upstream sampler:
-  100 DPM-Solver++ steps, guidance 3.
+- **Text-to-image** at about one megapixel in any aspect ratio from 4:1 to
+  1:4 (the model was trained on 21 sizes from 2048 × 512 to 512 × 2048), with
+  the upstream sampler: 100 DPM-Solver++ steps, guidance 3.
 - **Depth estimation and 4× restoration/upscaling** with the official
   fine-tunes, each downloaded only when first used.
 - `iris-metal` command, Python API, `iris-metal serve` HTTP API, and the
   **Iris** macOS app.
-- On the same Mac, a 1024 × 1024 image in about 7 minutes at 10.6 GiB: about
+- On the same Mac, a 1024 × 1024 image in about 7 minutes in under 11 GiB: about
   2× faster than the upstream code with its BF16 recipe or the fastest MLX
   port we measured, and 7× faster than the upstream code in FP32, its default
   on a Mac (see [Performance](#performance)).
@@ -41,7 +43,7 @@ BF16 recipe the model ships with (see [Image quality](#image-quality)).
 
 A Mac with Apple Silicon and macOS 15 or later, Python 3.11+, PyTorch 2.14+.
 Everything here was measured on a MacBook Pro with an M5 and 24 GB, where
-text-to-image peaks at about 10.7 GiB at 1024 × 1024; Macs with 16 GB are
+text-to-image peaks under 11 GiB at 1024 × 1024; Macs with 16 GB are
 untested. The first run downloads the Iris-3B checkpoint (12 GB) and the
 Qwen3-VL-4B text encoder (9 GB) from Hugging Face.
 
@@ -82,6 +84,11 @@ code of its own. It needs macOS 15 and was built with Xcode 27:
 cd apps/macos && xcodebuild -scheme Iris -configuration Release build
 ```
 
+The app uses a server that is already running on its port, or starts
+`iris-metal serve` itself from `~/.local/bin`, `/opt/homebrew/bin` or
+`/usr/local/bin`. If you installed into a virtual environment, set the path
+to its `bin/iris-metal` in the app's Settings.
+
 <p align="center"><img src="assets/metal/app.jpg" width="760" alt="The Iris app: a history sidebar on the left, in the middle a generated photograph of a lighthouse on a rocky coast at dusk with its size, steps, guidance, seed and time below it and the prompt field underneath, and size, sampling and seed settings on the right"></p>
 
 ## HTTP API
@@ -95,11 +102,14 @@ curl -s localhost:8765/v1/jobs/1/image -o cat.png
 curl -s localhost:8765/v1/depth --data-binary @photo.jpg                        # also /v1/upscale
 ```
 
-Jobs run in order with a bounded queue and can be cancelled between steps.
+Jobs run in order with a bounded queue. Cancelling stops a generation at its
+next step and an upscale at its next tile; a depth estimate runs in one pass of
+a few seconds.
 Only one network is resident at a time; switching between text-to-image,
 depth and upscaling releases the previous model. The server has no
 authentication and should not be exposed beyond localhost; it refuses requests
-from web pages (which carry an `Origin` header) and for other host names.
+from web pages (which carry an `Origin` header) and for other host names. With
+`--host 0.0.0.0` it cannot tell its own names apart and skips the host check.
 
 ## Performance
 
@@ -134,18 +144,14 @@ recipe is both slower and further from FP32 than either.
 
 | | 768 × 768 | 1024 × 1024 |
 |---|---|---|
-| Text encoding, once per prompt | 4.8 s (peak 1.5 GiB) | 4.8 s (peak 1.5 GiB) |
-| Model load, once per process | 10–12 s (6.5 GiB) | 9–12 s (6.5 GiB) |
-| One sampling step (batch of 2 for guidance) | 2.4 s | 4.6 s |
-| 100 steps | 230–250 s | 450–475 s |
-| Peak memory while sampling | 10.3 GiB | 10.7 GiB |
+| Text encoding, once per prompt | 4.5 s (peak 1.5 GiB) | 4.1 s (peak 1.5 GiB) |
+| Model load, once per process | 7.9 s (6.5 GiB) | 8.4 s (6.5 GiB) |
+| One sampling step (batch of 2 for guidance) | 2.3 s | 4.0 s |
+| 100 steps, warm | 231–233 s | 390–414 s |
+| Peak memory while sampling | 8.8 GiB | 10.0 GiB |
 
-These runs shared the Mac with other applications (12–41% background GPU
-load, active swap) after hours of continuous load; on an idle GPU a 1024 ×
-1024 step took 3.6–3.9 s. Peak memory barely depends on the resolution:
-most of it is the 6.5 GiB of weights and PyTorch's allocator cache. Setting
-`PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5` lowered the 1024 × 1024 peak by 0.4 GiB
-with no measurable slowdown; 0.7 changed nothing.
+One process each, a cold request and two warm ones, with 1–10% background
+GPU load from other applications. 6.5 GiB of the peak are the weights.
 
 ## How it works
 
@@ -159,16 +165,16 @@ guidance): a 1024 × 1024 image at 100 steps is about 4.6 PFLOP.
 `src/iris_metal` evaluates the upstream modules' weights with its own forward
 pass. What it changes, and what it does not:
 
-- **Matrix multiplies stay in PyTorch's MPS kernels.** On the M5 they reach
-  about 15 TFLOPS in BF16, within 5% of the compute peak we measured with
-  Metal 4's `matmul2d` on the same GPU, so custom GEMMs and fusing epilogues
-  into them were tried and rejected, as was packing the Q/K/V/gate and SwiGLU
-  projections into wider GEMMs (no measurable gain).
+- **Matrix multiplies stay in PyTorch's MPS kernels.** At the trunk's shapes
+  they run at 13.7–15.5 TFLOPS in FP16 or BF16 on the M5, 84–95% of the
+  16.4 TFLOPS a compute-only Metal 4 `matmul2d` kernel reached on the same
+  GPU, so custom GEMMs and fusing epilogues into them were tried and
+  rejected, as was packing the Q/K/V/gate and SwiGLU projections into wider
+  GEMMs (no measurable gain).
 - **Everything between the matrix multiplies is fused into Metal kernels**:
   query/key RMSNorm + RoPE + head layout; each branch's input norm and adaLN
   modulation; the sandwich post-norm, gate and residual add, in place on an
-  FP32 residual stream; and the per-pixel half of every pixel block. In the
-  PyTorch port these small operations took about half of every block.
+  FP32 residual stream; and the per-pixel half of every pixel block.
 - **Work that does not change between steps is done once**: the text adapter
   (four transformer blocks) per prompt, the shared adaLN projections per step.
 - **The transformer trunk runs in FP16, not BF16.** Its linear layers and
@@ -184,8 +190,9 @@ pass. What it changes, and what it does not:
   Qwen3-VL-4B for the real prompt tokens only; the engine runs those layers one
   at a time from the checkpoint files instead of loading the 8 GB model.
 
-On a 1024 × 1024 step, about 65% of the GPU time is matrix multiplies, 23% is
-attention (PyTorch's fused SDPA) and 12% is everything else.
+In a single-stream block at 1024 × 1024 (16 of the 24 blocks), 66% of the GPU
+time is matrix multiplies, 22% attention (PyTorch's fused SDPA) and 12%
+everything else.
 
 ## Image quality
 
@@ -215,7 +222,8 @@ development, two held-out):
 
 A diffusion trajectory amplifies small differences, so single images vary
 widely: lettering diverges most (the chalkboard menu: 42% for the BF16
-recipe, 30% for the engine), a portrait least (13% and 1.9%). FP16 weights
+recipe, 30% for the engine), a portrait least for the engine (1.9%, against
+12.5% for the recipe). FP16 weights
 were closer than BF16 weights on six of the nine images compared. The
 1024 × 1024 fox below is one of the other three: the engine is at 7.2% after
 100 steps (3.5% after 10), BF16 weights at 4.6%, and the BF16 recipe at
@@ -235,7 +243,7 @@ error to 0.65–1.1% at 1.65× the time (`--attention float32` in the scripts).
 upstream demo inputs and two generated images, its depth maps differ from the
 upstream code in FP32 by 0.2–0.5% (relative L2; the BF16 recipe 0.8–2.8%) and
 its 4× restorations match it at 54 dB PSNR (the BF16 recipe 47–51 dB), while
-running 2–5× faster than the FP32 code on the same GPU.
+running 1.7–5× faster than the FP32 code on the same GPU.
 
 **Patch seams.** Iris-3B predicts pixels in 16 × 16 patches. At 768 × 768 and
 1024 × 1024 the engine's outputs show no visible seams at 3× magnification,
@@ -257,10 +265,10 @@ available as `--steps`, not as a faster equivalent of the default.
 - 100 steps take minutes per image. Fewer steps are faster but change fine
   structure such as hands (see [Image quality](#image-quality)).
 - Depth and upscaling download a separate 12 GB checkpoint each.
-- Use the native sizes. Well below about one megapixel, for example at 512 ×
-  512, the model's output shows its 16-pixel patch grid, in the upstream FP32
-  code as well. The development and held-out sets cover aspect ratios from
-  1280 × 768 to 768 × 1280; 2048 × 512 and 512 × 2048 were only smoke-tested.
+- Keep images near one megapixel. Well below that, for example at 512 × 512,
+  the model's output shows its 16-pixel patch grid, in the upstream FP32 code
+  as well. The development and held-out sets cover 1280 × 768 to 768 × 1280;
+  2048 × 512 and 512 × 2048 were only smoke-tested.
 - What the images get wrong is the model's: on the held-out prompt of hands
   on a piano, the upstream FP32 code draws extra hands just as the engine does.
 
