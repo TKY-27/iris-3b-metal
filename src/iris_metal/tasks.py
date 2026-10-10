@@ -27,12 +27,14 @@ TASK_FOLDERS = {"depth": "depth", "restoration": "upscaler"}
 
 
 def resolve_task(source: str | Path, task: str, revision: str | None) -> Path:
-    """A local task export, or its folder of a Hugging Face repo (only that folder is downloaded)."""
+    """A local task export (or a local copy of the repo holding it), or its folder of
+    a Hugging Face repo (only that folder is downloaded)."""
+    folder = TASK_FOLDERS[task]
     if Path(source).is_dir():
-        return Path(source)
+        nested = Path(source) / folder
+        return nested if (nested / "config.yaml").is_file() else Path(source)
     from huggingface_hub import snapshot_download
 
-    folder = TASK_FOLDERS[task]
     root = snapshot_download(str(source), revision=revision, allow_patterns=[f"{folder}/*"])
     return Path(root) / folder
 
@@ -60,7 +62,9 @@ def depth_image(depth: np.ndarray) -> Image.Image:
 
 def _read_export(path: Path, task: str) -> tuple[object, dict, dict]:
     raw = OmegaConf.to_container(OmegaConf.load(path / "config.yaml"))
-    settings = raw.pop("task")
+    settings = raw.pop("task", None)
+    if settings is None:
+        raise ValueError(f"{path} is not a depth or upscaling export (its config.yaml has no task)")
     if settings["name"] != task:
         raise ValueError(f"{path} holds a {settings['name']!r} export, not {task!r}")
     return inference_config(raw, []), settings, load_file(path / "empty_prompt.safetensors")

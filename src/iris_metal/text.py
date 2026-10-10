@@ -133,9 +133,15 @@ class StreamingQwen3VLEncoder:
         x = rms_norm(h, w["post_attention_layernorm"], self.eps)
         return h + F.linear(F.silu(F.linear(x, w["gate_proj"])) * F.linear(x, w["up_proj"]), w["down_proj"])
 
-    @torch.no_grad()
     def encode(self, texts: list[str]) -> TextEncoding:
         """``[B, max_length, layers, dim]`` states and ``[B, max_length]`` mask for ``texts``."""
+        try:
+            return self._encode(texts)
+        finally:
+            self._readers.clear()  # closes the shard files (8 GB mapped) between requests
+
+    @torch.no_grad()
+    def _encode(self, texts: list[str]) -> TextEncoding:
         sequences = self._token_ids(texts)
         states = [self._embed(ids) for ids in sequences]
         ropes = [self._rope(len(ids)) for ids in sequences]
