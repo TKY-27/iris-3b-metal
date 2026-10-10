@@ -16,12 +16,15 @@ A full queue answers 429. One worker thread runs the jobs in order, and at most
 one network is resident: a request for a different task releases the previous
 model first, which keeps a 24 GB Mac out of swap. Only the standard library is
 used. The server binds to localhost by default and has no authentication: do
-not expose it to a network.
+not expose it to a network. Any web page the user opens can also reach
+localhost, so requests that come from a browser (they carry ``Origin``) or
+name a foreign host (DNS rebinding) are refused with 403.
 """
 
 import io
 import itertools
 import json
+import math
 import queue
 import socketserver
 import threading
@@ -40,7 +43,12 @@ MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 MAX_UPLOAD_PIXELS = 50_000_000
 MAX_PIXELS = 2048 * 2048
 MAX_STEPS = 500
+MAX_DEPTH_SIDE = 2048
+# without the budget, the output area the budget allows (2048 x 4096 at 4x)
+MAX_UNBUDGETED_UPSCALE_PIXELS = 512 * 1024
 KEEP_FINISHED = 32
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
 
 
 class Cancelled(Exception):
@@ -127,7 +135,34 @@ def validate(body: dict, defaults) -> dict:
         raise ValueError(f"width and height must be multiples of 16 with at most {MAX_PIXELS} pixels")
     if not 1 <= params["steps"] <= MAX_STEPS:
         raise ValueError(f"steps must be in [1, {MAX_STEPS}]")
+    if not math.isfinite(params["cfg_scale"]):
+        raise ValueError("cfg_scale must be a finite number")
+    if not 0 <= params["seed"] < 2**63:
+        raise ValueError("seed must be in [0, 2**63)")
     return params
+
+
+def depth_params(query: dict) -> dict:
+    max_side = int(query.get("max_side", 1024))
+    if not 16 <= max_side <= MAX_DEPTH_SIDE:
+        raise ValueError(f"max_side must be in [16, {MAX_DEPTH_SIDE}]")
+    return {"max_side": max_side}
+
+
+def upscale_params(query: dict, image: Image.Image) -> dict:
+    params = {"budget": query.get("budget", "1") != "0", "color_fix": query.get("color_fix", "1") != "0"}
+    if not params["budget"] and image.width * image.height > MAX_UNBUDGETED_UPSCALE_PIXELS:
+        raise ValueError(
+            f"without the budget, inputs may have at most {MAX_UNBUDGETED_UPSCALE_PIXELS} pixels"
+        )
+    return params
+
+
+def host_name(header: str) -> str:
+    """``Host`` header -> the name without port or IPv6 brackets."""
+    if header.startswith("["):
+        return header[1 : header.find("]")]
+    return header.rsplit(":", 1)[0]
 
 
 def decode_upload(data: bytes) -> Image.Image:
@@ -223,6 +258,16 @@ def make_handler(runner: JobRunner):
             self.end_headers()
             self.wfile.write(body)
 
+        def _refused(self) -> bool:
+            """Answer 403 to browser requests and foreign host names; see the module docstring."""
+            bound = self.server.server_name
+            allowed = LOOPBACK_HOSTS | {bound}
+            host_ok = bound in WILDCARD_HOSTS or host_name(self.headers.get("Host", "")) in allowed
+            if "Origin" in self.headers or not host_ok:
+                self._send(403, {"error": "requests from web pages or for other host names are refused"})
+                return True
+            return False
+
         def _job(self) -> Job | None:
             parts = urlsplit(self.path).path.strip("/").split("/")
             job = runner.jobs.get(parts[2]) if len(parts) >= 3 and parts[:2] == ["v1", "jobs"] else None
@@ -231,6 +276,8 @@ def make_handler(runner: JobRunner):
             return job
 
         def do_GET(self) -> None:
+            if self._refused():
+                return
             if self.path == "/v1/health":
                 self._send(200, {"resident": models.resident, "queued": runner.pending.qsize()})
                 return
@@ -246,9 +293,17 @@ def make_handler(runner: JobRunner):
             self._send(200, job.summary())
 
         def do_POST(self) -> None:
+            if self._refused():
+                return
             url = urlsplit(self.path)
             query = {key: values[-1] for key, values in parse_qs(url.query).items()}
-            length = int(self.headers.get("Content-Length", 0))
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+            except ValueError:
+                length = -1
+            if length < 0:
+                self._send(400, {"error": "invalid Content-Length"})
+                return
             limit = MAX_JSON_BYTES if url.path == "/v1/images" else MAX_UPLOAD_BYTES
             if length > limit:
                 self._send(413, {"error": "request too large"})
@@ -259,14 +314,12 @@ def make_handler(runner: JobRunner):
                     params = validate(json.loads(body or b"{}"), models.pipe.cfg.sample)
                     job = runner.submit("image", params, text_to_image_job(models, params))
                 elif url.path == "/v1/depth":
-                    params = {"max_side": int(query.get("max_side", 1024))}
+                    params = depth_params(query)
                     job = runner.submit("depth", params, depth_job(models, decode_upload(body), **params))
                 elif url.path == "/v1/upscale":
-                    params = {
-                        "budget": query.get("budget", "1") != "0",
-                        "color_fix": query.get("color_fix", "1") != "0",
-                    }
-                    job = runner.submit("upscale", params, upscale_job(models, decode_upload(body), **params))
+                    image = decode_upload(body)
+                    params = upscale_params(query, image)
+                    job = runner.submit("upscale", params, upscale_job(models, image, **params))
                 else:
                     self._send(404, {"error": "unknown endpoint"})
                     return
@@ -279,6 +332,8 @@ def make_handler(runner: JobRunner):
             self._send(202, {"id": job.id})
 
         def do_DELETE(self) -> None:
+            if self._refused():
+                return
             job = self._job()
             if job is not None:
                 job.cancel.set()
