@@ -104,9 +104,14 @@ def main() -> None:
     except ImportError:
         lpips_model = None
 
-    ids = sorted(p.stem for p in args.reference.glob("*.png"))
+    # prompts every run has, so the means of all runs cover the same images
+    runs = [args.reference, *args.candidates]
+    ids = sorted(set.intersection(*({p.stem for p in run.glob("*.png")} for run in runs)))
+    if not ids:
+        raise SystemExit("the runs have no prompt in common")
+    print(f"{len(ids)} prompts: {', '.join(ids)}")
     report = {}
-    for run in [args.reference, *args.candidates]:
+    for run in runs:
         meta = json.loads((run / "meta.json").read_text())
         rows = {}
         for image_id in ids:
@@ -128,7 +133,7 @@ def main() -> None:
     if args.json:
         args.json.write_text(json.dumps(report, indent=2) + "\n")
     if args.sheet:
-        contact_sheet([args.reference, *args.candidates], ids, args.sheet)
+        contact_sheet(runs, ids, args.sheet)
 
 
 if __name__ == "__main__":
