@@ -196,8 +196,9 @@ class MetalIris:
             next_norm = blocks[i + 1].norm1 if i + 1 < len(blocks) else dit.final_layer.norm
             h = self._pixel_block(block, pixels, h, s_cond, grid, pixel_rope, next_norm)
         out = linear(h, dit.final_layer.linear)
-        out = out.reshape(batch, grid[0], grid[1], p, p, channels).permute(0, 5, 1, 3, 2, 4)
-        return out.reshape(batch, channels, height, width).float()
+        out_channels = out.shape[-1]  # 3, also for task models with an extra input channel
+        out = out.reshape(batch, grid[0], grid[1], p, p, out_channels).permute(0, 5, 1, 3, 2, 4)
+        return out.reshape(batch, out_channels, height, width).float()
 
     # -- blocks ------------------------------------------------------------
     def _norm_modulate(

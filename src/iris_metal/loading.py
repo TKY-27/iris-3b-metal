@@ -25,24 +25,31 @@ def linear_parameter_names(model: nn.Module) -> set[str]:
     }
 
 
-def load_dit(
-    checkpoint: str | Path, cfg: Config, device: torch.device, dtype: torch.dtype = torch.bfloat16
-) -> IrisDiT:
-    """Stream ``model.safetensors`` into an ``IrisDiT`` built on the meta device.
+def load_weights(
+    model: nn.Module, path: str | Path, device: torch.device, dtype: torch.dtype = torch.bfloat16
+) -> nn.Module:
+    """Stream a safetensors file into ``model``, built on the meta device.
 
     Linear weights and biases are stored in ``dtype``; for BF16 that is the
     value autocast would round the FP32 master weights to on every call.
-    Norm gains, adaLN biases and position tables stay FP32. Tensors are
-    converted one at a time, so the FP32 checkpoint is never resident.
+    Everything else (norm gains, adaLN biases, position tables) stays FP32.
+    Tensors are converted one at a time, so the FP32 checkpoint is never resident.
     """
-    with torch.device("meta"):
-        model = IrisDiT(cfg.model)
     low_precision = linear_parameter_names(model)
     state = {}
-    with safe_open(str(Path(checkpoint) / "model.safetensors"), framework="pt", device="cpu") as reader:
+    with safe_open(str(path), framework="pt", device="cpu") as reader:
         keys = reader.keys()
         for key in keys:
             target = dtype if key in low_precision else torch.float32
             state[key] = reader.get_tensor(key).to(device).to(target)
     model.load_state_dict(state, strict=True, assign=True)
     return model.eval().requires_grad_(False)
+
+
+def load_dit(
+    checkpoint: str | Path, cfg: Config, device: torch.device, dtype: torch.dtype = torch.bfloat16
+) -> IrisDiT:
+    """The text-to-image model of a released checkpoint directory."""
+    with torch.device("meta"):
+        model = IrisDiT(cfg.model)
+    return load_weights(model, Path(checkpoint) / "model.safetensors", device, dtype)

@@ -6,7 +6,9 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 import torch
+from PIL import Image
 
 from iris_metal.pipeline import IrisPipeline
 
@@ -63,13 +65,67 @@ def serve_main(argv: list[str]) -> None:
     serve(IrisPipeline(resolve_checkpoint(args.checkpoint, args.revision)), args.host, args.port, args.queue)
 
 
+def depth_image(depth) -> Image.Image:
+    """16-bit grayscale, near = bright, over the prediction's 2nd-98th percentile range
+    (upstream ``colorize`` without the matplotlib colormap)."""
+    low, high = np.percentile(depth, [2, 98])
+    near = np.clip((high - depth) / max(high - low, 1e-6), 0, 1)
+    return Image.fromarray((near * 65535).round().astype(np.uint16))
+
+
+def task_main(task: str, argv: list[str]) -> None:
+    from iris_metal.tasks import MetalDepth, MetalRestorer, resolve_task
+
+    upscale = task == "restoration"
+    parser = argparse.ArgumentParser(
+        prog=f"iris-metal {'upscale' if upscale else 'depth'}",
+        description="4x restoration and upscaling" if upscale else "Monocular relative depth",
+    )
+    parser.add_argument("images", nargs="+", type=Path)
+    parser.add_argument("--out", type=Path, default=Path("upscaled" if upscale else "depth"))
+    parser.add_argument("--weights", default=REPO_ID, help="local task export or Hugging Face repo")
+    parser.add_argument("--revision", help="Hugging Face revision of --weights (default: validated)")
+    if upscale:
+        parser.add_argument("--no-budget", action="store_true", help="do not downscale large inputs first")
+        parser.add_argument("--no-color-fix", action="store_true")
+    else:
+        parser.add_argument("--max-side", type=int, default=1024, help="long side the model sees; 0 = native")
+    args = parser.parse_args(argv)
+    if not torch.backends.mps.is_available():
+        parser.error("no Apple GPU (MPS) available")
+    revision = args.revision or (REVISION if args.weights == REPO_ID else None)
+    export = resolve_task(args.weights, task, revision)
+    model = MetalRestorer(export) if upscale else MetalDepth(export)
+    args.out.mkdir(parents=True, exist_ok=True)
+    for path in args.images:
+        image = Image.open(path)
+        start = time.perf_counter()
+        if upscale:
+            from iris3b.downstream.restoration import fit_budget
+
+            result = model(image if args.no_budget else fit_budget(image), color_fix=not args.no_color_fix)
+            target = args.out / f"{path.stem}_x4.png"
+            result.save(target)
+        else:
+            depth = model(image, max_side=args.max_side)
+            target = args.out / f"{path.stem}_depth.png"
+            np.save(target.with_suffix(".npy"), depth)
+            depth_image(depth).save(target)
+        print(f"{path} -> {target} ({time.perf_counter() - start:.1f}s)", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> None:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["serve"]:
         serve_main(argv[1:])
         return
+    if argv[:1] in (["depth"], ["upscale"]):
+        task_main("depth" if argv[0] == "depth" else "restoration", argv[1:])
+        return
     parser = argparse.ArgumentParser(
-        prog="iris-metal", description=__doc__, epilog="Run `iris-metal serve --help` for the HTTP API."
+        prog="iris-metal",
+        description=__doc__,
+        epilog="Other commands: iris-metal depth, iris-metal upscale, iris-metal serve (each has --help).",
     )
     parser.add_argument("prompts", nargs="+", metavar="PROMPT")
     parser.add_argument("-o", "--output", type=Path, default=Path("iris.png"), help="default: iris.png")
