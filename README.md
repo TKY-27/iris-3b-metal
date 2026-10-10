@@ -60,6 +60,10 @@ iris-metal depth photo.jpg            # depth/photo_depth.png and .npy
 iris-metal upscale photo.jpg          # upscaled/photo_x4.png
 ```
 
+Inputs that share a file name (`a/photo.jpg b/photo.jpg`) get numbered
+outputs (`photo_depth.png`, `photo-2_depth.png`) instead of overwriting each
+other, and every input is checked before the model loads.
+
 From Python:
 
 ```python
@@ -75,10 +79,26 @@ encodings, so repeated generations skip the load and the text encoder.
 
 ## The macOS app
 
-`apps/macos` is a SwiftUI app that drives a local `iris-metal serve`:
-prompt and settings, live progress with cancellation, a history of results,
-depth and upscaling by drag and drop, and storage settings. It holds no model
-code of its own. It needs macOS 15 and was built with Xcode 27:
+`apps/macos` is a SwiftUI app that drives a local `iris-metal serve`; it
+holds no model code of its own. Work is organized like a chat app:
+
+- **Conversations** list each request (a prompt, or an image to process) and
+  its result in order, with live progress and Stop. Each request is generated
+  on its own: Iris-3B does not see earlier prompts or images, and the app does
+  not pretend otherwise.
+- **A composer** at the bottom switches between creating an image, estimating
+  depth and upscaling, and holds the size, steps, guidance, seed and negative
+  prompt for the next image.
+- **Results** open in Quick Look and can be copied, saved, generated again
+  with a new seed, reused as settings, or upscaled and depth-estimated as new
+  entries of the same conversation.
+- **The sidebar** groups conversations into projects, searches titles and
+  prompts, and shows every result under All Images.
+
+The library lives in `~/Library/Application Support/Iris` (`Library.json`
+plus the images). The history of Iris 0.1 is imported on first launch into
+a conversation named “Earlier images”. The app needs macOS 15 and was built
+with Xcode 27:
 
 ```bash
 cd apps/macos && xcodebuild -scheme Iris -configuration Release build
@@ -89,7 +109,7 @@ The app uses a server that is already running on its port, or starts
 `/usr/local/bin`. If you installed into a virtual environment, set the path
 to its `bin/iris-metal` in the app's Settings.
 
-<p align="center"><img src="assets/metal/app.jpg" width="760" alt="The Iris app: a history sidebar on the left, in the middle a generated photograph of a lighthouse on a rocky coast at dusk with its size, steps, guidance, seed and time below it and the prompt field underneath, and size, sampling and seed settings on the right"></p>
+<p align="center"><img src="assets/metal/app.jpg" width="760" alt="The Iris app: a sidebar with search, All Images, projects and conversations on the left; on the right a conversation showing the prompt about a lighthouse on a rocky coast at dusk, the generated photograph with its size, steps, guidance, seed and time below it, and the composer with the workflow and settings at the bottom"></p>
 
 ## HTTP API
 
@@ -106,9 +126,11 @@ Jobs run in order with a bounded queue. Cancelling stops a generation at its
 next step and an upscale at its next tile; a depth estimate runs in one pass of
 a few seconds.
 Only one network is resident at a time; switching between text-to-image,
-depth and upscaling releases the previous model. The server has no
+depth and upscaling releases the previous model. `--checkpoint` and
+`--weights` take local directories for offline use. The server has no
 authentication and should not be exposed beyond localhost; it refuses requests
-from web pages (which carry an `Origin` header) and for other host names. With
+from web pages (which carry an `Origin` or cross-site `Sec-Fetch-Site` header)
+and for other host names. With
 `--host 0.0.0.0` it cannot tell its own names apart and skips the host check.
 
 ## Performance
@@ -120,7 +142,8 @@ sessions.
 
 **Text-to-image, 1024 × 1024, 100 steps.** Every implementation denoises the
 same saved input (text-encoder states and initial noise) with the upstream
-sampler; time is the denoising loop, memory is the peak physical footprint of
+sampler (`scripts/denoise_fixture.py` for this engine); time is the denoising
+loop, memory is the peak physical footprint of
 the process, and the error is against the upstream code in FP32:
 
 | | Time | Peak memory | NRMSE vs FP32 |
@@ -280,7 +303,14 @@ pytest tests/test_metal_*.py
 python scripts/benchmark.py --size 1024x1024                    # latency and memory per phase
 python scripts/evaluate.py --split dev --out runs/reference       # benchmark prompt set
 python scripts/compare_runs.py runs/reference runs/candidate --sheet sheet.png
+python scripts/denoise_fixture.py fixture.npz                     # time a saved fixture
 ```
+
+The app's unit tests (`xcodebuild -scheme Iris test` in `apps/macos`) never
+touch the real library. `python apps/macos/fake_engine.py` serves the real
+HTTP API over CPU stand-ins with synthetic images, for working on the app
+without a GPU or model downloads; the app attaches to it on port 8765. The
+Xcode project is generated from `apps/macos/project.yml` with XcodeGen.
 
 The upstream training code is kept unchanged under `src/iris3b/` and needs
 `pip install -e ".[train]"` and CUDA.
