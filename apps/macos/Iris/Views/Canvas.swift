@@ -29,14 +29,26 @@ struct Canvas: View {
             } else if let item {
                 ResultImage(item: item)
             } else {
-                ContentUnavailableView(
-                    "No image yet",
-                    systemImage: "photo",
-                    description: Text("Describe an image below and press ⌘↩.")
-                )
+                ContentUnavailableView("No image yet", systemImage: emptySymbol, description: Text(emptyHint))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var emptySymbol: String {
+        switch generator.workflow {
+        case .create: "photo"
+        case .depth: "square.3.layers.3d.down.right"
+        case .upscale: "arrow.up.left.and.arrow.down.right"
+        }
+    }
+
+    private var emptyHint: String {
+        switch generator.workflow {
+        case .create: "Describe an image below and press ⌘↩."
+        case .depth: "Drop a photo here to estimate its relative depth."
+        case .upscale: "Drop an image here to restore it at 4× its size."
+        }
     }
 }
 

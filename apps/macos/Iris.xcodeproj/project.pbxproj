@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		14ECF3F40E2CD031EFDEBC90 /* WorkflowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E42427A4A0CBB0CADE6E7FA /* WorkflowTests.swift */; };
 		1F0AC61B428B4F385796E0D4 /* IrisApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 553E0AFFE0B2EB105BB5FB5F /* IrisApp.swift */; };
 		251FBB9241A529DF9CA1F93B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C55FFC2FD1B6A21B7720A0A /* SettingsView.swift */; };
 		4C092548E207D8BDD2388C03 /* History.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B74994FB1DBF2FFCC3C28D0 /* History.swift */; };
@@ -20,6 +21,16 @@
 		D09682C6307F4815F56B7839 /* Generator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A750EBFC7813A0D85A53F8A3 /* Generator.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		67807D65E666F9CD1B8DBE9A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 231FCB8ADBE0C54741F35D8A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DA6B0FE32874865F8A6DAF74;
+			remoteInfo = Iris;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		0381A97ACD8E1C6A05801386 /* HistorySidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySidebar.swift; sourceTree = "<group>"; };
 		087A8EC187B8BBB0B8855D15 /* Canvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Canvas.swift; sourceTree = "<group>"; };
@@ -27,8 +38,10 @@
 		0B74994FB1DBF2FFCC3C28D0 /* History.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = History.swift; sourceTree = "<group>"; };
 		0C55FFC2FD1B6A21B7720A0A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		553E0AFFE0B2EB105BB5FB5F /* IrisApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IrisApp.swift; sourceTree = "<group>"; };
+		8646A4D90EA5D7F897967343 /* IrisTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = IrisTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8DF042C0A07F5E27F409290D /* EngineClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineClient.swift; sourceTree = "<group>"; };
 		90BE3E11390A59DB1ED009A5 /* EngineController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineController.swift; sourceTree = "<group>"; };
+		9E42427A4A0CBB0CADE6E7FA /* WorkflowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowTests.swift; sourceTree = "<group>"; };
 		A13535A43E9F1A02F60B5EC4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A750EBFC7813A0D85A53F8A3 /* Generator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Generator.swift; sourceTree = "<group>"; };
 		D26DF96B23ADA8EE8539AC9F /* SettingsInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsInspector.swift; sourceTree = "<group>"; };
@@ -54,6 +67,7 @@
 			isa = PBXGroup;
 			children = (
 				AD693C86B9C5C60C0F865BD7 /* Iris */,
+				AC6BC111CD761B97AB2DD0A4 /* IrisTests */,
 				D2070894243A80683C258643 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -65,6 +79,14 @@
 				0B74994FB1DBF2FFCC3C28D0 /* History.swift */,
 			);
 			path = Model;
+			sourceTree = "<group>";
+		};
+		AC6BC111CD761B97AB2DD0A4 /* IrisTests */ = {
+			isa = PBXGroup;
+			children = (
+				9E42427A4A0CBB0CADE6E7FA /* WorkflowTests.swift */,
+			);
+			path = IrisTests;
 			sourceTree = "<group>";
 		};
 		AD693C86B9C5C60C0F865BD7 /* Iris */ = {
@@ -92,6 +114,7 @@
 			isa = PBXGroup;
 			children = (
 				E0B30308D08E575D6B0B7371 /* Iris.app */,
+				8646A4D90EA5D7F897967343 /* IrisTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -99,6 +122,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		2D904A5F66C66CEBD334E4E1 /* IrisTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6835FA6F1672247EEF331395 /* Build configuration list for PBXNativeTarget "IrisTests" */;
+			buildPhases = (
+				1C4C94F3F0669414ED36DAAE /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				0C7465817A3D6816A624694C /* PBXTargetDependency */,
+			);
+			name = IrisTests;
+			packageProductDependencies = (
+			);
+			productName = IrisTests;
+			productReference = 8646A4D90EA5D7F897967343 /* IrisTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		DA6B0FE32874865F8A6DAF74 /* Iris */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A7101607CB8AABFC691FB9FC /* Build configuration list for PBXNativeTarget "Iris" */;
@@ -125,6 +166,9 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					2D904A5F66C66CEBD334E4E1 = {
+						ProvisioningStyle = Manual;
+					};
 					DA6B0FE32874865F8A6DAF74 = {
 						ProvisioningStyle = Manual;
 					};
@@ -145,11 +189,20 @@
 			projectRoot = "";
 			targets = (
 				DA6B0FE32874865F8A6DAF74 /* Iris */,
+				2D904A5F66C66CEBD334E4E1 /* IrisTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXSourcesBuildPhase section */
+		1C4C94F3F0669414ED36DAAE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				14ECF3F40E2CD031EFDEBC90 /* WorkflowTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		38E6665FE1001B13C56AFF3D /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -170,7 +223,32 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		0C7465817A3D6816A624694C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DA6B0FE32874865F8A6DAF74 /* Iris */;
+			targetProxy = 67807D65E666F9CD1B8DBE9A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		25A8D07312EC5450582D4C29 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.tky27.iris.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Iris.app/Contents/MacOS/Iris";
+			};
+			name = Debug;
+		};
 		41B0BFF19F1D5176EE351013 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -229,6 +307,23 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		5841E3DCF74260E0F7BA12D5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.tky27.iris.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Iris.app/Contents/MacOS/Iris";
 			};
 			name = Release;
 		};
@@ -344,6 +439,15 @@
 			buildConfigurations = (
 				FF9378E27F3D76AA64B7635A /* Debug */,
 				41B0BFF19F1D5176EE351013 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		6835FA6F1672247EEF331395 /* Build configuration list for PBXNativeTarget "IrisTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				25A8D07312EC5450582D4C29 /* Debug */,
+				5841E3DCF74260E0F7BA12D5 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

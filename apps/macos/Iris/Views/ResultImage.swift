@@ -15,7 +15,7 @@ struct ResultImage: View {
                     .scaledToFit()
                     .draggable(item.imageURL)
                     .contextMenu { actions }
-                    .accessibilityLabel(item.request.prompt)
+                    .accessibilityLabel(item.title)
             }
             Text(caption)
                 .font(.caption)
@@ -27,8 +27,11 @@ struct ResultImage: View {
     }
 
     private var caption: String {
-        let r = item.request
         let time = Duration.seconds(item.seconds).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated))
+        guard let r = item.request else {
+            let kind = item.workflow == .depth ? "Relative depth, near is bright" : "Restored at 4×"
+            return "\(kind) · \(time)"
+        }
         return "\(r.width) × \(r.height) · \(r.steps) steps · guidance \(r.cfgScale.formatted()) · seed \(r.seed) · \(time)"
     }
 
@@ -44,8 +47,10 @@ struct ResultImage: View {
             NSWorkspace.shared.activateFileViewerSelecting([item.imageURL])
         }
         Divider()
-        Button("Reuse Settings") { generator.reuse(item.request) }
-        Divider()
+        if let request = item.request {
+            Button("Reuse Settings") { generator.reuse(request) }
+            Divider()
+        }
         Button("Delete", role: .destructive) { history.remove(item) }
     }
 
@@ -65,7 +70,7 @@ struct ResultImage: View {
     }
 
     private var filename: String {
-        let words = item.request.prompt.lowercased().split { !$0.isLetter && !$0.isNumber }.prefix(6)
+        let words = item.title.lowercased().split { !$0.isLetter && !$0.isNumber }.prefix(6)
         return (words.isEmpty ? "iris" : words.joined(separator: "-")) + ".png"
     }
 }

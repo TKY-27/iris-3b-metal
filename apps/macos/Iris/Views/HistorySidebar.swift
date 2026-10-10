@@ -12,7 +12,9 @@ struct HistorySidebar: View {
                 HistoryRow(item: item)
                     .tag(item.id)
                     .contextMenu {
-                        Button("Reuse Settings") { generator.reuse(item.request) }
+                        if let request = item.request {
+                            Button("Reuse Settings") { generator.reuse(request) }
+                        }
                         Button("Show in Finder") {
                             NSWorkspace.shared.activateFileViewerSelecting([item.imageURL])
                         }
@@ -58,7 +60,7 @@ private struct HistoryRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.request.prompt)
+                Text(item.title)
                     .lineLimit(2)
                 Text(item.created, format: .relative(presentation: .named))
                     .font(.caption)

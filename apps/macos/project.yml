@@ -34,3 +34,22 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
+  IrisTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: IrisTests
+    dependencies:
+      - target: Iris
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.tky27.iris.tests
+schemes:
+  Iris:
+    build:
+      targets:
+        Iris: all
+    test:
+      targets:
+        - IrisTests

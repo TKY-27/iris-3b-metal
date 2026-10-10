@@ -72,6 +72,17 @@ struct EngineClient: Sendable {
         return submitted.id
     }
 
+    /// Depth or upscaling of an image, sent as PNG.
+    func submit(_ workflow: Workflow, png: Data) async throws -> String {
+        let endpoint = workflow == .depth ? "depth" : "upscale"
+        var request = URLRequest(url: baseURL.appending(path: endpoint))
+        request.httpMethod = "POST"
+        request.httpBody = png
+        struct Submitted: Decodable { let id: String }
+        let submitted: Submitted = try decode(await send(request))
+        return submitted.id
+    }
+
     func status(of job: String) async throws -> JobStatus {
         try await decode(get("jobs/\(job)"))
     }

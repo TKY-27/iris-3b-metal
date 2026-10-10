@@ -5,8 +5,19 @@ struct SettingsInspector: View {
     @Environment(Generator.self) private var generator
 
     var body: some View {
+        switch generator.workflow {
+        case .create:
+            generationSettings
+        case .depth:
+            WorkflowNote(text: "Iris-3B's depth fine-tune predicts relative depth in one pass. Photos larger than 1024 pixels are downscaled for the model, and the result is resized back. Near is bright; values are affine-invariant, not metric.")
+        case .upscale:
+            WorkflowNote(text: "Iris-3B's restoration fine-tune enlarges an image 4× and repairs compression and blur in one pass per 1024-pixel tile. Large inputs are first reduced so the output stays within 2048 × 4096, and colors are kept from the original.")
+        }
+    }
+
+    private var generationSettings: some View {
         @Bindable var generator = generator
-        Form {
+        return Form {
             Section("Size") {
                 Picker("Size", selection: $generator.size) {
                     Text(ImageSize.square.label).tag(ImageSize.square)
@@ -57,5 +68,20 @@ struct SettingsInspector: View {
         }
         .formStyle(.grouped)
         .disabled(generator.isBusy)
+    }
+}
+
+private struct WorkflowNote: View {
+    let text: String
+
+    var body: some View {
+        Form {
+            Section("About") {
+                Text(text)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .formStyle(.grouped)
     }
 }

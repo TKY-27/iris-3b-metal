@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import Observation
 
 /// The native Iris-3B resolutions: the aspect buckets of its 1024-pixel
@@ -46,9 +47,20 @@ final class Generator {
         }
     }
 
-    var canGenerate: Bool { !isBusy && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    var workflow = Workflow.create
+    /// The image to estimate depth of or upscale.
+    var input: URL?
+
+    var canRun: Bool {
+        guard !isBusy else { return false }
+        switch workflow {
+        case .create: return !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .depth, .upscale: return input != nil
+        }
+    }
 
     func reuse(_ request: GenerationRequest) {
+        workflow = .create
         prompt = request.prompt
         negativePrompt = request.negativePrompt
         size = ImageSize(width: request.width, height: request.height)
@@ -58,27 +70,41 @@ final class Generator {
         randomizeSeed = false
     }
 
-    /// Runs one request to completion; returns the saved item, or nil if cancelled or failed.
-    func generate(engine: EngineController, history: History) async -> HistoryItem? {
-        guard canGenerate else { return nil }
-        if randomizeSeed {
-            seed = Int.random(in: 0..<Int(Int32.max))
+    /// Runs the current workflow to completion; returns the saved item, or nil if cancelled or failed.
+    func run(engine: EngineController, history: History) async -> HistoryItem? {
+        guard canRun else { return nil }
+        let workflow = workflow
+        var request: GenerationRequest?
+        if workflow == .create {
+            if randomizeSeed {
+                seed = Int.random(in: 0..<Int(Int32.max))
+            }
+            request = GenerationRequest(
+                prompt: prompt, width: size.width, height: size.height, steps: steps,
+                cfgScale: cfgScale, seed: seed, negativePrompt: negativePrompt
+            )
         }
-        let request = GenerationRequest(
-            prompt: prompt, width: size.width, height: size.height, steps: steps,
-            cfgScale: cfgScale, seed: seed, negativePrompt: negativePrompt
-        )
+        let source = input?.lastPathComponent
         phase = .waiting
         let client = engine.client
         do {
-            let id = try await client.submit(request)
+            let id: String
+            if let request {
+                id = try await client.submit(request)
+            } else if let input {
+                id = try await client.submit(workflow, png: try Self.png(from: input))
+            } else {
+                return nil
+            }
             job = id
             defer { job = nil }
             let status = try await poll(id, client: client)
             switch status.status {
             case .done:
                 let png = try await client.image(of: id)
-                let item = try history.add(png: png, request: request, seconds: status.seconds ?? 0)
+                let item = try history.add(
+                    png: png, workflow: workflow, request: request, source: source, seconds: status.seconds ?? 0
+                )
                 phase = .idle
                 return item
             case .cancelled:
@@ -102,6 +128,29 @@ final class Generator {
 
     func dismissError() {
         if case .failed = phase { phase = .idle }
+    }
+
+    /// Any image ImageIO reads (HEIC, RAW, TIFF, ...) as PNG, which the engine accepts.
+    static func png(from url: URL) throws -> Data {
+        // the thumbnail path applies the EXIF orientation, as upstream's exif_transpose does
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 1 << 16,
+        ]
+        guard
+            let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+            let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        else {
+            throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: url.path])
+        }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+        return data as Data
     }
 
     private func poll(_ id: String, client: EngineClient) async throws -> JobStatus {

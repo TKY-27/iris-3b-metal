@@ -18,8 +18,13 @@ struct ContentView: View {
         } detail: {
             VStack(spacing: 0) {
                 Canvas(item: generator.isBusy ? nil : selectedItem)
+                    .dropDestination(for: URL.self) { urls, _ in
+                        guard generator.workflow != .create, !generator.isBusy, let url = urls.first else { return false }
+                        generator.input = url
+                        return true
+                    }
                 Divider()
-                Composer(onGenerate: generate)
+                Composer(onRun: run)
             }
             .inspector(isPresented: $showsInspector) {
                 SettingsInspector()
@@ -27,6 +32,14 @@ struct ContentView: View {
             }
         }
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                @Bindable var generator = generator
+                Picker("Workflow", selection: $generator.workflow) {
+                    ForEach(Workflow.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .disabled(generator.isBusy)
+            }
             ToolbarItem(placement: .status) {
                 EngineStatus()
             }
@@ -39,45 +52,70 @@ struct ContentView: View {
                 .help("Show or hide generation settings")
             }
         }
-        .navigationTitle(selectedItem.map { String($0.request.prompt.prefix(60)) } ?? "Iris")
+        .navigationTitle(selectedItem.map { String($0.title.prefix(60)) } ?? "Iris")
     }
 
-    private func generate() {
+    private func run() {
         Task {
-            if let item = await generator.generate(engine: engine, history: history) {
+            if let item = await generator.run(engine: engine, history: history) {
                 selection = item.id
             }
         }
     }
 }
 
-/// The prompt field and the primary action, always at the bottom of the window.
+/// The input and the primary action, always at the bottom of the window.
 private struct Composer: View {
     @Environment(EngineController.self) private var engine
     @Environment(Generator.self) private var generator
-    let onGenerate: () -> Void
+    let onRun: () -> Void
 
     var body: some View {
         @Bindable var generator = generator
         HStack(alignment: .bottom, spacing: 12) {
-            TextField("Describe an image", text: $generator.prompt, axis: .vertical)
-                .lineLimit(1...5)
-                .textFieldStyle(.plain)
-                .font(.body)
-                .onSubmit(onGenerate)
+            if generator.workflow == .create {
+                TextField("Describe an image", text: $generator.prompt, axis: .vertical)
+                    .lineLimit(1...5)
+                    .textFieldStyle(.plain)
+                    .font(.body)
+                    .onSubmit(onRun)
+            } else {
+                Button("Choose Image…", action: chooseImage)
+                    .disabled(generator.isBusy)
+                Text(generator.input?.lastPathComponent ?? "or drop one above")
+                    .layoutPriority(1)
+                    .foregroundStyle(generator.input == nil ? .secondary : .primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+            }
             if generator.isBusy {
                 Button("Cancel", role: .cancel) {
                     generator.cancel(engine: engine)
                 }
                 .keyboardShortcut(".", modifiers: .command)
             } else {
-                Button("Generate", action: onGenerate)
+                Button(actionTitle, action: onRun)
                     .keyboardShortcut(.return, modifiers: .command)
                     .buttonStyle(.borderedProminent)
-                    .disabled(!generator.canGenerate || engine.state != .ready)
+                    .disabled(!generator.canRun || engine.state != .ready)
             }
         }
         .padding(14)
+    }
+
+    private var actionTitle: String {
+        switch generator.workflow {
+        case .create: "Generate"
+        case .depth: "Estimate Depth"
+        case .upscale: "Upscale"
+        }
+    }
+
+    private func chooseImage() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        if panel.runModal() == .OK { generator.input = panel.url }
     }
 }
 
