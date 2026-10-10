@@ -84,9 +84,14 @@ def test_non_square_grid_matches_upstream():
     torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-5)
 
 
+DTYPES = [torch.float32, torch.bfloat16, torch.float16]
+
+
 @requires_mps
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-def test_qk_norm_rope_kernel_matches_reference(dtype):
+@pytest.mark.parametrize("dtype", DTYPES)
+@pytest.mark.parametrize("out_dtype", DTYPES)
+def test_qk_norm_rope_kernel_matches_reference(dtype, out_dtype):
+    # every pair is reachable: trunk or pixel-stage projections times --attention
     gen = torch.Generator().manual_seed(0)
     batch, tokens, heads = 2, 37, 3
     fused = torch.randn(batch, tokens, 2 * heads * 128, generator=gen).to("mps", dtype)
@@ -94,12 +99,11 @@ def test_qk_norm_rope_kernel_matches_reference(dtype):
     angles = torch.rand(tokens + 5, 64, generator=gen) * 6.0
     cos, sin = angles.cos().to("mps"), angles.sin().to("mps")
 
-    out = torch.zeros(batch, heads, tokens + 5, 128, device="mps", dtype=dtype)
+    out = torch.zeros(batch, heads, tokens + 5, 128, device="mps", dtype=out_dtype)
     qk_norm_rope(fused, weight, cos, sin, 1e-6, heads, col_offset=heads * 128, out=out, offset=5)
-    expected = qk_norm_rope_reference(fused[..., heads * 128 :], weight, cos[5:], sin[5:], 1e-6)
-    torch.testing.assert_close(
-        out[:, :, 5:], expected, rtol=1e-5 if dtype == torch.float32 else 8e-3, atol=1e-5
-    )
+    expected = qk_norm_rope_reference(fused[..., heads * 128 :].float(), weight, cos[5:], sin[5:], 1e-6)
+    tolerance = {torch.float32: 1e-5, torch.float16: 2e-3, torch.bfloat16: 8e-3}[out_dtype]
+    torch.testing.assert_close(out[:, :, 5:].float(), expected, rtol=tolerance, atol=1e-5)
     assert torch.all(out[:, :, :5] == 0)
 
 

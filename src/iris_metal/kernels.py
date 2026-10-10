@@ -89,11 +89,15 @@ kernel void qk_norm_rope(
       device const float*, constant long&, constant long&, constant long&,          \
       constant long&, constant long&, constant long&, constant float&, uint3);
 
+// every (projection, attention) dtype pair: trunk and pixel stage times --attention
 INSTANTIATE(float, float);
+INSTANTIATE(float, bfloat);
+INSTANTIATE(float, half);
 INSTANTIATE(bfloat, bfloat);
 INSTANTIATE(bfloat, half);
 INSTANTIATE(bfloat, float);
 INSTANTIATE(half, half);
+INSTANTIATE(half, bfloat);
 INSTANTIATE(half, float);
 
 // One SIMD group per token row; ``width`` is a multiple of 128 and lane i
