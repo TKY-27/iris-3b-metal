@@ -5,10 +5,12 @@ Usage:
 
 One fresh process measures, in order: imports, text encoding, model load, the
 first image (which includes compiling Metal shaders) and ``--repeats - 1``
-warm requests with the models resident and the prompt encoding cached. GPU
-work is synchronized only at request boundaries, as in normal use;
-``--profile`` adds a separate diagnostic request that synchronizes every step
-to report the per-step distribution, and is never mixed into the timings.
+warm requests with the models resident and the prompt encoding cached, run
+exactly as in normal use (the pipeline waits for each step one step behind,
+so the GPU always has the next one queued); ``--profile`` adds a separate
+diagnostic request that synchronizes every step to report the per-step
+distribution, and is never mixed into the timings. The commit recorded is the
+one of the code that ran, marked "-dirty" if it had uncommitted changes.
 
 Memory is the process's peak physical footprint per phase in GiB, read from
 the kernel (on Apple Silicon this includes Metal allocations; it is what
@@ -82,8 +84,16 @@ def environment() -> dict:
         "macos": platform.mac_ver()[0],
         "python": platform.python_version(),
         "torch": torch.__version__,
-        "commit": command("git", "rev-parse", "--short", "HEAD"),
+        "commit": source_commit(),
     }
+
+
+def source_commit() -> str:
+    """The commit of the repository this script (and the engine it imports) belongs to."""
+    repo = str(Path(__file__).resolve().parents[1])
+    commit = command("git", "-C", repo, "rev-parse", "--short", "HEAD")
+    dirty = command("git", "-C", repo, "status", "--porcelain", "--untracked-files=no")
+    return f"{commit}-dirty" if dirty else commit
 
 
 def parse_size(text: str) -> tuple[int, int]:
