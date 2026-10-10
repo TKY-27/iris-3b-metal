@@ -1,0 +1,44 @@
+{
+  "fill-specializations": [
+    {
+      "value": {
+        "solid": "srgb:0.12399,0.10048,0.22994,1.00000"
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "srgb:0.12399,0.10048,0.22994,1.00000"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "layers": [
+        {
+          "glass": false,
+          "image-name": "artwork.png",
+          "name": "artwork",
+          "position": {
+            "scale": 0.9,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

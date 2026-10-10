@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct IrisApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
+    @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system
 
     var body: some Scene {
         Window("Iris", id: "main") {
@@ -13,13 +14,14 @@ struct IrisApp: App {
                 .environment(delegate.workspace)
                 .frame(minWidth: 760, minHeight: 520)
                 .task { if !AppDelegate.isTestHost { await delegate.engine.start() } }
+                .onChange(of: appearance, initial: true) { NSApp.appearance = appearance.nsAppearance }
         }
         .defaultSize(width: 1180, height: 820)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Conversation") { delegate.workspace.newConversation() }
+                Button("New Chat") { delegate.workspace.newConversationHere(library: delegate.library) }
                     .keyboardShortcut("n")
-                Button("New Project…") { delegate.workspace.requestsNewProject = true }
+                Button("New Project…") { delegate.workspace.naming = .newProject(moving: nil) }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
             }
         }
@@ -43,7 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         root: isTestHost ? .temporaryDirectory.appending(path: "IrisTestHost-\(UUID().uuidString)") : LibraryStore.defaultRoot
     ))
     @MainActor let generator = Generator()
-    @MainActor lazy var workspace = Workspace(library: library)
+    @MainActor lazy var workspace = Workspace(
+        library: library, defaults: Self.isTestHost ? UserDefaults(suiteName: "IrisTestHost") ?? .standard : .standard
+    )
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true  // a launched engine holds several GB of memory
@@ -54,7 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard generator.isBusy else { return .terminateNow }
             let alert = NSAlert()
             alert.messageText = "Stop the current request and quit?"
-            alert.informativeText = "The image in progress will not be finished."
+            alert.informativeText = generator.queued.isEmpty
+                ? "The image in progress will not be finished."
+                : "The image in progress will not be finished, and the \(generator.queued.count) queued after it will not be made."
             alert.addButton(withTitle: "Quit")
             alert.addButton(withTitle: "Cancel")
             guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }

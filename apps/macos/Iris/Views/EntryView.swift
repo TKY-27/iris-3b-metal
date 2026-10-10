@@ -1,27 +1,39 @@
 import SwiftUI
 
-/// One request (trailing, like a sent message) and its result or status (leading).
+/// One request (trailing, like a sent message) and its result, canvas or status (leading).
 struct EntryView: View {
     @Environment(Library.self) private var library
     @Environment(Generator.self) private var generator
     @Environment(EngineController.self) private var engine
     @Environment(Workspace.self) private var workspace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let entry: Entry
     let conversation: UUID
+    /// The newest entry keeps its actions visible; older ones show them on hover.
+    var isLatest = true
     let preview: (URL) -> Void
+    @State private var hovering = false
+    @FocusState private var actionFocus: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             RequestBubble(entry: entry)
                 .frame(maxWidth: .infinity, alignment: .trailing)
             result
+                .transition(.opacity)
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.45), value: entry.outcome)
+        .onHover { hovering = $0 }
+        .onChange(of: entry.outcome) { old, _ in
+            guard old == .running else { return }
+            AccessibilityNotification.Announcement(entry.isDone ? "Image ready" : "The request ended").post()
         }
     }
 
     @ViewBuilder private var result: some View {
         switch entry.outcome {
         case .running:
-            RunningCard()
+            GenerationCanvas(entry: entry)
         case let .done(seconds):
             VStack(alignment: .leading, spacing: 8) {
                 ResultImage(entry: entry, url: library.imageURL(entry.id), open: { preview(library.imageURL(entry.id)) })
@@ -31,9 +43,12 @@ struct EntryView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
+                        .lineLimit(1)
+                        .help(exactSettings)
                         .textSelection(.enabled)
                     Spacer(minLength: 12)
                     actionBar
+                        .opacity(isLatest || hovering || actionFocus != nil ? 1 : 0)  // shown on hover or keyboard focus
                 }
                 .frame(maxWidth: ResultImage.width(for: entry))
             }
@@ -42,6 +57,7 @@ struct EntryView: View {
                 Label(statusText, systemImage: entry.outcome == .cancelled ? "stop.circle" : "exclamationmark.triangle")
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
+                Spacer(minLength: 0)
                 if canRunAgain {
                     Button("Try Again") { runAgain(newSeed: false) }
                         .disabled(!canStart)
@@ -49,8 +65,9 @@ struct EntryView: View {
                 Button("Delete", role: .destructive) { library.delete(entry: entry.id) }
             }
             .font(.callout)
-            .padding(12)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+            .padding(14)
+            .frame(maxWidth: ResultImage.maxWidth)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
             .contextMenu { menu }
         }
     }
@@ -66,17 +83,25 @@ struct EntryView: View {
         }
     }
 
+    /// The settings in the words the composer uses; the exact numbers are in the tooltip.
     private func caption(seconds: Double) -> String {
         let time = Duration.seconds(seconds).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated))
         guard let r = entry.request else {
             return "\(entry.workflow == .depth ? "Relative depth, near is bright" : "Restored at 4×") · \(time)"
         }
-        return "\(r.width) × \(r.height) · \(r.steps) steps · guidance \(r.cfgScale.formatted()) · seed \(r.seed) · \(time)"
+        let quality = QualityPreset(steps: r.steps)?.title ?? "\(r.steps) steps"
+        let adherence = AdherencePreset(cfgScale: r.cfgScale)?.title ?? "guidance \(r.cfgScale.formatted())"
+        return "\(ImageSize(width: r.width, height: r.height).ratioLabel) · \(quality) · \(adherence) · \(time)"
+    }
+
+    private var exactSettings: String {
+        guard let r = entry.request else { return "" }
+        return "\(r.width) × \(r.height) · \(r.steps) steps · guidance \(r.cfgScale.formatted()) · seed \(r.seed)"
     }
 
     // MARK: - Actions
 
-    private var canStart: Bool { !generator.isBusy && engine.state == .ready }
+    private var canStart: Bool { !generator.isBusy && engine.state == .ready && !library.isReadOnly }
 
     private var canRunAgain: Bool {
         entry.request != nil || FileManager.default.fileExists(atPath: library.inputURL(entry.id).path)
@@ -84,13 +109,24 @@ struct EntryView: View {
 
     private var actionBar: some View {
         HStack(spacing: 2) {
-            IconButton("Copy", systemImage: "doc.on.doc") { ImageActions.copy(library.imageURL(entry.id)) }
+            IconButton("Copy Image", systemImage: "doc.on.doc") { ImageActions.copy(library.imageURL(entry.id)) }
+                .focused($actionFocus, equals: "copy")
             IconButton("Save As…", systemImage: "square.and.arrow.down") {
                 ImageActions.saveAs(library.imageURL(entry.id), suggestedName: suggestedName)
             }
+            .focused($actionFocus, equals: "save")
             if entry.workflow == .create {
-                IconButton("Generate Again with a New Seed", systemImage: "arrow.clockwise") { runAgain(newSeed: true) }
+                IconButton("Variation with a New Seed", systemImage: "arrow.clockwise") { runAgain(newSeed: true) }
                     .disabled(!canStart)
+                    .focused($actionFocus, equals: "vary")
+            }
+            if entry.workflow != .depth {
+                IconButton("Upscale ×4", systemImage: Workflow.upscale.symbol) { process(.upscale) }
+                    .disabled(!canStart)
+                    .focused($actionFocus, equals: "upscale")
+                IconButton("Estimate Depth", systemImage: Workflow.depth.symbol) { process(.depth) }
+                    .disabled(!canStart)
+                    .focused($actionFocus, equals: "depth")
             }
             Menu {
                 menu
@@ -101,7 +137,8 @@ struct EntryView: View {
             .buttonStyle(.borderless)
             .menuIndicator(.hidden)
             .labelStyle(.iconOnly)
-            .fixedSize()
+            .frame(width: 26, height: 22)
+            .focused($actionFocus, equals: "more")
             .help("More")
         }
     }
@@ -116,13 +153,9 @@ struct EntryView: View {
         }
         if let request = entry.request {
             if entry.isDone {
-                Button("Generate Again with a New Seed") { runAgain(newSeed: true) }.disabled(!canStart)
+                Button("Variation with a New Seed") { runAgain(newSeed: true) }.disabled(!canStart)
             }
-            Button("Reuse Prompt and Settings") {
-                workspace.workflow = .create
-                workspace.prompt = request.prompt
-                workspace.settings.reuse(request)
-            }
+            Button("Reuse Prompt and Settings") { workspace.reuse(request) }
         }
         if entry.isDone, entry.workflow != .depth {
             Divider()
@@ -156,9 +189,43 @@ struct EntryView: View {
 /// The prompt, or the input image and what is done with it.
 private struct RequestBubble: View {
     @Environment(Library.self) private var library
+    @Environment(Generator.self) private var generator
+    @Environment(Workspace.self) private var workspace
     let entry: Entry
+    @State private var hovering = false
+    @FocusState private var editFocused: Bool
 
     var body: some View {
+        HStack(alignment: .center, spacing: 6) {
+            if let request = entry.request {
+                // the core loop: refine the prompt and send it again as a new request
+                Button {
+                    workspace.reuse(request)
+                } label: {
+                    Image(systemName: "pencil").frame(width: 22, height: 22).contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .focused($editFocused)
+                .opacity(hovering || editFocused ? 1 : 0)
+                .help("Edit Prompt: put it and its settings back in the composer")
+                .accessibilityLabel("Edit Prompt")
+            }
+            bubble
+        }
+        .onHover { hovering = $0 }
+        .contextMenu {
+            if let request = entry.request {
+                Button("Edit Prompt") { workspace.reuse(request) }
+                Button("Copy Prompt") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(request.prompt, forType: .string)
+                }
+            }
+        }
+    }
+
+    private var bubble: some View {
         Group {
             if let request = entry.request {
                 VStack(alignment: .trailing, spacing: 6) {
@@ -172,34 +239,26 @@ private struct RequestBubble: View {
                 }
             } else {
                 HStack(spacing: 10) {
-                    Label(entry.workflow.title, systemImage: entry.workflow.symbol)
-                        .font(.callout.weight(.medium))
-                    InputThumbnail(url: library.inputURL(entry.id), name: entry.inputName ?? "image")
+                    StoredImage(url: library.inputURL(entry.id), maxPixels: 160, placeholder: "photo")
+                        .id(generator.storedInput == entry.id)  // the input is written just after the entry appears
+                        .frame(width: 44, height: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(entry.workflow.title, systemImage: entry.workflow.symbol)
+                            .font(.callout.weight(.medium))
+                        Text(entry.inputName ?? "image")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 16))
+        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .frame(maxWidth: 560, alignment: .trailing)
-    }
-}
-
-private struct InputThumbnail: View {
-    let url: URL
-    let name: String
-
-    var body: some View {
-        HStack(spacing: 8) {
-            StoredImage(url: url, maxPixels: 160, placeholder: "photo")
-                .frame(width: 48, height: 48)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-            Text(name)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
     }
 }
 
@@ -213,7 +272,7 @@ private struct ResultImage: View {
         Button(action: open) {
             StoredImage(url: url, maxPixels: 1600, aspectRatio: aspectRatio)
                 .frame(maxWidth: Self.width(for: entry), maxHeight: Self.maxHeight, alignment: .leading)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         }
         .buttonStyle(.plain)
         .draggable(url)
@@ -236,40 +295,101 @@ private struct ResultImage: View {
     }
 }
 
-/// Progress of the running entry; Stop is in the composer.
-private struct RunningCard: View {
+/// The running request: the iris at work in the frame its image will fill, with what the
+/// engine reports. Stop is in the composer.
+private struct GenerationCanvas: View {
     @Environment(Generator.self) private var generator
+    let entry: Entry
 
     var body: some View {
-        HStack(spacing: 14) {
-            let progress = generator.progress
-            if progress.step > 0 {
-                ProgressView(value: Double(progress.step), total: Double(max(progress.steps, 1)))
-                    .frame(width: 220)
-            } else {
-                ProgressView().controlSize(.small)
-            }
-            status(progress)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-            Spacer(minLength: 0)
+        let progress = generator.active?.entry == entry.id ? generator.progress : Generator.Progress()
+        let ratio = entry.request.map { CGFloat($0.width) / CGFloat($0.height) } ?? 1
+        let queued = generator.isQueued(entry.id)
+        IrisCanvas(energy: queued ? 0.25 : 1, progress: progress.fraction, opaque: true) {
+            Color.clear
+                .aspectRatio(ratio, contentMode: .fit)
+                .overlay { ProgressReadout(progress: progress, workflow: entry.workflow, queued: queued) }
         }
-        .padding(14)
-        .frame(maxWidth: 640)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(alignment: .bottom) {
+            if let fraction = progress.fraction {
+                GeometryReader { geometry in
+                    Rectangle()
+                        .fill(.white.opacity(0.75))
+                        .frame(width: geometry.size.width * fraction, height: 2)
+                        .animation(.easeOut(duration: 0.4), value: fraction)
+                }
+                .frame(height: 2)
+                .accessibilityHidden(true)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .frame(maxWidth: ResultImage.width(for: entry), maxHeight: ResultImage.maxHeight, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(entry.workflow == .create ? "Generating" : entry.workflow.title)
+        .accessibilityValue(accessibilityValue(progress))
     }
 
-    // one string per state, so each reads naturally and stays translatable as a whole
-    @ViewBuilder private func status(_ progress: Generator.Progress) -> some View {
-        if progress.step == 0 {
-            Text("Waiting for the engine…")
-        } else if let secondsLeft = progress.secondsLeft {
-            let remaining = Duration.seconds(secondsLeft)
-            Text("Step \(progress.step) of \(progress.steps) · about \(remaining, format: .units(allowed: [.minutes, .seconds], width: .abbreviated)) left")
-        } else {
-            Text("Step \(progress.step) of \(progress.steps)")
+    private func accessibilityValue(_ progress: Generator.Progress) -> String {
+        switch progress.phase {
+        case .sampling, .finishing: "\(progress.percent ?? 0) percent, step \(progress.step) of \(progress.steps)"
+        case .preparing: "Preparing"
+        case .waiting where generator.isQueued(entry.id): "Queued"
+        case .waiting: "Waiting for the engine"
+        case .working: "Working"
         }
+    }
+}
+
+/// "65%" over "13 / 20 steps · about 1 min left", or the phase before and after sampling.
+private struct ProgressReadout: View {
+    let progress: Generator.Progress
+    let workflow: Workflow
+    /// Later in a batch: it starts when the one above is done.
+    var queued = false
+
+    var body: some View {
+        VStack(spacing: 6) {
+            if queued {
+                Text("Queued").font(.title3.weight(.medium))
+                Text("Starts when the image above is done").font(.callout).opacity(0.7)
+            } else {
+                readout
+            }
+        }
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.5), radius: 4)  // legible over the fibers
+        .multilineTextAlignment(.center)
+        .padding()
+        .animation(.easeOut(duration: 0.25), value: progress.step)
+    }
+
+    @ViewBuilder private var readout: some View {
+        switch progress.phase {
+        case .sampling, .finishing:
+            Text("\(progress.percent ?? 0)%")
+                .font(.system(size: 32, weight: .medium))
+                .monospacedDigit()
+                .contentTransition(.numericText())
+            Text(detail)
+                .font(.callout)
+                .monospacedDigit()
+                .opacity(0.75)
+        case .waiting:
+            Text("Waiting for the engine").font(.title3.weight(.medium))
+        case .preparing:
+            Text("Preparing").font(.title3.weight(.medium))
+            Text("Loading the model and reading the prompt").font(.callout).opacity(0.7)
+        case .working:
+            Text(workflow == .depth ? "Estimating depth" : "Upscaling ×4").font(.title3.weight(.medium))
+        }
+    }
+
+    private var detail: String {
+        if progress.phase == .finishing { return "\(progress.steps) / \(progress.steps) steps · finishing the image" }
+        let steps = "\(progress.step) / \(progress.steps) steps"
+        guard let seconds = progress.secondsLeft else { return steps }
+        let left = Duration.seconds(seconds).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated, maximumUnitCount: 1))
+        return "\(steps) · about \(left) left"
     }
 }
 

@@ -1,28 +1,40 @@
 import SwiftUI
 
-/// The engine's state in the toolbar.
+/// The engine's state as a dot and a word, in the sidebar footer; when it is not running,
+/// a click opens its settings.
 struct EngineStatus: View {
     @Environment(EngineController.self) private var engine
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        Group {
-            switch engine.state {
-            case .ready:
-                Label("Engine ready", systemImage: "circle.fill")
-                    .foregroundStyle(.green)
-            case .starting:
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text("Starting engine")
-                }
-            case .stopped, .failed:
-                Label("Engine not running", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+        switch engine.state {
+        case .ready:
+            status(Text("Engine ready"), dot: .green)
+        case .starting:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text("Starting engine")
             }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .accessibilityElement(children: .combine)
+        case .stopped, .failed:
+            Button { openSettings() } label: {
+                status(Text("Engine offline"), dot: .orange)
+            }
+            .buttonStyle(.plain)
+            .help("Open the engine settings")
         }
-        .labelStyle(.titleAndIcon)
+    }
+
+    private func status(_ text: Text, dot: Color) -> some View {
+        HStack(spacing: 6) {
+            Circle().fill(dot).frame(width: 7, height: 7).accessibilityHidden(true)
+            text
+        }
         .font(.caption)
-        .padding(.horizontal, 6)  // keeps the text clear of the toolbar item's capsule
+        .foregroundStyle(.secondary)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -36,29 +48,36 @@ struct EngineBanner: View {
         case .ready:
             EmptyView()
         case .starting:
-            HStack(spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
                 ProgressView().controlSize(.small)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text("Starting the engine")
-                    Text(engine.logTail.last ?? "The first start downloads the Iris-3B and Qwen3-VL weights, about 21 GB.")
-                        .font(.caption.monospacedDigit())
+                    Text("The first start downloads the Iris-3B and Qwen3-VL weights, about 21 GB.")
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    if let line = engine.logTail.last {
+                        Text(line)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
                 Spacer(minLength: 0)
             }
             .banner()
         case .stopped, .failed:
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 Label(failure, systemImage: "exclamationmark.triangle")
                     .fixedSize(horizontal: false, vertical: true)
                 if !engine.logTail.isEmpty {
-                    Text(engine.logTail.suffix(6).joined(separator: "\n"))
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .lineLimit(6)
+                    DisclosureGroup("Details") {
+                        Text(engine.logTail.suffix(6).joined(separator: "\n"))
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 4)
+                    }
                 }
                 HStack {
                     Button("Try Again") { Task { await engine.restart() } }
@@ -81,6 +100,7 @@ private extension View {
         padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .font(.callout)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+            .background(.fieldBackground, in: RoundedRectangle(cornerRadius: Theme.composerRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.composerRadius, style: .continuous).strokeBorder(.separator))
     }
 }

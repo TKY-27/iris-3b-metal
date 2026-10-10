@@ -54,6 +54,45 @@ final class WorkflowTests: XCTestCase {
         XCTAssertEqual(Conversation.title(for: entry), "A lighthouse on a rocky coast at dusk, waves…")
     }
 
+    /// A batch runs one image after another in one chat; Stop ends the rest of it.
+    /// Opt-in against the stand-in engine, like the test below.
+    func testBatchRunsInOrderAndStopEndsTheRest() async throws {
+        guard ProcessInfo.processInfo.environment["IRIS_ENGINE_TEST"] == "1" else {
+            throw XCTSkip("set TEST_RUNNER_IRIS_ENGINE_TEST=1 with a stand-in engine on 127.0.0.1:8765")
+        }
+        let engine = EngineController()
+        guard (try? await engine.client.health()) != nil else {
+            throw XCTSkip("no engine listening on 127.0.0.1:\(engine.port)")
+        }
+        await engine.start()
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = Library(store: LibraryStore(root: root))
+        let generator = Generator()
+        var settings = GenerationSettings()
+        settings.steps = 3
+        settings.size = ImageSize(width: 64, height: 64)
+
+        let chat = try XCTUnwrap(generator.generate(
+            settings.requests(for: "fox", count: 3), in: nil, library: library, engine: engine
+        ))
+        XCTAssertEqual(generator.queued.count, 2)
+        while generator.isBusy { try await Task.sleep(for: .milliseconds(20)) }
+        let entries = try XCTUnwrap(library.conversation(chat)?.entries)
+        XCTAssertEqual(entries.map(\.isDone), [true, true, true])
+        XCTAssertEqual(Set(entries.compactMap(\.request?.seed)).count, 3)
+
+        let stopped = try XCTUnwrap(generator.generate(
+            settings.requests(for: "owl", count: 3), in: nil, library: library, engine: engine
+        ))
+        generator.cancel(engine: engine)
+        while generator.isBusy { try await Task.sleep(for: .milliseconds(20)) }
+        let outcomes = try XCTUnwrap(library.conversation(stopped)?.entries.map(\.outcome))
+        XCTAssertEqual(outcomes.dropFirst().map { $0 }, [.cancelled, .cancelled])
+        XCTAssertTrue(generator.queued.isEmpty)
+        library.flush()
+    }
+
     /// End to end against the stand-in engine (`python apps/macos/fake_engine.py`) on the
     /// default port. Opt-in, so it never sends work to a real engine by accident:
     /// `TEST_RUNNER_IRIS_ENGINE_TEST=1 xcodebuild -scheme Iris test`.

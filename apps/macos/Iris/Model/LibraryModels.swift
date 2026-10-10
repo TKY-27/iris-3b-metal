@@ -21,6 +21,8 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
     var projectID: UUID?
     let created: Date
     var updated: Date
+    /// When it was pinned to the top of the sidebar; nil when not pinned.
+    var pinned: Date?
     var entries: [Entry]
 
     init(id: UUID = UUID(), title: String, projectID: UUID?, entries: [Entry] = []) {

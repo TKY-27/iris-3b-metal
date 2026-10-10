@@ -22,7 +22,12 @@ final class EngineController {
     static let portRange = 1024...65535
 
     var port: Int {
-        get { (UserDefaults.standard.object(forKey: "enginePort") as? Int ?? 8765).clamped(to: Self.portRange) }
+        get {
+            let stored = UserDefaults.standard.object(forKey: "enginePort")
+            // a `-enginePort 8790` launch argument arrives as a string
+            let port = stored as? Int ?? (stored as? String).flatMap { Int($0) } ?? 8765
+            return port.clamped(to: Self.portRange)
+        }
         set { UserDefaults.standard.set(newValue.clamped(to: Self.portRange), forKey: "enginePort") }
     }
 

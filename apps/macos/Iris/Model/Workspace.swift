@@ -6,7 +6,10 @@ import Observation
 @Observable
 final class Workspace {
     enum Selection: Hashable {
+        /// A chat that exists once its first request is sent.
+        case newChat
         case allImages
+        case project(UUID)
         case conversation(UUID)
     }
 
@@ -16,36 +19,86 @@ final class Workspace {
         let name: String
     }
 
-    /// nil: a new conversation, created when its first request is sent.
-    var selection: Selection? {
+    /// Optional only because a sidebar list may clear it; nil shows a new chat.
+    var selection: Selection? = .newChat {
         didSet {
-            if case let .conversation(id) = selection {
-                UserDefaults.standard.set(id.uuidString, forKey: Self.lastConversationKey)
+            // a click on the sidebar's empty space clears the list's selection; keep what is shown
+            if selection == nil {
+                selection = oldValue ?? .newChat
+                return
+            }
+            switch selection {
+            case let .conversation(id):
+                defaults.set(id.uuidString, forKey: Self.lastConversationKey)
+            case let .project(id):
+                draftProject = id  // its page starts chats in it
+            case .newChat, nil:
+                if oldValue != selection { draftProject = nil }
+            case .allImages:
+                draftProject = nil
             }
         }
     }
 
-    /// The project a new conversation goes into.
+    /// The project a new chat goes into.
     var draftProject: UUID?
     /// An entry to scroll to once its conversation shows.
     var focusedEntry: UUID?
-    /// Set by the menu command; the sidebar asks for the name.
-    var requestsNewProject = false
+    /// A name being asked for, and a deletion being confirmed; the window shows the dialogs.
+    var naming: Naming?
+    var deleting: Deletion?
 
-    var prompt = ""
-    var workflow = Workflow.create
-    var attachment: Attachment?
-    var settings = GenerationSettings.load() {
-        didSet { settings.save() }
+    enum Naming: Equatable {
+        /// `moving`: a chat to file in the new project.
+        case newProject(moving: UUID?)
+        /// From the composer of a new chat, which is then saved in it.
+        case newProjectForDraft
+        case project(UUID)
+        case conversation(UUID)
     }
 
+    enum Deletion: Equatable {
+        case project(UUID)
+        case conversation(UUID)
+    }
+
+    var prompt = ""
+    /// An attached image switches the composer from creating to processing it.
+    var attachment: Attachment?
+    /// What to do with an attached image.
+    var imageWorkflow = Workflow.upscale
+    /// How many images the next prompt makes; back to one at every launch, so a long batch
+    /// is never started by accident.
+    var imageCount = 1
+    static let imageCountRange = 1...4
+    var settings: GenerationSettings {
+        didSet { settings.save(to: defaults) }
+    }
+
+    @ObservationIgnored private let defaults: UserDefaults
     private static let lastConversationKey = "lastConversation"
 
-    init(library: Library) {
-        let last = UserDefaults.standard.string(forKey: Self.lastConversationKey).flatMap(UUID.init(uuidString:))
+    init(library: Library, defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        settings = GenerationSettings.load(from: defaults)
+        let last = defaults.string(forKey: Self.lastConversationKey).flatMap(UUID.init(uuidString:))
         if let last, library.conversation(last) != nil {
             selection = .conversation(last)
         }
+    }
+
+    /// What the composer will send.
+    var workflow: Workflow { attachment == nil ? .create : imageWorkflow }
+
+    func attach(_ url: URL) {
+        attachment = Attachment(url: url, name: url.lastPathComponent)
+    }
+
+    /// Puts a request's prompt and settings back into the composer.
+    func reuse(_ request: GenerationRequest) {
+        attachment = nil
+        prompt = request.prompt
+        settings.reuse(request)
     }
 
     var conversationID: UUID? {
@@ -53,9 +106,18 @@ final class Workspace {
     }
 
     func newConversation(in project: UUID? = nil) {
-        selection = nil
+        selection = .newChat
         draftProject = project
         focusedEntry = nil
+    }
+
+    /// A new chat where the user is: in the shown project, or the project of the shown chat.
+    func newConversationHere(library: Library) {
+        switch selection {
+        case let .project(id): newConversation(in: id)
+        case let .conversation(id): newConversation(in: library.conversation(id)?.projectID)
+        default: newConversation(in: draftProject)
+        }
     }
 
     func show(_ conversation: UUID, entry: UUID? = nil) {
@@ -76,9 +138,9 @@ final class Workspace {
         let conversation: UUID?
         switch workflow {
         case .create:
-            let request = settings.request(for: prompt.trimmingCharacters(in: .whitespacesAndNewlines))
+            let requests = settings.requests(for: prompt.trimmingCharacters(in: .whitespacesAndNewlines), count: imageCount)
             conversation = generator.generate(
-                request, in: conversationID, project: draftProject, library: library, engine: engine
+                requests, in: conversationID, project: draftProject, library: library, engine: engine
             )
             if conversation != nil { prompt = "" }
         case .depth, .upscale:

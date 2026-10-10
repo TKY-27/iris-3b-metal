@@ -12,22 +12,33 @@
 		14ECF3F40E2CD031EFDEBC90 /* WorkflowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E42427A4A0CBB0CADE6E7FA /* WorkflowTests.swift */; };
 		18C56C393CB447395951B17E /* AllImagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF739398F0E9A4EE8D8BBDAF /* AllImagesView.swift */; };
 		1F0AC61B428B4F385796E0D4 /* IrisApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 553E0AFFE0B2EB105BB5FB5F /* IrisApp.swift */; };
+		24B02EE962EF108E732C817B /* LibraryEditing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03621433FF2871CA72653E39 /* LibraryEditing.swift */; };
 		251FBB9241A529DF9CA1F93B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C55FFC2FD1B6A21B7720A0A /* SettingsView.swift */; };
 		2C3D28ECE1AAA42263E1F9B5 /* ImageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE79B7408A9F0FD62DC48860 /* ImageViews.swift */; };
 		41EB15D6EE60504569F825EE /* EntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7FAC02D85175121EBA7B059 /* EntryView.swift */; };
+		5F129A45A90F958E246210A6 /* RecentGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4F387D4E008A7B2B5CBED7 /* RecentGroups.swift */; };
+		65417B31ADDB6795B064E649 /* ChatReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05DD488E16ABA5CC753E266 /* ChatReference.swift */; };
 		75A48F68C1D6C9BB19829935 /* Workflow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 229AA906893F406BE138C93D /* Workflow.swift */; };
 		75B1409E24A1F099E20E0647 /* ImageFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 028CBCFB30524265C3747C92 /* ImageFiles.swift */; };
+		77EBEAAE3A568088674322D3 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 4FD8DD71173AC2F67F118236 /* AppIcon.icon */; };
+		7BF572578A1F03A17FEEB6B4 /* GenerationControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001E8E10178B6E18E8630CBF /* GenerationControls.swift */; };
 		84C55A16EED451E06980C8F3 /* EngineClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DF042C0A07F5E27F409290D /* EngineClient.swift */; };
+		8967449E43CB9CF7390AA114 /* OrganizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D113CE92B26A11C5CAC1BBD6 /* OrganizationTests.swift */; };
 		8D2436242F88EB7A7FEAD6D3 /* LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E9416E58C57B812EC96EF51 /* LibraryStore.swift */; };
 		94F162C4890CDEB6EF47A44C /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13535A43E9F1A02F60B5EC4 /* ContentView.swift */; };
 		95C92735FF1F6EC98D965268 /* Library.swift in Sources */ = {isa = PBXBuildFile; fileRef = 894B2090B068F7C41AD5E69B /* Library.swift */; };
+		A3DA00F0951AC7110354BE7B /* CanvasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F419A7F65FD76DD4AEF039 /* CanvasTests.swift */; };
 		A79D2E439D7043EBD606CB7E /* Composer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E815011BD23B5A1ACB0E1C0F /* Composer.swift */; };
 		BA795BF686183A1FC15442A1 /* EngineController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90BE3E11390A59DB1ED009A5 /* EngineController.swift */; };
+		C2BC1C7B757781854DE05B61 /* ProjectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 207D8B58410698D53034307B /* ProjectView.swift */; };
+		C407A047060B5AB469EABF63 /* ComposerModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BF855623CC51F09C44C79A /* ComposerModelTests.swift */; };
 		CC15F84348A701AC760A9993 /* EngineViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819BB89CC395336DDE21D4DB /* EngineViews.swift */; };
 		D06D35F8268C615842319FC6 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62C5A227C7DEC0797EE3D9E5 /* Workspace.swift */; };
 		D09682C6307F4815F56B7839 /* Generator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A750EBFC7813A0D85A53F8A3 /* Generator.swift */; };
 		D308D3F438B8C74A6BCAEFE7 /* Sidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C925AC3629ADE5F36235D56 /* Sidebar.swift */; };
 		E423436B3876EAB7791317AA /* LibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86BC20A1AD5DFA2E4DA9C08B /* LibraryTests.swift */; };
+		EC90E1E92324D29E473942A2 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3052215FC813F2DED84C3EEF /* Theme.swift */; };
+		ED9A55AE6027F04596E4EEA8 /* IrisField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE9AB2B83FAB425FAD2B5798 /* IrisField.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -41,12 +52,18 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		001E8E10178B6E18E8630CBF /* GenerationControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationControls.swift; sourceTree = "<group>"; };
 		028CBCFB30524265C3747C92 /* ImageFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageFiles.swift; sourceTree = "<group>"; };
+		03621433FF2871CA72653E39 /* LibraryEditing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryEditing.swift; sourceTree = "<group>"; };
 		0C55FFC2FD1B6A21B7720A0A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		0E9416E58C57B812EC96EF51 /* LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStore.swift; sourceTree = "<group>"; };
+		207D8B58410698D53034307B /* ProjectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectView.swift; sourceTree = "<group>"; };
 		229AA906893F406BE138C93D /* Workflow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workflow.swift; sourceTree = "<group>"; };
+		3052215FC813F2DED84C3EEF /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		4C47749D10258959E9C218C8 /* ConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationView.swift; sourceTree = "<group>"; };
+		4FD8DD71173AC2F67F118236 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		553E0AFFE0B2EB105BB5FB5F /* IrisApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IrisApp.swift; sourceTree = "<group>"; };
+		62BF855623CC51F09C44C79A /* ComposerModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerModelTests.swift; sourceTree = "<group>"; };
 		62C5A227C7DEC0797EE3D9E5 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		6C925AC3629ADE5F36235D56 /* Sidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar.swift; sourceTree = "<group>"; };
 		819BB89CC395336DDE21D4DB /* EngineViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineViews.swift; sourceTree = "<group>"; };
@@ -58,8 +75,13 @@
 		9E42427A4A0CBB0CADE6E7FA /* WorkflowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowTests.swift; sourceTree = "<group>"; };
 		A13535A43E9F1A02F60B5EC4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A750EBFC7813A0D85A53F8A3 /* Generator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Generator.swift; sourceTree = "<group>"; };
+		AA4F387D4E008A7B2B5CBED7 /* RecentGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentGroups.swift; sourceTree = "<group>"; };
+		AE9AB2B83FAB425FAD2B5798 /* IrisField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IrisField.swift; sourceTree = "<group>"; };
+		B7F419A7F65FD76DD4AEF039 /* CanvasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasTests.swift; sourceTree = "<group>"; };
 		BE79B7408A9F0FD62DC48860 /* ImageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageViews.swift; sourceTree = "<group>"; };
+		C05DD488E16ABA5CC753E266 /* ChatReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatReference.swift; sourceTree = "<group>"; };
 		C7FAC02D85175121EBA7B059 /* EntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryView.swift; sourceTree = "<group>"; };
+		D113CE92B26A11C5CAC1BBD6 /* OrganizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrganizationTests.swift; sourceTree = "<group>"; };
 		E0B30308D08E575D6B0B7371 /* Iris.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Iris.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E67A2030F8821ED5BEBBF35C /* LibraryModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModels.swift; sourceTree = "<group>"; };
 		E815011BD23B5A1ACB0E1C0F /* Composer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Composer.swift; sourceTree = "<group>"; };
@@ -77,9 +99,14 @@
 				4C47749D10258959E9C218C8 /* ConversationView.swift */,
 				819BB89CC395336DDE21D4DB /* EngineViews.swift */,
 				C7FAC02D85175121EBA7B059 /* EntryView.swift */,
+				001E8E10178B6E18E8630CBF /* GenerationControls.swift */,
 				BE79B7408A9F0FD62DC48860 /* ImageViews.swift */,
+				AE9AB2B83FAB425FAD2B5798 /* IrisField.swift */,
+				03621433FF2871CA72653E39 /* LibraryEditing.swift */,
+				207D8B58410698D53034307B /* ProjectView.swift */,
 				0C55FFC2FD1B6A21B7720A0A /* SettingsView.swift */,
 				6C925AC3629ADE5F36235D56 /* Sidebar.swift */,
+				3052215FC813F2DED84C3EEF /* Theme.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -96,11 +123,13 @@
 		A4686B99A0F8457D1B2D30A2 /* Model */ = {
 			isa = PBXGroup;
 			children = (
+				C05DD488E16ABA5CC753E266 /* ChatReference.swift */,
 				A750EBFC7813A0D85A53F8A3 /* Generator.swift */,
 				028CBCFB30524265C3747C92 /* ImageFiles.swift */,
 				894B2090B068F7C41AD5E69B /* Library.swift */,
 				E67A2030F8821ED5BEBBF35C /* LibraryModels.swift */,
 				0E9416E58C57B812EC96EF51 /* LibraryStore.swift */,
+				AA4F387D4E008A7B2B5CBED7 /* RecentGroups.swift */,
 				229AA906893F406BE138C93D /* Workflow.swift */,
 				62C5A227C7DEC0797EE3D9E5 /* Workspace.swift */,
 			);
@@ -110,7 +139,10 @@
 		AC6BC111CD761B97AB2DD0A4 /* IrisTests */ = {
 			isa = PBXGroup;
 			children = (
+				B7F419A7F65FD76DD4AEF039 /* CanvasTests.swift */,
+				62BF855623CC51F09C44C79A /* ComposerModelTests.swift */,
 				86BC20A1AD5DFA2E4DA9C08B /* LibraryTests.swift */,
+				D113CE92B26A11C5CAC1BBD6 /* OrganizationTests.swift */,
 				9E42427A4A0CBB0CADE6E7FA /* WorkflowTests.swift */,
 			);
 			path = IrisTests;
@@ -119,6 +151,7 @@
 		AD693C86B9C5C60C0F865BD7 /* Iris */ = {
 			isa = PBXGroup;
 			children = (
+				4FD8DD71173AC2F67F118236 /* AppIcon.icon */,
 				FA4B1FE916581CEAA29457C4 /* Info.plist */,
 				553E0AFFE0B2EB105BB5FB5F /* IrisApp.swift */,
 				B52724F53ACD876D5F5C8334 /* Engine */,
@@ -172,6 +205,7 @@
 			buildConfigurationList = A7101607CB8AABFC691FB9FC /* Build configuration list for PBXNativeTarget "Iris" */;
 			buildPhases = (
 				38E6665FE1001B13C56AFF3D /* Sources */,
+				C584275E28E9A30EB0F38B91 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -221,12 +255,26 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		C584275E28E9A30EB0F38B91 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				77EBEAAE3A568088674322D3 /* AppIcon.icon in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		1C4C94F3F0669414ED36DAAE /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A3DA00F0951AC7110354BE7B /* CanvasTests.swift in Sources */,
+				C407A047060B5AB469EABF63 /* ComposerModelTests.swift in Sources */,
 				E423436B3876EAB7791317AA /* LibraryTests.swift in Sources */,
+				8967449E43CB9CF7390AA114 /* OrganizationTests.swift in Sources */,
 				14ECF3F40E2CD031EFDEBC90 /* WorkflowTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -236,6 +284,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				18C56C393CB447395951B17E /* AllImagesView.swift in Sources */,
+				65417B31ADDB6795B064E649 /* ChatReference.swift in Sources */,
 				A79D2E439D7043EBD606CB7E /* Composer.swift in Sources */,
 				94F162C4890CDEB6EF47A44C /* ContentView.swift in Sources */,
 				0FFE3664F334ABC419054AD5 /* ConversationView.swift in Sources */,
@@ -243,15 +292,21 @@
 				BA795BF686183A1FC15442A1 /* EngineController.swift in Sources */,
 				CC15F84348A701AC760A9993 /* EngineViews.swift in Sources */,
 				41EB15D6EE60504569F825EE /* EntryView.swift in Sources */,
+				7BF572578A1F03A17FEEB6B4 /* GenerationControls.swift in Sources */,
 				D09682C6307F4815F56B7839 /* Generator.swift in Sources */,
 				75B1409E24A1F099E20E0647 /* ImageFiles.swift in Sources */,
 				2C3D28ECE1AAA42263E1F9B5 /* ImageViews.swift in Sources */,
 				1F0AC61B428B4F385796E0D4 /* IrisApp.swift in Sources */,
+				ED9A55AE6027F04596E4EEA8 /* IrisField.swift in Sources */,
 				95C92735FF1F6EC98D965268 /* Library.swift in Sources */,
+				24B02EE962EF108E732C817B /* LibraryEditing.swift in Sources */,
 				0FB82C9F13243AE3FCF8F4E7 /* LibraryModels.swift in Sources */,
 				8D2436242F88EB7A7FEAD6D3 /* LibraryStore.swift in Sources */,
+				C2BC1C7B757781854DE05B61 /* ProjectView.swift in Sources */,
+				5F129A45A90F958E246210A6 /* RecentGroups.swift in Sources */,
 				251FBB9241A529DF9CA1F93B /* SettingsView.swift in Sources */,
 				D308D3F438B8C74A6BCAEFE7 /* Sidebar.swift in Sources */,
+				EC90E1E92324D29E473942A2 /* Theme.swift in Sources */,
 				75A48F68C1D6C9BB19829935 /* Workflow.swift in Sources */,
 				D06D35F8268C615842319FC6 /* Workspace.swift in Sources */,
 			);
@@ -375,7 +430,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.tky27.iris;
 				SDKROOT = macosx;
 			};
@@ -393,7 +448,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.tky27.iris;
 				SDKROOT = macosx;
 			};

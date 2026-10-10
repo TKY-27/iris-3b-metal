@@ -16,7 +16,15 @@ import Foundation
 struct LibraryStore: Sendable {
     let root: URL
 
-    static let defaultRoot = URL.applicationSupportDirectory.appending(path: "Iris", directoryHint: .isDirectory)
+    /// `~/Library/Application Support/Iris`; a `-libraryRoot <path>` launch argument (never a saved
+    /// preference) points a development build elsewhere.
+    static var defaultRoot: URL {
+        let arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        if let path = arguments["libraryRoot"] as? String, !path.isEmpty {
+            return URL(fileURLWithPath: NSString(string: path).expandingTildeInPath, isDirectory: true)
+        }
+        return URL.applicationSupportDirectory.appending(path: "Iris", directoryHint: .isDirectory)
+    }
 
     var indexURL: URL { root.appending(path: "Library.json") }
     var imagesDirectory: URL { root.appending(path: "Images", directoryHint: .isDirectory) }

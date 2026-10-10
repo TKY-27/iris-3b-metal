@@ -28,6 +28,19 @@
 		<true/>
 	</dict>
 	<key>NSHumanReadableCopyright</key>
-	<string>Apache License 2.0</string>
+	<string>Copyright © 2026 the Iris-3B-Metal authors. Apache License 2.0.</string>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Iris chat</string>
+			<key>UTTypeIdentifier</key>
+			<string>io.github.tky27.iris.chat</string>
+		</dict>
+	</array>
 </dict>
 </plist>

@@ -38,6 +38,20 @@ final class Library {
         conversations.filter { $0.projectID == project }.sorted { $0.updated > $1.updated }
     }
 
+    /// Pinned chats from anywhere, most recently pinned first.
+    var pinnedConversations: [Conversation] {
+        conversations.filter { $0.pinned != nil }.sorted { ($0.pinned ?? .distantPast) > ($1.pinned ?? .distantPast) }
+    }
+
+    /// Unfiled chats that are not pinned: the sidebar's recent list.
+    var recentConversations: [Conversation] {
+        conversations(in: nil).filter { $0.pinned == nil }
+    }
+
+    func project(_ id: UUID?) -> Project? {
+        projects.first { $0.id == id }
+    }
+
     func entry(_ id: UUID) -> (conversation: Conversation, entry: Entry)? {
         for conversation in conversations {
             if let entry = conversation.entries.first(where: { $0.id == id }) { return (conversation, entry) }
@@ -84,6 +98,13 @@ final class Library {
         guard !isReadOnly else { return }
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         conversations[index].projectID = project
+        save()
+    }
+
+    func setPinned(_ pinned: Bool, conversation id: UUID) {
+        guard !isReadOnly, let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        guard (conversations[index].pinned != nil) != pinned else { return }
+        conversations[index].pinned = pinned ? .now : nil
         save()
     }
 

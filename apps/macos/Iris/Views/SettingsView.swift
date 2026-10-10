@@ -3,10 +3,32 @@ import SwiftUI
 struct SettingsView: View {
     var body: some View {
         TabView {
+            Tab("General", systemImage: "gearshape") { GeneralSettings() }
             Tab("Engine", systemImage: "cpu") { EngineSettings() }
             Tab("Storage", systemImage: "internaldrive") { StorageSettings() }
         }
         .frame(width: 520)
+    }
+}
+
+private struct GeneralSettings: View {
+    @AppStorage(FieldSettings.animatesKey) private var animatesCanvas = true
+    @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Appearance", selection: $appearance) {
+                    ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
+                }
+                Toggle("Animate the canvas", isOn: $animatesCanvas)
+            } footer: {
+                Text("The iris behind a new chat and a running image follows the pointer. Off, or with Reduce Motion, it stays still.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 
@@ -164,5 +186,30 @@ struct ModelCache: Identifiable, Sendable {
             total += Int64(values?.totalFileAllocatedSize ?? 0)
         }
         return total
+    }
+}
+
+/// Light, dark, or as the system is set.
+enum AppAppearance: String, CaseIterable, Identifiable {
+    case system, light, dark
+
+    static let key = "appearance"
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
     }
 }

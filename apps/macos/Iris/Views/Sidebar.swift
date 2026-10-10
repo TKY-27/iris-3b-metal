@@ -1,236 +1,281 @@
 import SwiftUI
 
-/// All Images, projects with their conversations, and unfiled conversations, with search.
+/// New Chat and All Images, pinned chats, projects with their chats, and recent chats by date,
+/// with search. Chats can be dragged onto a project to file them there.
 struct Sidebar: View {
     @Environment(Library.self) private var library
     @Environment(Workspace.self) private var workspace
     @Environment(Generator.self) private var generator
     @State private var query = ""
-    @State private var collapsedProjects: Set<UUID> = []
-    @State private var naming: Naming?
-    @State private var name = ""
-    @State private var deleting: Deletion?
-
-    /// What the name alert renames or creates.
-    private enum Naming: Equatable {
-        case newProject(moving: UUID?)
-        case project(UUID)
-        case conversation(UUID)
-    }
-
-    private enum Deletion: Equatable {
-        case project(UUID)
-        case conversation(UUID)
-    }
+    /// Collapsed projects, kept with the window across launches.
+    @SceneStorage("collapsedProjects") private var collapsedStorage = ""
 
     var body: some View {
         @Bindable var workspace = workspace
         List(selection: $workspace.selection) {
             if query.isEmpty {
-                Label("All Images", systemImage: "photo.on.rectangle.angled")
-                    .tag(Workspace.Selection.allImages)
+                Section {
+                    Label("New Chat", systemImage: "square.and.pencil")
+                        .tag(Workspace.Selection.newChat)
+                        .help("New Chat (⌘N)")
+                    Label("All Images", systemImage: "photo.on.rectangle")
+                        .tag(Workspace.Selection.allImages)
+                }
+                if !library.pinnedConversations.isEmpty {
+                    Section("Pinned") {
+                        ForEach(library.pinnedConversations) { ChatRow(conversation: $0) }
+                    }
+                }
                 projectsSection
-                Section("Conversations") {
-                    ForEach(library.conversations(in: nil)) { row($0) }
+                ForEach(RecentGroup.group(library.recentConversations)) { group in
+                    Section(group.title) {
+                        ForEach(group.conversations) { ChatRow(conversation: $0) }
+                    }
                 }
             } else {
                 Section("Results") {
-                    ForEach(searchResults) { row($0) }
+                    ForEach(searchResults) { ChatRow(conversation: $0) }
                 }
             }
         }
-        .searchable(text: $query, placement: .sidebar, prompt: "Search conversations")
+        .listStyle(.sidebar)
+        .hardScrollEdge(.bottom)
+        .searchable(text: $query, placement: .sidebar, prompt: "Search chats")
+        .safeAreaInset(edge: .bottom, spacing: 0) { SidebarFooter() }
         .onDeleteCommand {
-            if let id = workspace.conversationID, !isRunning(id) { deleting = .conversation(id) }
+            if let id = workspace.conversationID, !isRunning(id) { workspace.deleting = .conversation(id) }
         }
         .overlay {
             if !query.isEmpty, searchResults.isEmpty {
                 ContentUnavailableView.search(text: query)
             }
         }
-        .onChange(of: workspace.requestsNewProject) { _, requested in
-            if requested {
-                workspace.requestsNewProject = false
-                beginNaming(.newProject(moving: nil), name: "")
-            }
-        }
-        .alert(namingTitle, isPresented: isNaming) {
-            TextField("Name", text: $name)
-            Button(namingCreates ? "Create" : "Rename", action: commitName)
-                .keyboardShortcut(.defaultAction)
-            Button("Cancel", role: .cancel) { naming = nil }
-        }
-        .confirmationDialog(deletionTitle, isPresented: isDeleting, titleVisibility: .visible) {
-            Button("Delete", role: .destructive, action: commitDeletion)
-        } message: {
-            Text(deletionMessage)
-        }
     }
 
-    // MARK: - Sections
-
+    // Plain rows, not DisclosureGroup: a sidebar drops a DisclosureGroup row whose label is
+    // selectable, and a project must be selectable to open its page.
     private var projectsSection: some View {
-        Section {
-            ForEach(library.projects) { project in
-                DisclosureGroup(isExpanded: expansion(of: project.id)) {
-                    let conversations = library.conversations(in: project.id)
-                    ForEach(conversations) { row($0) }
-                    if conversations.isEmpty {
-                        Button {
-                            workspace.newConversation(in: project.id)
-                        } label: {
-                            Label("New Conversation", systemImage: "square.and.pencil")
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                    }
-                } label: {
-                    Label(project.name, systemImage: "folder")
-                        .contextMenu { projectMenu(project) }
-                }
-            }
+        Section("Projects") {
             Button {
-                beginNaming(.newProject(moving: nil), name: "")
+                workspace.naming = .newProject(moving: nil)
             } label: {
-                Label("New Project", systemImage: "folder.badge.plus")
+                Label("New Project", systemImage: "plus")
+                    .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-        } header: {
-            Text("Projects")
+            .help("New Project (⇧⌘N)")
+            ForEach(library.projects) { project in
+                let expanded = !collapsedProjects.contains(project.id)
+                ProjectRow(project: project, expanded: expanded) { toggle(project.id, open: $0) }
+                if expanded {
+                    // a pinned chat is listed once, under Pinned; the project page lists them all
+                    ForEach(library.conversations(in: project.id).filter { $0.pinned == nil }) {
+                        ChatRow(conversation: $0, inProject: true)
+                    }
+                }
+            }
         }
-    }
-
-    private func row(_ conversation: Conversation) -> some View {
-        ConversationRow(conversation: conversation)
-            .tag(Workspace.Selection.conversation(conversation.id))
-            .contextMenu { conversationMenu(conversation) }
     }
 
     private var searchResults: [Conversation] {
         library.conversations.filter { $0.matches(query) }.sorted { $0.updated > $1.updated }
     }
 
-    private func expansion(of project: UUID) -> Binding<Bool> {
-        Binding(
-            get: { !collapsedProjects.contains(project) },
-            set: { expanded in
-                if expanded { collapsedProjects.remove(project) } else { collapsedProjects.insert(project) }
+    private var collapsedProjects: Set<UUID> {
+        Set(collapsedStorage.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
+    }
+
+    private func toggle(_ project: UUID, open: Bool) {
+        var collapsed = collapsedProjects
+        if open { collapsed.remove(project) } else { collapsed.insert(project) }
+        collapsedStorage = collapsed.map(\.uuidString).sorted().joined(separator: ",")
+    }
+
+    private func isRunning(_ conversation: UUID) -> Bool {
+        generator.isRunning(conversation)
+    }
+}
+
+/// A project: selecting it opens its page, the chevron shows or hides its chats, and dropping
+/// a chat on it files the chat there.
+private struct ProjectRow: View {
+    @Environment(Library.self) private var library
+    @Environment(Workspace.self) private var workspace
+    let project: Project
+    let expanded: Bool
+    let setExpanded: (Bool) -> Void
+    @State private var targeted = false
+    @State private var hovering = false
+    @FocusState private var chevronFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Label(project.name, systemImage: targeted ? "folder.fill" : "folder")
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Button {
+                setExpanded(!expanded)
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
             }
-        )
+            .buttonStyle(.plain)
+            .focused($chevronFocused)
+            // like Finder: shown on hover or focus, and always while collapsed so hidden chats stay findable
+            .opacity(hovering || chevronFocused || !expanded ? 1 : 0)
+            .help(expanded ? "Hide chats" : "Show chats")
+            .accessibilityLabel("Chats in \(project.name)")
+            .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+        }
+        .onHover { hovering = $0 }
+        .help(project.name)
+        .tag(Workspace.Selection.project(project.id))
+        .dropDestination(for: ChatReference.self) { chats, _ in
+            for chat in chats { library.move(conversation: chat.id, to: project.id) }
+            setExpanded(true)
+            return !chats.isEmpty
+        } isTargeted: { targeted = $0 }
+        .contextMenu {
+            Button("New Chat in Project") { workspace.newConversation(in: project.id) }
+            Button("Rename…") { workspace.naming = .project(project.id) }
+            Divider()
+            Button("Delete Project…", role: .destructive) { workspace.deleting = .project(project.id) }
+        }
     }
+}
 
-    // MARK: - Menus
+/// A chat in the sidebar, with its latest result as a thumbnail.
+private struct ChatRow: View {
+    @Environment(Library.self) private var library
+    @Environment(Workspace.self) private var workspace
+    @Environment(Generator.self) private var generator
+    let conversation: Conversation
+    /// Indented under its project.
+    var inProject = false
 
-    @ViewBuilder private func projectMenu(_ project: Project) -> some View {
-        Button("New Conversation in Project") { workspace.newConversation(in: project.id) }
-        Button("Rename…") { beginNaming(.project(project.id), name: project.name) }
-        Divider()
-        Button("Delete Project…", role: .destructive) { deleting = .project(project.id) }
+    var body: some View {
+        // a Label, so the title shares the sidebar's text column with every other row
+        HStack(spacing: 4) {
+            Label {
+                Text(conversation.title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            } icon: {
+                ChatThumbnail(conversation: conversation, side: 18)
+            }
+            Spacer(minLength: 0)
+            if generator.isRunning(conversation.id) {
+                ProgressView()
+                    .controlSize(.mini)
+                    .accessibilityLabel("Working")
+            }
+        }
+        .padding(.leading, inProject ? 26 : 0)  // its thumbnail under the project name
+        .help(conversation.title)
+        .tag(Workspace.Selection.conversation(conversation.id))
+        .draggable(ChatReference(id: conversation.id)) {
+            Label(conversation.title, systemImage: "bubble.left").padding(6)
+        }
+        .contextMenu { ChatMenu(conversation: conversation) }
+        .swipeActions(edge: .trailing) {
+            Button(conversation.pinned == nil ? "Pin" : "Unpin", systemImage: conversation.pinned == nil ? "pin" : "pin.slash") {
+                library.setPinned(conversation.pinned == nil, conversation: conversation.id)
+            }
+            .tint(.orange)
+        }
     }
+}
 
-    @ViewBuilder private func conversationMenu(_ conversation: Conversation) -> some View {
-        Button("Rename…") { beginNaming(.conversation(conversation.id), name: conversation.title) }
+/// What can be done with a chat, in the sidebar and on a project page.
+struct ChatMenu: View {
+    @Environment(Library.self) private var library
+    @Environment(Workspace.self) private var workspace
+    @Environment(Generator.self) private var generator
+    let conversation: Conversation
+
+    var body: some View {
+        Button(conversation.pinned == nil ? "Pin" : "Unpin") {
+            library.setPinned(conversation.pinned == nil, conversation: conversation.id)
+        }
+        Button("Rename…") { workspace.naming = .conversation(conversation.id) }
         Menu("Move to Project") {
             ForEach(library.projects) { project in
                 Button(project.name) { library.move(conversation: conversation.id, to: project.id) }
                     .disabled(conversation.projectID == project.id)
             }
             if !library.projects.isEmpty { Divider() }
-            Button("New Project…") { beginNaming(.newProject(moving: conversation.id), name: "") }
+            Button("New Project…") { workspace.naming = .newProject(moving: conversation.id) }
             if conversation.projectID != nil {
                 Button("Remove from Project") { library.move(conversation: conversation.id, to: nil) }
             }
         }
         Divider()
-        Button("Delete Conversation…", role: .destructive) { deleting = .conversation(conversation.id) }
-            .disabled(isRunning(conversation.id))
-    }
-
-    private func isRunning(_ conversation: UUID) -> Bool {
-        generator.active?.conversation == conversation
-    }
-
-    // MARK: - Naming
-
-    private var isNaming: Binding<Bool> {
-        Binding(get: { naming != nil }, set: { if !$0 { naming = nil } })
-    }
-
-    private var namingCreates: Bool {
-        if case .newProject = naming { true } else { false }
-    }
-
-    private var namingTitle: String {
-        switch naming {
-        case .newProject: "New Project"
-        case .project: "Rename Project"
-        case .conversation: "Rename Conversation"
-        case nil: ""
-        }
-    }
-
-    private func beginNaming(_ target: Naming, name: String) {
-        self.name = name
-        naming = target
-    }
-
-    private func commitName() {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        defer { naming = nil }
-        guard !trimmed.isEmpty else { return }
-        switch naming {
-        case let .newProject(moving):
-            guard let project = library.createProject(named: trimmed) else { return }
-            if let moving { library.move(conversation: moving, to: project) }
-        case let .project(id):
-            library.rename(project: id, to: trimmed)
-        case let .conversation(id):
-            library.rename(conversation: id, to: trimmed)
-        case nil:
-            break
-        }
-    }
-
-    // MARK: - Deletion
-
-    private var isDeleting: Binding<Bool> {
-        Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })
-    }
-
-    private var deletionTitle: String {
-        switch deleting {
-        case let .project(id): "Delete “\(library.projects.first { $0.id == id }?.name ?? "")”?"
-        case let .conversation(id): "Delete “\(library.conversation(id)?.title ?? "")”?"
-        case nil: ""
-        }
-    }
-
-    private var deletionMessage: String {
-        switch deleting {
-        case .project: "Its conversations are kept and move to Conversations."
-        case .conversation: "Its requests and images are deleted. This cannot be undone."
-        case nil: ""
-        }
-    }
-
-    private func commitDeletion() {
-        switch deleting {
-        case let .project(id): library.delete(project: id)
-        case let .conversation(id): library.delete(conversation: id)
-        case nil: break
-        }
-        deleting = nil
+        Button("Delete Chat…", role: .destructive) { workspace.deleting = .conversation(conversation.id) }
+            .disabled(generator.isRunning(conversation.id))
     }
 }
 
-private struct ConversationRow: View {
+/// A chat's newest result, or the symbol of its last request.
+struct ChatThumbnail: View {
+    @Environment(Library.self) private var library
     let conversation: Conversation
+    let side: CGFloat
 
     var body: some View {
-        Text(conversation.title)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .help(conversation.title)
+        Group {
+            if let result = conversation.latestResult {
+                StoredImage(url: library.imageURL(result.id), maxPixels: Int(side * 4))
+                    .scaledToFill()
+            } else {
+                Image(systemName: conversation.entries.last?.workflow.symbol ?? "photo")
+                    .font(.system(size: side * 0.5))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.quaternary.opacity(0.6))
+            }
+        }
+        .frame(width: side, height: side)
+        .clipShape(RoundedRectangle(cornerRadius: side * 0.22, style: .continuous))
+        .accessibilityHidden(true)
+    }
+}
+
+/// The engine's state and Settings, always at the bottom of the sidebar, aligned with the rows.
+private struct SidebarFooter: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            SettingsLink {
+                HStack(spacing: 8) {
+                    Image(systemName: "gearshape").frame(width: 18)
+                    Text("Settings")
+                }
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("Settings (⌘,)")
+            Spacer(minLength: 0)
+            EngineStatus()
+        }
+        .padding(.leading, 20)
+        .padding(.trailing, 14)
+        .padding(.vertical, 10)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+    }
+}
+
+extension View {
+    /// A crisp edge where content scrolls under chrome, on systems that have it.
+    @ViewBuilder
+    func hardScrollEdge(_ edges: Edge.Set) -> some View {
+        if #available(macOS 26, *) {
+            scrollEdgeEffectStyle(.hard, for: edges)
+        } else {
+            self
+        }
     }
 }

@@ -5,16 +5,62 @@ import Observation
 @MainActor
 @Observable
 final class Generator {
+    /// What the engine reports about the running entry, and nothing more.
     struct Progress: Equatable {
-        /// 0 while queued or loading the model.
+        enum Phase: Equatable {
+            /// Queued behind another request, or not yet submitted.
+            case waiting
+            /// Running before the first step: loading the model if needed and reading the prompt.
+            case preparing
+            case sampling
+            /// The last step is done; the image is being decoded and sent.
+            case finishing
+            /// Depth and upscaling report no steps.
+            case working
+        }
+
+        var phase = Phase.waiting
         var step = 0
         var steps = 0
         var secondsLeft: Double?
+
+        init(phase: Phase = .waiting, step: Int = 0, steps: Int = 0, secondsLeft: Double? = nil) {
+            self.phase = phase
+            self.step = step
+            self.steps = steps
+            self.secondsLeft = secondsLeft
+        }
+
+        init(_ status: JobStatus.State, step: Int, steps: Int, workflow: Workflow) {
+            self.step = step
+            self.steps = steps
+            switch status {
+            case .queued, .done, .failed, .cancelled:
+                phase = .waiting
+            case .running where workflow != .create || steps == 0:
+                phase = workflow == .create ? .preparing : .working
+            case .running:
+                phase = step == 0 ? .preparing : step < steps ? .sampling : .finishing
+            }
+        }
+
+        /// Completed sampling steps as a fraction, once sampling has started.
+        var fraction: Double? {
+            guard steps > 0, phase == .sampling || phase == .finishing else { return nil }
+            return Double(step) / Double(steps)
+        }
+
+        var percent: Int? { fraction == nil ? nil : step * 100 / steps }
     }
 
     /// The entry being run and its conversation.
     private(set) var active: (entry: UUID, conversation: UUID)?
     private(set) var progress = Progress()
+    /// The running entry whose input image is on disk, so its thumbnail can show.
+    private(set) var storedInput: UUID?
+
+    /// Entries of the same batch waiting their turn; the engine makes one image at a time.
+    private(set) var queued: [Entry] = []
 
     @ObservationIgnored private var job: String?
     @ObservationIgnored private var cancelRequested = false
@@ -22,16 +68,23 @@ final class Generator {
 
     var isBusy: Bool { active != nil }
 
-    /// Adds a text-to-image entry to `conversation` (a new one when nil) and runs it.
+    func isRunning(_ conversation: UUID) -> Bool { active?.conversation == conversation }
+
+    func isQueued(_ entry: UUID) -> Bool { queued.contains { $0.id == entry } }
+
+    /// Adds one text-to-image entry per request to `conversation` (a new one when nil) and runs
+    /// them in order.
     @discardableResult
     func generate(
-        _ request: GenerationRequest, in conversation: UUID?, project: UUID? = nil,
+        _ requests: [GenerationRequest], in conversation: UUID?, project: UUID? = nil,
         library: Library, engine: EngineController
     ) -> UUID? {
-        guard !isBusy, !library.isReadOnly else { return nil }
-        let entry = Entry(workflow: .create, request: request)
-        let id = library.append(entry, to: conversation, project: project)
-        start(entry, in: id, input: nil, library: library, engine: engine)
+        guard !isBusy, !library.isReadOnly, !requests.isEmpty else { return nil }
+        let entries = requests.map { Entry(workflow: .create, request: $0) }
+        let id = library.append(entries[0], to: conversation, project: project)
+        for entry in entries.dropFirst() { library.append(entry, to: id) }
+        queued = Array(entries.dropFirst())
+        start(entries[0], in: id, input: nil, library: library, engine: engine)
         return id
     }
 
@@ -52,7 +105,7 @@ final class Generator {
     func rerun(_ entry: Entry, newSeed: Bool, in conversation: UUID, library: Library, engine: EngineController) {
         if var request = entry.request {
             if newSeed { request.seed = Int.random(in: GenerationSettings.seedRange) }
-            generate(request, in: conversation, library: library, engine: engine)
+            generate([request], in: conversation, library: library, engine: engine)
         } else if FileManager.default.fileExists(atPath: library.inputURL(entry.id).path) {
             process(
                 entry.workflow, image: library.inputURL(entry.id), named: entry.inputName ?? "image",
@@ -61,6 +114,7 @@ final class Generator {
         }
     }
 
+    /// Stops the running entry and the rest of its batch.
     func cancel(engine: EngineController) {
         guard isBusy else { return }
         cancelRequested = true
@@ -89,9 +143,19 @@ final class Generator {
         task = Task {
             let outcome = await run(entry, input: input, library: library, engine: engine)
             library.setOutcome(outcome, of: entry.id)
-            active = nil
             job = nil
             task = nil
+            // the rest of a batch runs unless it was stopped or the engine went away
+            if cancelRequested || engine.state != .ready {
+                let rest: Entry.Outcome = cancelRequested ? .cancelled : .interrupted
+                for waiting in queued { library.setOutcome(rest, of: waiting.id) }
+                queued = []
+            }
+            if queued.isEmpty {
+                active = nil
+            } else {
+                start(queued.removeFirst(), in: conversation, input: nil, library: library, engine: engine)
+            }
         }
     }
 
@@ -104,13 +168,14 @@ final class Generator {
             } else if let input {
                 let png = try await Task.detached(priority: .userInitiated) { try ImageFiles.uploadPNG(from: input) }.value
                 try await library.write(png, for: entry.id, asInput: true)  // kept for "Run Again"
+                storedInput = entry.id
                 id = try await client.submit(entry.workflow, png: png)
             } else {
                 return .failed("This entry has no input.")
             }
             job = id
             if cancelRequested { try? await client.cancel(id) }
-            let status = try await poll(id, client: client)
+            let status = try await poll(id, workflow: entry.workflow, client: client)
             switch status.status {
             case .done:
                 let png = try await client.image(of: id)
@@ -131,7 +196,7 @@ final class Generator {
         }
     }
 
-    private func poll(_ id: String, client: EngineClient) async throws -> JobStatus {
+    private func poll(_ id: String, workflow: Workflow, client: EngineClient) async throws -> JobStatus {
         var firstSample: (step: Int, time: ContinuousClock.Instant)?
         while true {
             let status = try await client.status(of: id)
@@ -139,7 +204,7 @@ final class Generator {
             case .queued:
                 progress = Progress()
             case .running:
-                var next = Progress(step: status.step, steps: status.steps)
+                var next = Progress(.running, step: status.step, steps: status.steps, workflow: workflow)
                 if status.step > 0 {  // step 0: the first request loads the model
                     let now = ContinuousClock.now
                     if firstSample == nil { firstSample = (status.step, now) }
