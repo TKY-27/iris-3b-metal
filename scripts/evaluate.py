@@ -13,14 +13,12 @@ images are kept, so an interrupted run resumes where it stopped. Keep the
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
 import torch
 
+from iris_metal.cli import REPO_ID, resolve_checkpoint
 from iris_metal.pipeline import IrisPipeline
 
 PROMPTS = Path(__file__).resolve().parents[1] / "benchmarks" / "prompts.json"
@@ -35,7 +33,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--checkpoint", default="iris-3b")
+    parser.add_argument("--checkpoint", default=REPO_ID, help="local directory or Hugging Face repo")
     parser.add_argument("--split", choices=("dev", "holdout"), default="dev")
     parser.add_argument("--out", required=True)
     parser.add_argument("--ids", nargs="*", help="subset of prompt ids")
@@ -57,9 +55,11 @@ def main() -> None:
     if meta["config"] != config:
         raise SystemExit(f"{out} holds a run with a different configuration: {meta['config']}")
 
-    pipe = IrisPipeline(args.checkpoint, attention_dtype=getattr(torch, args.attention))
+    checkpoint = resolve_checkpoint(args.checkpoint, None)
+    pipe = IrisPipeline(checkpoint, attention_dtype=getattr(torch, args.attention))
     for entry in entries:
-        if (out / f"{entry['id']}.png").exists():
+        # meta.json is written after the image, so it marks a finished one
+        if entry["id"] in meta["images"] and (out / f"{entry['id']}.png").exists():
             continue
         # encode and load before the clock starts: "seconds" is sampling time
         pipe.encode([entry["prompt"], pipe.cfg.sample.negative_prompt])

@@ -31,13 +31,11 @@ import platform  # noqa: E402
 import re  # noqa: E402
 import statistics  # noqa: E402
 import subprocess  # noqa: E402
-import sys  # noqa: E402
 from pathlib import Path  # noqa: E402
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import torch  # noqa: E402
 
+from iris_metal.cli import REPO_ID, parse_size, resolve_checkpoint  # noqa: E402
 from iris_metal.pipeline import IrisPipeline  # noqa: E402
 
 _RUSAGE_INFO_V4 = 4
@@ -96,16 +94,11 @@ def source_commit() -> str:
     return f"{commit}-dirty" if dirty else commit
 
 
-def parse_size(text: str) -> tuple[int, int]:
-    width, height = (int(side) for side in text.split("x"))
-    return width, height
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--checkpoint", default="iris-3b")
+    parser.add_argument("--checkpoint", default=REPO_ID, help="local directory or Hugging Face repo")
     parser.add_argument("--prompt", default="A red fox sleeping in fresh snow, golden hour")
     parser.add_argument("--size", type=parse_size, default=(1024, 1024), help="WIDTHxHEIGHT")
     parser.add_argument("--steps", type=int, default=100)
@@ -126,7 +119,8 @@ def main() -> None:
     peaks = {}
     peak_footprint_gib(_INTERVAL_MAX_FOOTPRINT)
 
-    pipe = IrisPipeline(args.checkpoint, attention_dtype=getattr(torch, args.attention))
+    checkpoint = resolve_checkpoint(args.checkpoint, None)
+    pipe = IrisPipeline(checkpoint, attention_dtype=getattr(torch, args.attention))
     start = time.perf_counter()
     pipe.encode([args.prompt, pipe.cfg.sample.negative_prompt])
     timings["text_encoding_s"] = time.perf_counter() - start

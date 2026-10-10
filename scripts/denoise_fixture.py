@@ -13,16 +13,14 @@ without per-step synchronization; text-adapter preparation is included.
 
 import argparse
 import statistics
-import sys
 import time
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import numpy as np
 import torch
 
 from iris3b.flow.solver import FlowDPMSolver
+from iris_metal.cli import REPO_ID, resolve_checkpoint
 from iris_metal.loading import load_config, load_dit
 from iris_metal.model import MetalIris
 
@@ -32,12 +30,13 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("fixture", type=Path)
-    parser.add_argument("--checkpoint", default="iris-3b")
+    parser.add_argument("--checkpoint", default=REPO_ID, help="local directory or Hugging Face repo")
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--attention", choices=("float16", "bfloat16", "float32"), default="float16")
     parser.add_argument("--out", type=Path, help="write the final FP32 state and timings")
     args = parser.parse_args()
+    args.checkpoint = resolve_checkpoint(args.checkpoint, None)
 
     fixture = np.load(args.fixture)
     device = torch.device("mps")

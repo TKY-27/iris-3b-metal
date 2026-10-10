@@ -18,16 +18,14 @@ whole trajectory small differences are amplified, so use several prompts.
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import numpy as np
 import torch
 
 from iris3b.flow.solver import FlowDPMSolver
+from iris_metal.cli import REPO_ID, resolve_checkpoint
 from iris_metal.loading import load_config, load_dit
 from iris_metal.model import MetalIris
 
@@ -41,10 +39,14 @@ def make_fixtures(args, cfg) -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     pipe = IrisPipeline(args.checkpoint)
     for seed, key in enumerate(args.ids):
+        path = args.out / f"fixture-{key}.npz"
+        if path.exists():  # results in --out were denoised from it; a new fixture needs a new --out
+            print(f"fixture {key} exists, kept")
+            continue
         (cond, cond_mask), (neg, neg_mask) = pipe.encode([prompts[key], cfg.sample.negative_prompt])
         noise = torch.randn(1, 3, args.size, args.size, generator=torch.Generator().manual_seed(seed))
         np.savez(
-            args.out / f"fixture-{key}.npz",
+            path,
             y=torch.cat([neg, cond]).float().numpy(),  # unconditional row first
             mask=torch.cat([neg_mask, cond_mask]).numpy(),
             noise=noise.numpy(),
@@ -123,7 +125,7 @@ def score(args) -> None:
 def main() -> None:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--out", type=Path, required=True, help="directory of fixtures and results")
-    common.add_argument("--checkpoint", default="iris-3b")
+    common.add_argument("--checkpoint", default=REPO_ID, help="local directory or Hugging Face repo")
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -143,7 +145,9 @@ def main() -> None:
     torch.set_grad_enabled(False)
     if args.command == "score":
         score(args)
-    elif args.command == "fixtures":
+        return
+    args.checkpoint = resolve_checkpoint(args.checkpoint, None)
+    if args.command == "fixtures":
         make_fixtures(args, load_config(args.checkpoint))
     else:
         denoise(args, load_config(args.checkpoint))
