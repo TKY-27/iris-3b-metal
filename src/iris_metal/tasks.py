@@ -9,8 +9,10 @@ loaded and how the network is evaluated.
 
 from pathlib import Path
 
+import numpy as np
 import torch
 from omegaconf import OmegaConf
+from PIL import Image
 from safetensors.torch import load_file
 
 from iris3b.config import inference_config
@@ -32,6 +34,14 @@ def resolve_task(source: str | Path, task: str, revision: str | None) -> Path:
     folder = TASK_FOLDERS[task]
     root = snapshot_download(str(source), revision=revision, allow_patterns=[f"{folder}/*"])
     return Path(root) / folder
+
+
+def depth_image(depth: np.ndarray) -> Image.Image:
+    """16-bit grayscale, near = bright, over the prediction's 2nd-98th percentile
+    range (upstream ``colorize`` without its matplotlib colormap)."""
+    low, high = np.percentile(depth, [2, 98])
+    near = np.clip((high - depth) / max(high - low, 1e-6), 0, 1)
+    return Image.fromarray((near * 65535).round().astype(np.uint16))
 
 
 def _read_export(path: Path, task: str) -> tuple[object, dict, dict]:

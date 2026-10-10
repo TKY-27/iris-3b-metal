@@ -1,3 +1,4 @@
+import io
 import json
 import threading
 import time
@@ -5,10 +6,11 @@ import urllib.error
 import urllib.request
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from PIL import Image
 
-from iris_metal.server import JobRunner, LocalServer, make_handler, validate
+from iris_metal.server import JobRunner, LocalServer, Models, make_handler, validate
 
 DEFAULTS = SimpleNamespace(steps=100, cfg_scale=3.0, negative_prompt="")
 
@@ -30,11 +32,20 @@ class FakePipeline:
             raise RuntimeError("boom")
         return [Image.new("RGB", (width, height))]
 
+    def unload(self):
+        self.loaded = False
+
+
+class FakeDepth:
+    def __call__(self, image, max_side):
+        return np.linspace(-1, 1, image.width * image.height).reshape(image.height, image.width)
+
 
 @pytest.fixture
 def server():
     pipe = FakePipeline()
-    httpd = LocalServer(("127.0.0.1", 0), make_handler(JobRunner(pipe, max_queued=2)))
+    models = Models(pipe, load_task=lambda task: FakeDepth())
+    httpd = LocalServer(("127.0.0.1", 0), make_handler(JobRunner(models, max_queued=2)))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     yield pipe, f"http://127.0.0.1:{httpd.server_address[1]}"
     httpd.shutdown()
@@ -104,3 +115,28 @@ def test_full_queue_is_rejected(server):
     ]
     pipe.gate.set()
     assert codes[-1] == 429  # one running, two queued, the fourth refused
+
+
+def test_depth_upload_switches_the_resident_model(server):
+    pipe, base = server
+    request(f"{base}/v1/images", "POST", {"prompt": "fox", "width": 16, "height": 16, "steps": 1})
+    buffer = io.BytesIO()
+    Image.new("RGB", (20, 10)).save(buffer, format="JPEG")
+    req = urllib.request.Request(f"{base}/v1/depth?max_side=512", data=buffer.getvalue(), method="POST")
+    with urllib.request.urlopen(req) as response:
+        job_id = json.loads(response.read())["id"]
+    job = wait_for(base, job_id, "done")
+    assert job["params"] == {"max_side": 512}
+    assert not pipe.loaded  # the text-to-image model was released for the depth model
+    _, health = request(f"{base}/v1/health")
+    assert json.loads(health)["resident"] == "depth"
+    _, depth_png = request(f"{base}/v1/jobs/{job_id}/image")
+    assert Image.open(io.BytesIO(depth_png)).size == (20, 10)
+
+
+def test_unreadable_upload_is_rejected(server):
+    _, base = server
+    req = urllib.request.Request(f"{base}/v1/upscale", data=b"not an image", method="POST")
+    with pytest.raises(urllib.error.HTTPError) as error:
+        urllib.request.urlopen(req)
+    assert error.value.code == 400

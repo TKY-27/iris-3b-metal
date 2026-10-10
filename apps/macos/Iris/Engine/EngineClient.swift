@@ -31,13 +31,9 @@ struct JobStatus: Decodable, Sendable {
 }
 
 struct EngineHealth: Decodable, Sendable {
-    let modelLoaded: Bool
+    /// "text-to-image", "depth", "restoration" or nil
+    let resident: String?
     let queued: Int
-
-    enum CodingKeys: String, CodingKey {
-        case modelLoaded = "model_loaded"
-        case queued
-    }
 }
 
 enum EngineError: LocalizedError {

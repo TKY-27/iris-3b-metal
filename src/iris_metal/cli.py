@@ -50,8 +50,16 @@ def output_paths(output: Path, count: int) -> list[Path]:
     return [output.with_name(f"{output.stem}-{i}{output.suffix}") for i in range(count)]
 
 
+def load_task(task: str, source: str = REPO_ID, revision: str | None = None):
+    from iris_metal.tasks import MetalDepth, MetalRestorer, resolve_task
+
+    revision = revision or (REVISION if source == REPO_ID else None)
+    export = resolve_task(source, task, revision)
+    return MetalRestorer(export) if task == "restoration" else MetalDepth(export)
+
+
 def serve_main(argv: list[str]) -> None:
-    from iris_metal.server import serve
+    from iris_metal.server import Models, serve
 
     parser = argparse.ArgumentParser(prog="iris-metal serve", description="Run the local HTTP API.")
     parser.add_argument("--host", default="127.0.0.1", help="default: localhost only")
@@ -62,19 +70,12 @@ def serve_main(argv: list[str]) -> None:
     args = parser.parse_args(argv)
     if not torch.backends.mps.is_available():
         parser.error("no Apple GPU (MPS) available")
-    serve(IrisPipeline(resolve_checkpoint(args.checkpoint, args.revision)), args.host, args.port, args.queue)
-
-
-def depth_image(depth) -> Image.Image:
-    """16-bit grayscale, near = bright, over the prediction's 2nd-98th percentile range
-    (upstream ``colorize`` without the matplotlib colormap)."""
-    low, high = np.percentile(depth, [2, 98])
-    near = np.clip((high - depth) / max(high - low, 1e-6), 0, 1)
-    return Image.fromarray((near * 65535).round().astype(np.uint16))
+    pipe = IrisPipeline(resolve_checkpoint(args.checkpoint, args.revision))
+    serve(Models(pipe, load_task), args.host, args.port, args.queue)
 
 
 def task_main(task: str, argv: list[str]) -> None:
-    from iris_metal.tasks import MetalDepth, MetalRestorer, resolve_task
+    from iris_metal.tasks import depth_image
 
     upscale = task == "restoration"
     parser = argparse.ArgumentParser(
@@ -93,9 +94,7 @@ def task_main(task: str, argv: list[str]) -> None:
     args = parser.parse_args(argv)
     if not torch.backends.mps.is_available():
         parser.error("no Apple GPU (MPS) available")
-    revision = args.revision or (REVISION if args.weights == REPO_ID else None)
-    export = resolve_task(args.weights, task, revision)
-    model = MetalRestorer(export) if upscale else MetalDepth(export)
+    model = load_task(task, args.weights, args.revision)
     args.out.mkdir(parents=True, exist_ok=True)
     for path in args.images:
         image = Image.open(path)

@@ -1,5 +1,6 @@
 """Text-to-image generation with Iris-3B on an Apple GPU."""
 
+import gc
 from collections.abc import Callable
 from pathlib import Path
 
@@ -13,6 +14,13 @@ from iris_metal.model import MetalIris
 from iris_metal.text import StreamingQwen3VLEncoder
 
 Encoding = tuple[torch.Tensor, torch.Tensor]  # (states, mask)
+
+
+def release_memory() -> None:
+    """Return freed GPU memory to the system, e.g. after dropping a model."""
+    gc.collect()
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
 
 
 def to_images(samples: torch.Tensor) -> list[Image.Image]:
@@ -45,6 +53,12 @@ class IrisPipeline:
     @property
     def loaded(self) -> bool:
         return self._engine is not None
+
+    def unload(self) -> None:
+        """Release the diffusion model; the next generation loads it again."""
+        if self._engine is not None:
+            self._engine = None
+            release_memory()
 
     @property
     def engine(self) -> MetalIris:
