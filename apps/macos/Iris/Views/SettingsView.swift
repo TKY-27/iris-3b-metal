@@ -12,6 +12,7 @@ struct SettingsView: View {
 
 private struct EngineSettings: View {
     @Environment(EngineController.self) private var engine
+    @Environment(Generator.self) private var generator
     @State private var path = ""
     @State private var port = 8765
 
@@ -35,6 +36,8 @@ private struct EngineSettings: View {
                     engine.port = port
                     Task { await engine.restart() }
                 }
+                .disabled(generator.isBusy || engine.state == .starting)
+                .help(generator.isBusy ? "Wait for the current request to finish" : "")
             }
         }
         .formStyle(.grouped)
@@ -104,7 +107,7 @@ private struct StorageSettings: View {
                 HStack {
                     Spacer()
                     Button("Delete All Conversations…", role: .destructive) { confirmsDelete = true }
-                        .disabled(library.conversations.isEmpty)
+                        .disabled(library.conversations.isEmpty || library.isReadOnly)
                 }
             }
         }
@@ -116,7 +119,7 @@ private struct StorageSettings: View {
                 library.deleteAllConversations(except: generator.active?.conversation)
             }
         } message: {
-            Text("Projects are kept. A request that is running is not deleted. This cannot be undone.")
+            Text("Projects are kept, and so is the conversation of a request that is running. This cannot be undone.")
         }
     }
 }

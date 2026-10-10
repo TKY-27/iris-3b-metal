@@ -309,7 +309,9 @@ python scripts/denoise_fixture.py fixture.npz                     # time a saved
 The app's unit tests (`xcodebuild -scheme Iris test` in `apps/macos`) never
 touch the real library. `python apps/macos/fake_engine.py` serves the real
 HTTP API over CPU stand-ins with synthetic images, for working on the app
-without a GPU or model downloads; the app attaches to it on port 8765. The
+without a GPU or model downloads; the app attaches to it on port 8765, and
+`TEST_RUNNER_IRIS_ENGINE_TEST=1 xcodebuild -scheme Iris test` adds an
+end-to-end test against it. The
 Xcode project is generated from `apps/macos/project.yml` with XcodeGen.
 
 The upstream training code is kept unchanged under `src/iris3b/` and needs

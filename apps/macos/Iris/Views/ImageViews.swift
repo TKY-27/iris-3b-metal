@@ -55,7 +55,7 @@ enum ImageActions {
         do {
             // the panel already confirmed replacing an existing file
             if FileManager.default.fileExists(atPath: target.path) {
-                _ = try FileManager.default.replaceItemAt(target, withItemAt: copyToTemporary(url))
+                try replace(target, with: url)
             } else {
                 try FileManager.default.copyItem(at: url, to: target)
             }
@@ -64,10 +64,15 @@ enum ImageActions {
         }
     }
 
-    /// `replaceItemAt` moves its source, so it gets a copy.
-    private static func copyToTemporary(_ url: URL) throws -> URL {
-        let copy = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).png")
-        try FileManager.default.copyItem(at: url, to: copy)
-        return copy
+    /// `replaceItemAt` moves its source, so it gets a copy on the target's volume.
+    private static func replace(_ target: URL, with url: URL) throws {
+        let fileManager = FileManager.default
+        let directory = try fileManager.url(
+            for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: target, create: true
+        )
+        defer { try? fileManager.removeItem(at: directory) }
+        let copy = directory.appending(path: target.lastPathComponent)
+        try fileManager.copyItem(at: url, to: copy)
+        _ = try fileManager.replaceItemAt(target, withItemAt: copy)
     }
 }

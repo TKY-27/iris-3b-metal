@@ -11,16 +11,21 @@ final class Library {
     private(set) var conversations: [Conversation]
     /// A load or save problem to show the user once.
     var problem: String?
+    /// Nothing is changed or saved; see `LibraryStore`.
+    let isReadOnly: Bool
 
+    @ObservationIgnored private let lock: LibraryLock?
     @ObservationIgnored private let writer = DispatchQueue(label: "Iris.LibraryWriter", qos: .utility)
     @ObservationIgnored private let logger = Logger(subsystem: "io.github.tky27.iris", category: "Library")
 
     init(store: LibraryStore = LibraryStore(root: LibraryStore.defaultRoot)) {
         self.store = store
-        let loaded = store.load()
+        lock = store.lock()
+        let loaded = store.load(readOnly: lock == nil)
         projects = loaded.snapshot.projects
         conversations = loaded.snapshot.conversations
-        problem = loaded.problem
+        isReadOnly = loaded.readOnly
+        problem = lock != nil ? loaded.problem : "Iris is already running with this library, so this window shows it read-only."
     }
 
     // MARK: - Queries
@@ -68,6 +73,7 @@ final class Library {
     }
 
     func rename(conversation id: UUID, to title: String) {
+        guard !isReadOnly else { return }
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty, let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         conversations[index].title = title
@@ -75,12 +81,14 @@ final class Library {
     }
 
     func move(conversation id: UUID, to project: UUID?) {
+        guard !isReadOnly else { return }
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         conversations[index].projectID = project
         save()
     }
 
     func delete(conversation id: UUID) {
+        guard !isReadOnly else { return }
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         let removed = conversations.remove(at: index).entries.map(\.id)
         save(thenRemoveFilesOf: removed)
@@ -99,6 +107,7 @@ final class Library {
     }
 
     func delete(entry id: UUID) {
+        guard !isReadOnly else { return }
         guard let c = conversations.firstIndex(where: { $0.entries.contains { $0.id == id } }) else { return }
         conversations[c].entries.removeAll { $0.id == id }
         save(thenRemoveFilesOf: [id])
@@ -119,7 +128,8 @@ final class Library {
     // MARK: - Projects
 
     @discardableResult
-    func createProject(named name: String) -> UUID {
+    func createProject(named name: String) -> UUID? {
+        guard !isReadOnly else { return nil }
         let project = Project(name: name)
         projects.append(project)
         projects.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -128,6 +138,7 @@ final class Library {
     }
 
     func rename(project id: UUID, to name: String) {
+        guard !isReadOnly else { return }
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, let index = projects.firstIndex(where: { $0.id == id }) else { return }
         projects[index].name = name
@@ -137,6 +148,7 @@ final class Library {
 
     /// Deletes the project only; its conversations move to the unfiled list.
     func delete(project id: UUID) {
+        guard !isReadOnly else { return }
         projects.removeAll { $0.id == id }
         for index in conversations.indices where conversations[index].projectID == id {
             conversations[index].projectID = nil
@@ -165,6 +177,7 @@ final class Library {
 
     /// Deletes every conversation, keeping projects and any running entry's conversation.
     func deleteAllConversations(except running: UUID?) {
+        guard !isReadOnly else { return }
         let removed = conversations.filter { $0.id != running }.flatMap { $0.entries.map(\.id) }
         conversations.removeAll { $0.id != running }
         save(thenRemoveFilesOf: removed)
@@ -174,6 +187,7 @@ final class Library {
     /// encodes and writes on a serial queue; files of removed entries are
     /// deleted only once the saved index no longer lists them.
     private func save(thenRemoveFilesOf removed: [UUID] = []) {
+        guard !isReadOnly else { return }
         let snapshot = LibrarySnapshot(projects: projects, conversations: conversations)
         let store = store
         writer.async { [weak self, logger] in

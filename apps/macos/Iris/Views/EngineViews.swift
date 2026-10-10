@@ -62,6 +62,7 @@ struct EngineBanner: View {
                 }
                 HStack {
                     Button("Try Again") { Task { await engine.restart() } }
+                        .disabled(engine.isRestarting)
                     Button("Engine Settings…") { openSettings() }
                 }
                 .controlSize(.small)

@@ -13,6 +13,12 @@ struct Composer: View {
         @Bindable var workspace = workspace
         VStack(spacing: 8) {
             EngineBanner()
+            if library.isReadOnly {
+                Label("This library is read-only; see the message shown at launch.", systemImage: "lock")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             if let elsewhere = busyElsewhere {
                 BusyElsewhere(conversation: elsewhere)
             }
@@ -58,7 +64,7 @@ struct Composer: View {
     @ViewBuilder private var input: some View {
         @Bindable var workspace = workspace
         if workspace.workflow == .create {
-            TextField("Describe an image", text: $workspace.prompt, axis: .vertical)
+            TextField("Describe a new image", text: $workspace.prompt, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1...8)
                 .focused($promptFocused)
@@ -124,7 +130,7 @@ struct Composer: View {
     }
 
     private var canSend: Bool {
-        workspace.canSubmit && !generator.isBusy && engine.state == .ready
+        workspace.canSubmit && !generator.isBusy && engine.state == .ready && !library.isReadOnly
     }
 
     private var sendTitle: String {

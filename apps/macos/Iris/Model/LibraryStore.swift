@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// The library on disk:
@@ -9,6 +10,9 @@ import Foundation
 /// Iris 0.1 kept `<root>/History/<id>.png` + `<id>.json` per image; `load()`
 /// imports those into one conversation and removes the old folder only after
 /// the new index is saved, so an interrupted import simply runs again.
+///
+/// A library that another running Iris holds, that a newer Iris wrote, or that
+/// could not be read nor set aside opens read-only, so it is never overwritten.
 struct LibraryStore: Sendable {
     let root: URL
 
@@ -24,19 +28,36 @@ struct LibraryStore: Sendable {
 
     struct Loaded {
         var snapshot: LibrarySnapshot
-        /// Set when an unreadable index was moved aside instead of overwritten.
+        /// What went wrong reading the library, for the user.
         var problem: String?
+        var readOnly = false
+    }
+
+    /// Takes the library (an advisory `flock`, held until the lock is released or the
+    /// process exits); nil if another Iris holds it.
+    func lock() -> LibraryLock? {
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let descriptor = open(root.appending(path: ".lock").path, O_CREAT | O_RDWR, 0o644)
+        guard descriptor >= 0 else { return nil }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            close(descriptor)
+            return nil
+        }
+        return LibraryLock(descriptor: descriptor)
     }
 
     /// Reads the index, marks unfinished entries as interrupted, and imports Iris 0.1 history.
-    func load() -> Loaded {
-        var loaded = readIndex()
+    /// With `readOnly`, nothing on disk is changed.
+    func load(readOnly: Bool = false) -> Loaded {
+        var loaded = readIndex(readOnly: readOnly)
+        loaded.readOnly = loaded.readOnly || readOnly
         for c in loaded.snapshot.conversations.indices {
             for e in loaded.snapshot.conversations[c].entries.indices
             where loaded.snapshot.conversations[c].entries[e].outcome == .running {
                 loaded.snapshot.conversations[c].entries[e].outcome = .interrupted
             }
         }
+        guard !loaded.readOnly else { return loaded }
         do {
             try importLegacyHistory(into: &loaded.snapshot)
         } catch {
@@ -62,35 +83,54 @@ struct LibraryStore: Sendable {
         try png.write(to: inputURL(entry), options: .atomic)
     }
 
-    /// Removes the files of entries that are no longer in the library.
+    /// Removes the files of entries that are no longer in the library, including an
+    /// Iris 0.1 original still in a History folder that could not be removed whole,
+    /// which would otherwise be imported again.
     func removeFiles(of entries: [UUID]) {
         for id in entries {
             try? FileManager.default.removeItem(at: imageURL(id))
             try? FileManager.default.removeItem(at: inputURL(id))
+            try? FileManager.default.removeItem(at: legacyDirectory.appending(path: "\(id.uuidString).png"))
+            try? FileManager.default.removeItem(at: legacyDirectory.appending(path: "\(id.uuidString).json"))
         }
     }
 
     // MARK: - Private
 
-    private func readIndex() -> Loaded {
+    private struct Version: Decodable {
+        let version: Int
+    }
+
+    private func readIndex(readOnly: Bool) -> Loaded {
         guard FileManager.default.fileExists(atPath: indexURL.path) else { return Loaded(snapshot: LibrarySnapshot()) }
+        let failure: Error
         do {
             let data = try Data(contentsOf: indexURL)
-            let snapshot = try JSONDecoder().decode(LibrarySnapshot.self, from: data)
-            guard snapshot.version == LibrarySnapshot.currentVersion else {
-                throw CocoaError(.fileReadUnknown, userInfo: [NSLocalizedDescriptionKey: "unknown version \(snapshot.version)"])
+            if let version = try? JSONDecoder().decode(Version.self, from: data).version,
+               version > LibrarySnapshot.currentVersion {
+                return Loaded(
+                    snapshot: LibrarySnapshot(), problem: "This library was saved by a newer version of Iris. Update Iris to open it; it was not changed.",
+                    readOnly: true
+                )
             }
-            return Loaded(snapshot: snapshot)
+            return Loaded(snapshot: try JSONDecoder().decode(LibrarySnapshot.self, from: data))
         } catch {
-            // keep the file for recovery rather than overwrite it on the next save
-            let stamp = Int(Date.now.timeIntervalSince1970)
-            let aside = root.appending(path: "Library-unreadable-\(stamp).json")
-            try? FileManager.default.moveItem(at: indexURL, to: aside)
+            failure = error
+        }
+        // keep the file for recovery rather than overwrite it on the next save
+        let aside = root.appending(path: "Library-unreadable-\(UUID().uuidString).json")
+        let images = "Images remain in \(imagesDirectory.path)."
+        guard !readOnly, (try? FileManager.default.moveItem(at: indexURL, to: aside)) != nil else {
             return Loaded(
                 snapshot: LibrarySnapshot(),
-                problem: "The library could not be read (\(error.localizedDescription)). It was kept as \(aside.lastPathComponent); images remain in \(imagesDirectory.path)."
+                problem: "The library could not be read (\(failure.localizedDescription)); it was left unchanged and Iris opened read-only. \(images)",
+                readOnly: true
             )
         }
+        return Loaded(
+            snapshot: LibrarySnapshot(),
+            problem: "The library could not be read (\(failure.localizedDescription)). It was kept as \(aside.lastPathComponent). \(images)"
+        )
     }
 
     /// The Iris 0.1 record of one image.
@@ -141,5 +181,18 @@ struct LibraryStore: Sendable {
         if complete {
             try fileManager.removeItem(at: legacyDirectory)
         }
+    }
+}
+
+/// Holds a library's lock file open; closing it releases the lock.
+final class LibraryLock: Sendable {
+    private let descriptor: Int32
+
+    fileprivate init(descriptor: Int32) {
+        self.descriptor = descriptor
+    }
+
+    deinit {
+        close(descriptor)
     }
 }

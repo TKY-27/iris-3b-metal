@@ -54,8 +54,13 @@ final class WorkflowTests: XCTestCase {
         XCTAssertEqual(Conversation.title(for: entry), "A lighthouse on a rocky coast at dusk, waves…")
     }
 
-    /// End to end against `iris-metal serve` (or a stand-in engine) on the default port.
+    /// End to end against the stand-in engine (`python apps/macos/fake_engine.py`) on the
+    /// default port. Opt-in, so it never sends work to a real engine by accident:
+    /// `TEST_RUNNER_IRIS_ENGINE_TEST=1 xcodebuild -scheme Iris test`.
     func testDepthWorkflowAgainstRunningEngine() async throws {
+        guard ProcessInfo.processInfo.environment["IRIS_ENGINE_TEST"] == "1" else {
+            throw XCTSkip("set TEST_RUNNER_IRIS_ENGINE_TEST=1 with a stand-in engine on 127.0.0.1:8765")
+        }
         let engine = EngineController()
         guard (try? await engine.client.health()) != nil else {
             throw XCTSkip("no engine listening on 127.0.0.1:\(engine.port)")

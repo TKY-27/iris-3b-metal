@@ -28,7 +28,7 @@ final class Generator {
         _ request: GenerationRequest, in conversation: UUID?, project: UUID? = nil,
         library: Library, engine: EngineController
     ) -> UUID? {
-        guard !isBusy else { return nil }
+        guard !isBusy, !library.isReadOnly else { return nil }
         let entry = Entry(workflow: .create, request: request)
         let id = library.append(entry, to: conversation, project: project)
         start(entry, in: id, input: nil, library: library, engine: engine)
@@ -41,7 +41,7 @@ final class Generator {
         _ workflow: Workflow, image: URL, named name: String, in conversation: UUID?, project: UUID? = nil,
         library: Library, engine: EngineController
     ) -> UUID? {
-        guard !isBusy, workflow.needsImage else { return nil }
+        guard !isBusy, !library.isReadOnly, workflow.needsImage else { return nil }
         let entry = Entry(workflow: workflow, inputName: name)
         let id = library.append(entry, to: conversation, project: project)
         start(entry, in: id, input: image, library: library, engine: engine)

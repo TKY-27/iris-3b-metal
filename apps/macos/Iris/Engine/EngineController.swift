@@ -34,6 +34,7 @@ final class EngineController {
 
     private var process: Process?
     private var stopping = false
+    private(set) var isRestarting = false
 
     static let searchPaths = [
         "~/.local/bin/iris-metal",
@@ -49,7 +50,14 @@ final class EngineController {
     }
 
     func start() async {
-        guard state != .starting, state != .ready else { return }
+        guard state != .starting, state != .ready, !isRestarting else { return }
+        await connect()
+    }
+
+    /// Attaches to a running server or launches one. `.starting` is set before the
+    /// first await, so a second call cannot launch a second engine meanwhile.
+    private func connect() async {
+        state = .starting
         if (try? await client.health()) != nil {
             state = .ready
             return
@@ -79,8 +87,12 @@ final class EngineController {
     /// Stops a launched engine and waits for it to exit, so the new one can
     /// bind the port and the old one cannot answer the first health check.
     func restart() async {
+        guard !isRestarting else { return }
+        isRestarting = true
+        defer { isRestarting = false }
         let old = process
         stop()
+        state = .starting
         if let old {
             let deadline = ContinuousClock.now + .seconds(10)
             while old.isRunning, ContinuousClock.now < deadline {
@@ -88,7 +100,7 @@ final class EngineController {
             }
             if old.isRunning { kill(old.processIdentifier, SIGKILL) }
         }
-        await start()
+        await connect()
     }
 
     private func launch(_ executable: URL) {

@@ -181,7 +181,7 @@ struct Sidebar: View {
         guard !trimmed.isEmpty else { return }
         switch naming {
         case let .newProject(moving):
-            let project = library.createProject(named: trimmed)
+            guard let project = library.createProject(named: trimmed) else { return }
             if let moving { library.move(conversation: moving, to: project) }
         case let .project(id):
             library.rename(project: id, to: trimmed)
