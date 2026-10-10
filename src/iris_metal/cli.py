@@ -48,8 +48,29 @@ def output_paths(output: Path, count: int) -> list[Path]:
     return [output.with_name(f"{output.stem}-{i}{output.suffix}") for i in range(count)]
 
 
+def serve_main(argv: list[str]) -> None:
+    from iris_metal.server import serve
+
+    parser = argparse.ArgumentParser(prog="iris-metal serve", description="Run the local HTTP API.")
+    parser.add_argument("--host", default="127.0.0.1", help="default: localhost only")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--queue", type=int, default=8, help="maximum queued requests")
+    parser.add_argument("--checkpoint", default=REPO_ID, help="local directory or Hugging Face repo")
+    parser.add_argument("--revision", help="Hugging Face revision of --checkpoint (default: validated)")
+    args = parser.parse_args(argv)
+    if not torch.backends.mps.is_available():
+        parser.error("no Apple GPU (MPS) available")
+    serve(IrisPipeline(resolve_checkpoint(args.checkpoint, args.revision)), args.host, args.port, args.queue)
+
+
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="iris-metal", description=__doc__)
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["serve"]:
+        serve_main(argv[1:])
+        return
+    parser = argparse.ArgumentParser(
+        prog="iris-metal", description=__doc__, epilog="Run `iris-metal serve --help` for the HTTP API."
+    )
     parser.add_argument("prompts", nargs="+", metavar="PROMPT")
     parser.add_argument("-o", "--output", type=Path, default=Path("iris.png"), help="default: iris.png")
     parser.add_argument(

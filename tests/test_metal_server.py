@@ -1,0 +1,106 @@
+import json
+import threading
+import time
+import urllib.error
+import urllib.request
+from types import SimpleNamespace
+
+import pytest
+from PIL import Image
+
+from iris_metal.server import JobRunner, LocalServer, make_handler, validate
+
+DEFAULTS = SimpleNamespace(steps=100, cfg_scale=3.0, negative_prompt="")
+
+
+class FakePipeline:
+    """Calls on_step like the real pipeline; ``gate`` pauses a job mid-way."""
+
+    def __init__(self):
+        self.cfg = SimpleNamespace(sample=DEFAULTS)
+        self.loaded = True
+        self.gate = threading.Event()
+        self.gate.set()
+
+    def __call__(self, prompts, height, width, steps, on_step, **kwargs):
+        for step in range(1, steps + 1):
+            self.gate.wait(5)
+            on_step(step, steps)
+        if prompts[0] == "explode":
+            raise RuntimeError("boom")
+        return [Image.new("RGB", (width, height))]
+
+
+@pytest.fixture
+def server():
+    pipe = FakePipeline()
+    httpd = LocalServer(("127.0.0.1", 0), make_handler(JobRunner(pipe, max_queued=2)))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    yield pipe, f"http://127.0.0.1:{httpd.server_address[1]}"
+    httpd.shutdown()
+
+
+def request(url, method="GET", body=None):
+    data = None if body is None else json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method=method)
+    try:
+        with urllib.request.urlopen(req) as response:
+            return response.status, response.read()
+    except urllib.error.HTTPError as error:
+        return error.code, error.read()
+
+
+def wait_for(base, job_id, status):
+    for _ in range(200):
+        _, body = request(f"{base}/v1/jobs/{job_id}")
+        if json.loads(body)["status"] == status:
+            return json.loads(body)
+        time.sleep(0.01)
+    raise AssertionError(f"job {job_id} never reached {status}")
+
+
+def test_validate_rejects_bad_sizes_and_prompts():
+    with pytest.raises(ValueError, match="multiples of 16"):
+        validate({"prompt": "x", "width": 1000}, DEFAULTS)
+    with pytest.raises(ValueError, match="prompt"):
+        validate({"prompt": "  "}, DEFAULTS)
+    assert validate({"prompt": "x"}, DEFAULTS)["steps"] == 100
+
+
+def test_generate_poll_and_fetch_png(server):
+    _, base = server
+    status, body = request(
+        f"{base}/v1/images", "POST", {"prompt": "fox", "width": 32, "height": 48, "steps": 3}
+    )
+    assert status == 202
+    job = wait_for(base, json.loads(body)["id"], "done")
+    assert job["step"] == 3
+    status, png = request(f"{base}/v1/jobs/{job['id']}/image")
+    assert status == 200 and png.startswith(b"\x89PNG")
+
+
+def test_cancel_running_job_and_report_failures(server):
+    pipe, base = server
+    pipe.gate.clear()
+    _, body = request(f"{base}/v1/images", "POST", {"prompt": "fox", "width": 16, "height": 16, "steps": 50})
+    job_id = json.loads(body)["id"]
+    wait_for(base, job_id, "running")
+    request(f"{base}/v1/jobs/{job_id}", "DELETE")
+    pipe.gate.set()
+    assert wait_for(base, job_id, "cancelled")["step"] < 50
+
+    _, body = request(
+        f"{base}/v1/images", "POST", {"prompt": "explode", "width": 16, "height": 16, "steps": 1}
+    )
+    assert "boom" in wait_for(base, json.loads(body)["id"], "failed")["error"]
+
+
+def test_full_queue_is_rejected(server):
+    pipe, base = server
+    pipe.gate.clear()
+    codes = [
+        request(f"{base}/v1/images", "POST", {"prompt": "fox", "width": 16, "height": 16, "steps": 1})[0]
+        for _ in range(4)
+    ]
+    pipe.gate.set()
+    assert codes[-1] == 429  # one running, two queued, the fourth refused

@@ -43,6 +43,10 @@ class IrisPipeline:
         self._encodings: dict[str, Encoding] = {}
 
     @property
+    def loaded(self) -> bool:
+        return self._engine is not None
+
+    @property
     def engine(self) -> MetalIris:
         if self._engine is None:
             dit = load_dit(self.checkpoint, self.cfg, self.device)
