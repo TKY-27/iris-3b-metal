@@ -1,0 +1,39 @@
+{
+  "size": [1024, 1024],
+  "steps": 50,
+  "cfg_scale": 3.0,
+  "seeds": [11, 23, 37],
+  "negative_prompt": "text, letters, words, watermark, signature, frame, border, rounded square, app grid, photo of a phone, realistic human eye, eyelashes, skin, blurry, noisy, cluttered",
+  "directions": [
+    {
+      "id": "aperture",
+      "idea": "The iris diaphragm of a camera: Iris as the opening through which an image arrives.",
+      "prompt": "Premium app icon artwork: a camera iris diaphragm made of seven curved translucent glass blades forming a perfect circular aperture, the blades glowing in a smooth gradient from deep indigo to violet to cyan, soft warm light coming through the central opening, dark navy background with a gentle vignette, centered, symmetrical, clean and minimal, high-end 3D render, soft studio lighting"
+    },
+    {
+      "id": "filaments",
+      "idea": "An abstract iris of light filaments: the eye motif without an eye.",
+      "prompt": "Premium app icon artwork: an abstract ring of thousands of fine radial light filaments around a calm dark circular center, glowing violet, electric blue and teal, a thin warm golden ring at the inner edge, floating on a deep black background, centered, symmetrical, minimal and elegant, luminous digital art"
+    },
+    {
+      "id": "orb",
+      "idea": "A glass orb holding a swirl of spectral light, like the in-app generation canvas.",
+      "prompt": "Premium app icon artwork: a glossy glass sphere floating in darkness, inside it a slow swirl of spectral light forming a soft glowing ring, gentle refractions and caustics, indigo, violet and cyan with a touch of warm amber, centered, minimal, high-end 3D render, soft studio lighting"
+    },
+    {
+      "id": "flower",
+      "idea": "The iris flower, reduced to a few glass petals.",
+      "prompt": "Premium app icon artwork: a minimal stylized iris flower made of translucent frosted glass petals, three petals rising and three falling, soft violet to blue gradient with a warm yellow glow at the heart, centered on a smooth dark gradient background, clean geometric shapes, high-end 3D render, soft lighting"
+    },
+    {
+      "id": "halo",
+      "idea": "A single ring of liquid light: the simplest silhouette, strongest at 16 px.",
+      "prompt": "Premium app icon artwork: one thick glowing ring of liquid light like a solar eclipse corona, smooth flowing spectral colors from violet to blue to cyan to soft gold, centered on a pure black background, minimal, elegant, high contrast, perfectly round"
+    },
+    {
+      "id": "rosette",
+      "idea": "Overlapping spectral petals: an iris, a flower and a color wheel at once.",
+      "prompt": "Premium app icon artwork: six overlapping translucent rounded petals arranged in a circular rosette, each petal a different hue from violet to blue to teal, glowing where they overlap, centered on a dark charcoal background, flat minimal style with soft gradients, symmetrical"
+    }
+  ]
+}
