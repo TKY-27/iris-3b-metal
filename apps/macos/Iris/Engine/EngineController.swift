@@ -60,10 +60,10 @@ final class EngineController {
         await waitUntilReady()
     }
 
-    /// A request found the server gone while it was believed ready.
+    /// A request found the server gone while it was believed ready. A process we
+    /// launched is kept, so quitting or restarting still terminates it if it hangs.
     func connectionLost() {
         guard state == .ready else { return }
-        process = nil
         state = .failed("The engine stopped responding.")
     }
 
@@ -95,7 +95,8 @@ final class EngineController {
         }
         process.terminationHandler = { [weak self] finished in
             let code = finished.terminationStatus
-            Task { @MainActor in self?.processExited(code: code) }
+            let exited = ObjectIdentifier(finished)
+            Task { @MainActor in self?.processExited(exited, code: code) }
         }
         do {
             try process.run()
@@ -123,8 +124,10 @@ final class EngineController {
         logTail = Array((logTail + lines).suffix(12))
     }
 
-    private func processExited(code: Int32) {
-        process = nil
+    private func processExited(_ exited: ObjectIdentifier, code: Int32) {
+        // after a restart the old process may exit late; it says nothing about the new one
+        guard let process, ObjectIdentifier(process) == exited else { return }
+        self.process = nil
         guard !stopping else { return }
         state = .failed("The engine stopped unexpectedly (exit code \(code)).")
     }

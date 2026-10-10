@@ -132,11 +132,13 @@ final class Generator {
 
     /// Any image ImageIO reads (HEIC, RAW, TIFF, ...) as PNG, which the engine accepts.
     static func png(from url: URL) throws -> Data {
-        // the thumbnail path applies the EXIF orientation, as upstream's exif_transpose does
+        // the thumbnail path applies the EXIF orientation, as upstream's exif_transpose does;
+        // 4096 pixels keeps a camera photo's PNG under the engine's upload limit, and depth
+        // and upscaling look at no more than 1024 pixels of the long side by default
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: 1 << 16,
+            kCGImageSourceThumbnailMaxPixelSize: 4096,
         ]
         guard
             let source = CGImageSourceCreateWithURL(url as CFURL, nil),
