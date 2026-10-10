@@ -32,3 +32,6 @@ wids-meta.json
 /iris-3b/
 /.scratch/
 /runs/
+
+# Xcode per-user state
+xcuserdata/
