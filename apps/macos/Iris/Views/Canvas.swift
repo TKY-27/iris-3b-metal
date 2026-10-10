@@ -61,12 +61,13 @@ private struct GenerationProgress: View {
             case let .sampling(step, total, secondsLeft):
                 ProgressView(value: Double(step), total: Double(total))
                     .frame(maxWidth: 360)
-                HStack {
-                    Text("Step \(step) of \(total)")
+                // one string, so it reads naturally and stays translatable as a whole
+                Group {
                     if let secondsLeft {
-                        Text("·")
-                        Text(Duration.seconds(secondsLeft), format: .units(allowed: [.minutes, .seconds], width: .abbreviated))
-                        Text("left")
+                        let remaining = Duration.seconds(secondsLeft)
+                        Text("Step \(step) of \(total) · \(remaining, format: .units(allowed: [.minutes, .seconds], width: .abbreviated)) left")
+                    } else {
+                        Text("Step \(step) of \(total)")
                     }
                 }
                 .font(.callout)

@@ -62,9 +62,12 @@ private struct HistoryRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
                     .lineLimit(2)
-                Text(item.created, format: .relative(presentation: .named))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                // re-rendered every minute, so "now" becomes "5 minutes ago"
+                TimelineView(.everyMinute) { _ in
+                    Text(item.created, format: .relative(presentation: .named))
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 2)
