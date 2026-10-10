@@ -1,12 +1,13 @@
 """Inference-only forward pass over the weights of an upstream ``IrisDiT``.
 
-The upstream model is evaluated in its released configuration: FP32 master
-weights under BF16 autocast. This module follows that recipe with BF16 linear
-weights and biases (autocast rounds them the same way on every call) and FP32
-norm gains, adaLN biases and residual streams. Elementwise work is fused and
-rounded less often than under autocast, and attention inputs default to FP16
-(see ``kernels``), so results are closer to an FP32 forward rather than
-bit-identical to the reference. The computation is restructured for Apple GPUs:
+Upstream runs the released model as FP32 master weights under BF16 autocast.
+This module keeps norm gains, adaLN biases and the residual streams in FP32,
+like that recipe, but evaluates the patch transformer's linear layers and
+attention in FP16, which carries three more bits than BF16 (the pixel stage
+and the text adapter stay BF16; see ``loading.linear_dtypes``). Elementwise
+work is fused and rounded less often than under autocast (see ``kernels``),
+so results are closer to an FP32 forward than the upstream recipe, not
+bit-identical to it. The computation is restructured for Apple GPUs:
 
 - the text adapter depends only on the prompt and runs once per prompt, not
   once per sampling step;
@@ -183,7 +184,7 @@ class MetalIris:
 
         patches = x.reshape(batch, channels, grid[0], p, grid[1], p).permute(0, 2, 4, 1, 3, 5)
         image = linear(patches.reshape(batch, grid[0] * grid[1], -1), dit.s_embedder.proj)
-        t_emb = dit.t_embedder(t)  # [B, 1, D], BF16
+        t_emb = dit.t_embedder(t)  # [B, 1, D] in the trunk dtype
         cond = F.silu(t_emb)
         cores = {name: linear(cond, core) for name, core in dit.modulation_cores.items()}
 
