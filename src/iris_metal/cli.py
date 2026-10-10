@@ -1,6 +1,7 @@
 """Generate images with Iris-3B on an Apple Silicon GPU."""
 
 import argparse
+import functools
 import re
 import sys
 import time
@@ -15,6 +16,7 @@ from iris_metal.pipeline import IrisPipeline
 REPO_ID = "speridlabs/iris-3b"
 # the checkpoint revision this engine was validated against
 REVISION = "7445443349bc9abe3c96f01ff793e2098ca012b3"
+MAX_SEED = 2**63  # the CPU generator's seed range
 
 
 def resolve_checkpoint(name: str, revision: str | None) -> Path:
@@ -44,10 +46,60 @@ def parse_size(text: str) -> tuple[int, int]:
     return width, height
 
 
+def int_range(low: int, high: int | None = None):
+    """An argparse type for integers in ``[low, high)``."""
+
+    def parse(text: str) -> int:
+        try:
+            value = int(text)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"{text!r} is not an integer") from None
+        if value < low or (high is not None and value >= high):
+            bound = f"in [{low}, {high})" if high is not None else f"at least {low}"
+            raise argparse.ArgumentTypeError(f"must be {bound}")
+        return value
+
+    return parse
+
+
 def output_paths(output: Path, count: int) -> list[Path]:
     if count == 1:
         return [output]
     return [output.with_name(f"{output.stem}-{i}{output.suffix}") for i in range(count)]
+
+
+def task_outputs(inputs: list[Path], out: Path, suffix: str) -> list[Path]:
+    """``<out>/<stem><suffix>.png`` per input. Inputs that share a stem (``a/photo.jpg``,
+    ``b/photo.jpg``, ``photo.png``) get ``-2``, ``-3``, ... in input order instead of
+    overwriting each other; names compare case-insensitively, as on APFS."""
+    taken: set[str] = set()
+    targets = []
+    for path in inputs:
+        name, n = f"{path.stem}{suffix}", 1
+        while name.casefold() in taken:
+            n += 1
+            name = f"{path.stem}-{n}{suffix}"
+        taken.add(name.casefold())
+        targets.append(out / f"{name}.png")
+    return targets
+
+
+def check_readable(path: Path) -> Image.Image:
+    """Decodes ``path`` fully, raising ValueError if it cannot; the closed image keeps its size."""
+    try:
+        with Image.open(path) as image:
+            image.load()
+            return image
+    except (OSError, Image.DecompressionBombError) as exc:
+        raise ValueError(f"not a readable image ({exc})") from exc
+
+
+def check_output(parser: argparse.ArgumentParser, path: Path) -> None:
+    """Fail before generating rather than when saving after minutes of work."""
+    if path.is_dir():
+        parser.error(f"{path} is a directory; give a file name such as {path / 'iris.png'}")
+    if path.suffix.lower() not in Image.registered_extensions():
+        parser.error(f"{path}: give the file an image extension such as .png")
 
 
 def load_task(task: str, source: str = REPO_ID, revision: str | None = None):
@@ -63,17 +115,18 @@ def serve_main(argv: list[str]) -> None:
 
     parser = argparse.ArgumentParser(prog="iris-metal serve", description="Run the local HTTP API.")
     parser.add_argument("--host", default="127.0.0.1", help="default: localhost only")
-    parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--queue", type=int, default=8, help="maximum queued requests")
+    parser.add_argument("--port", type=int_range(1, 65536), default=8765)
+    parser.add_argument("--queue", type=int_range(1), default=8, help="maximum queued requests")
     parser.add_argument("--checkpoint", default=REPO_ID, help="local directory or Hugging Face repo")
     parser.add_argument("--revision", help="Hugging Face revision of --checkpoint (default: validated)")
+    parser.add_argument("--weights", default=REPO_ID, help="depth and upscaling: local export or repo")
+    parser.add_argument("--weights-revision", help="Hugging Face revision of --weights (default: validated)")
     args = parser.parse_args(argv)
-    if args.queue < 1:
-        parser.error("--queue must be at least 1")
     if not torch.backends.mps.is_available():
         parser.error("no Apple GPU (MPS) available")
     pipe = IrisPipeline(resolve_checkpoint(args.checkpoint, args.revision))
-    serve(Models(pipe, load_task), args.host, args.port, args.queue)
+    tasks = functools.partial(load_task, source=args.weights, revision=args.weights_revision)
+    serve(Models(pipe, tasks), args.host, args.port, args.queue)
 
 
 def task_main(task: str, argv: list[str]) -> None:
@@ -92,32 +145,39 @@ def task_main(task: str, argv: list[str]) -> None:
         parser.add_argument("--no-budget", action="store_true", help="do not downscale large inputs first")
         parser.add_argument("--no-color-fix", action="store_true")
     else:
-        parser.add_argument("--max-side", type=int, default=1024, help="long side the model sees; 0 = native")
+        parser.add_argument(
+            "--max-side", type=int_range(0), default=1024, help="long side the model sees; 0 = native"
+        )
     args = parser.parse_args(argv)
     if not torch.backends.mps.is_available():
         parser.error("no Apple GPU (MPS) available")
-    if upscale:  # before the 12 GB model loads
-        for path in args.images:
-            try:
-                check_upscale_input(Image.open(path))
-            except ValueError as error:
-                parser.error(f"{path}: {error}")
+    if args.out.exists() and not args.out.is_dir():
+        parser.error(f"--out {args.out} is a file, not a directory")
+    for path in args.images:  # before the 12 GB model loads
+        try:
+            image = check_readable(path)
+            if upscale:
+                check_upscale_input(image)
+        except ValueError as error:
+            parser.error(f"{path}: {error}")
+    targets = task_outputs(args.images, args.out, "_x4" if upscale else "_depth")
+
     model = load_task(task, args.weights, args.revision)
     args.out.mkdir(parents=True, exist_ok=True)
-    for path in args.images:
-        image = Image.open(path)
+    for path, target in zip(args.images, targets, strict=True):
         start = time.perf_counter()
-        if upscale:
-            from iris3b.downstream.restoration import fit_budget
+        with Image.open(path) as image:
+            if upscale:
+                from iris3b.downstream.restoration import fit_budget
 
-            result = model(image if args.no_budget else fit_budget(image), color_fix=not args.no_color_fix)
-            target = args.out / f"{path.stem}_x4.png"
-            result.save(target)
-        else:
-            depth = model(image, max_side=args.max_side)
-            target = args.out / f"{path.stem}_depth.png"
-            np.save(target.with_suffix(".npy"), depth)
-            depth_image(depth).save(target)
+                result = model(
+                    image if args.no_budget else fit_budget(image), color_fix=not args.no_color_fix
+                )
+                result.save(target)
+            else:
+                depth = model(image, max_side=args.max_side)
+                np.save(target.with_suffix(".npy"), depth)
+                depth_image(depth).save(target)
         print(f"{path} -> {target} ({time.perf_counter() - start:.1f}s)", file=sys.stderr)
 
 
@@ -139,10 +199,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--size", type=parse_size, default=(1024, 1024), help="WIDTHxHEIGHT, default 1024x1024"
     )
-    parser.add_argument("--steps", type=int, default=100)
-    parser.add_argument("--cfg-scale", type=float, default=3.0)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--negative-prompt", default="")
+    parser.add_argument("--steps", type=int_range(1), help="default: the checkpoint's (100)")
+    parser.add_argument("--cfg-scale", type=float, help="default: the checkpoint's (3)")
+    parser.add_argument("--seed", type=int_range(0, MAX_SEED), default=0)
+    parser.add_argument("--negative-prompt", help="default: the checkpoint's (empty)")
     parser.add_argument("--checkpoint", default=REPO_ID, help="local directory or Hugging Face repo")
     parser.add_argument("--revision", help="Hugging Face revision of --checkpoint (default: validated)")
     parser.add_argument(
@@ -154,12 +214,15 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if not torch.backends.mps.is_available():
         parser.error("no Apple GPU (MPS) available")
+    paths = output_paths(args.output, len(args.prompts))
+    for path in paths:
+        check_output(parser, path)
 
     pipe = IrisPipeline(
         resolve_checkpoint(args.checkpoint, args.revision), attention_dtype=getattr(torch, args.attention)
     )
     width, height = args.size
-    for prompt, path in zip(args.prompts, output_paths(args.output, len(args.prompts)), strict=True):
+    for prompt, path in zip(args.prompts, paths, strict=True):
         start = time.perf_counter()
         step_one = 0.0  # models load before the first step, so the rate is timed from there
 
