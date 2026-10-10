@@ -3,10 +3,13 @@
 import argparse
 import functools
 import math
+import os
 import re
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import BinaryIO
 
 import numpy as np
 import torch
@@ -70,26 +73,63 @@ def finite_float(text: str) -> float:
     return value
 
 
-def output_paths(output: Path, count: int) -> list[Path]:
-    if count == 1:
-        return [output]
-    return [output.with_name(f"{output.stem}-{i}{output.suffix}") for i in range(count)]
+def first_free(name: Callable[[int], Path], taken: set[str], extensions: tuple[str, ...] = ()) -> Path:
+    """``name(1)``, ``name(2)``, ...: the first path that is neither chosen earlier in this run nor
+    on disk, together with its ``extensions`` siblings. Names compare case-insensitively, as on APFS."""
+    n = 1
+    while True:
+        path = name(n)
+        family = [path, *(path.with_suffix(ext) for ext in extensions)]
+        # lexists: a dangling symlink also takes the name (exclusive create would fail on it)
+        if not any(str(p).casefold() in taken or os.path.lexists(p) for p in family):
+            taken.update(str(p).casefold() for p in family)
+            return path
+        n += 1
 
 
-def task_outputs(inputs: list[Path], out: Path, suffix: str) -> list[Path]:
-    """``<out>/<stem><suffix>.png`` per input. Inputs that share a stem (``a/photo.jpg``,
-    ``b/photo.jpg``, ``photo.png``) get ``-2``, ``-3``, ... in input order instead of
-    overwriting each other; names compare case-insensitively, as on APFS."""
+def numbered(output: Path) -> Callable[[int], Path]:
+    """``output``, then ``<stem>-2<ext>``, ``<stem>-3<ext>``, ..."""
+    return lambda n: output if n == 1 else output.with_name(f"{output.stem}-{n}{output.suffix}")
+
+
+def task_name(out: Path, stem: str, suffix: str) -> Callable[[int], Path]:
+    """``<out>/<stem><suffix>.png``, then ``<stem>-2<suffix>.png``, ..."""
+    return lambda n: out / f"{stem}{'' if n == 1 else f'-{n}'}{suffix}.png"
+
+
+def save_new(
+    path: Path, write: Callable[[BinaryIO], None], name: Callable[[int], Path], extensions=()
+) -> Path:
+    """Writes ``path`` only if it does not exist, at the moment of writing; when another run
+    took the name meanwhile, the next free one. Returns where the file went."""
+    while True:
+        try:
+            with open(path, "xb") as file:
+                write(file)
+            return path
+        except FileExistsError:
+            taken = path
+            path = first_free(name, set(), extensions)
+            if path == taken:  # cannot happen with lexists; never spin
+                raise
+
+
+def output_paths(output: Path, count: int, overwrite: bool) -> list[Path]:
+    """``output`` for one prompt; ``<stem>.png``, ``<stem>-2.png``, ... for several. Unless
+    ``overwrite`` (an explicit ``-o``), names already on disk are skipped, so a run never
+    replaces an earlier image."""
+    name = numbered(output)
+    if overwrite:
+        return [name(n) for n in range(1, count + 1)]
     taken: set[str] = set()
-    targets = []
-    for path in inputs:
-        name, n = f"{path.stem}{suffix}", 1
-        while name.casefold() in taken:
-            n += 1
-            name = f"{path.stem}-{n}{suffix}"
-        taken.add(name.casefold())
-        targets.append(out / f"{name}.png")
-    return targets
+    return [first_free(name, taken) for _ in range(count)]
+
+
+def task_outputs(inputs: list[Path], out: Path, suffix: str, extensions: tuple[str, ...] = ()) -> list[Path]:
+    """``<out>/<stem><suffix>.png`` per input, numbered ``<stem>-2<suffix>.png``, ... where inputs
+    share a stem (``a/photo.jpg``, ``b/photo.jpg``) or an earlier run's output is in the way."""
+    taken: set[str] = set()
+    return [first_free(task_name(out, path.stem, suffix), taken, extensions) for path in inputs]
 
 
 def check_readable(path: Path) -> Image.Image:
@@ -102,12 +142,16 @@ def check_readable(path: Path) -> Image.Image:
         raise ValueError(f"not a readable image ({exc})") from exc
 
 
+# formats Pillow can write an RGB image in
+OUTPUT_FORMATS = {"PNG", "JPEG", "WEBP", "TIFF", "BMP"}
+
+
 def check_output(parser: argparse.ArgumentParser, path: Path) -> None:
     """Fail before generating rather than when saving after minutes of work."""
     if path.is_dir():
         parser.error(f"{path} is a directory; give a file name such as {path / 'iris.png'}")
-    if path.suffix.lower() not in Image.registered_extensions():
-        parser.error(f"{path}: give the file an image extension such as .png")
+    if Image.registered_extensions().get(path.suffix.lower()) not in OUTPUT_FORMATS:
+        parser.error(f"{path}: give the file a .png, .jpg, .webp, .tif or .bmp extension")
 
 
 def load_task(task: str, source: str = REPO_ID, revision: str | None = None):
@@ -168,7 +212,9 @@ def task_main(task: str, argv: list[str]) -> None:
                 check_upscale_input(image)
         except ValueError as error:
             parser.error(f"{path}: {error}")
-    targets = task_outputs(args.images, args.out, "_x4" if upscale else "_depth")
+    targets = task_outputs(
+        args.images, args.out, "_x4" if upscale else "_depth", () if upscale else (".npy",)
+    )
 
     model = load_task(task, args.weights, args.revision)
     args.out.mkdir(parents=True, exist_ok=True)
@@ -181,11 +227,19 @@ def task_main(task: str, argv: list[str]) -> None:
                 result = model(
                     image if args.no_budget else fit_budget(image), color_fix=not args.no_color_fix
                 )
-                result.save(target)
+                target = save_new(
+                    target,
+                    functools.partial(result.save, format="PNG"),
+                    task_name(args.out, path.stem, "_x4"),
+                )
             else:
                 depth = model(image, max_side=args.max_side)
-                np.save(target.with_suffix(".npy"), depth)
-                depth_image(depth).save(target)
+                name = task_name(args.out, path.stem, "_depth")
+                target = save_new(
+                    target, functools.partial(depth_image(depth).save, format="PNG"), name, (".npy",)
+                )
+                with open(target.with_suffix(".npy"), "xb") as file:  # never replaces either
+                    np.save(file, depth)
         print(f"{path} -> {target} ({time.perf_counter() - start:.1f}s)", file=sys.stderr)
 
 
@@ -200,10 +254,16 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="iris-metal",
         description=__doc__,
-        epilog="Other commands: iris-metal depth, iris-metal upscale, iris-metal serve (each has --help).",
+        epilog="Other commands: iris-metal depth, iris-metal upscale, iris-metal serve (each has --help). "
+        "To generate one of those words as a prompt, put -- before it.",
     )
     parser.add_argument("prompts", nargs="+", metavar="PROMPT")
-    parser.add_argument("-o", "--output", type=Path, default=Path("iris.png"), help="default: iris.png")
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="replaced if it exists (default: iris.png, iris-2.png, ..., never replaced)",
+    )
     parser.add_argument(
         "--size", type=parse_size, default=(1024, 1024), help="WIDTHxHEIGHT, default 1024x1024"
     )
@@ -222,7 +282,9 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if not torch.backends.mps.is_available():
         parser.error("no Apple GPU (MPS) available")
-    paths = output_paths(args.output, len(args.prompts))
+    paths = output_paths(
+        args.output or Path("iris.png"), len(args.prompts), overwrite=args.output is not None
+    )
     for path in paths:
         check_output(parser, path)
 
@@ -254,7 +316,11 @@ def main(argv: list[str] | None = None) -> None:
             on_step=progress,
         )[0]
         path.parent.mkdir(parents=True, exist_ok=True)
-        image.save(path)
+        if args.output is not None:
+            image.save(path)
+        else:  # another run may have taken the name while this one generated
+            fmt = Image.registered_extensions()[path.suffix.lower()]
+            path = save_new(path, functools.partial(image.save, format=fmt), numbered(Path("iris.png")))
         print(f"\r{path}: {width}x{height}, {time.perf_counter() - start:.0f}s", file=sys.stderr)
 
 
