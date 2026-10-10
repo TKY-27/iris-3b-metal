@@ -16,7 +16,7 @@ Endpoints (JSON unless noted):
 A full queue answers 429; cancelling a queued job frees its place at once.
 One worker thread runs the jobs in order, and at most one network is resident:
 a request for a different task releases the previous model first, which keeps
-a 24 GB Mac out of swap. Only the standard library is used. The server binds to
+a 24 GB Mac out of swap. The HTTP layer uses only the standard library. It binds to
 localhost by default and has no authentication: do not expose it to a network.
 Any web page the user opens can also reach localhost, so requests that come
 from a browser (they carry ``Origin`` or a cross-site ``Sec-Fetch-Site``) or
@@ -50,7 +50,7 @@ MAX_UPLOAD_PIXELS = 50_000_000
 MAX_PIXELS = 2048 * 2048
 MAX_STEPS = 500
 MAX_DEPTH_SIDE = 2048
-# without the budget, the output area the budget allows (2048 x 4096 at 4x)
+# without the budget, inputs may cover what the budget would leave (512 x 1024; 2048 x 4096 at 4x)
 MAX_UNBUDGETED_UPSCALE_PIXELS = 512 * 1024
 KEEP_FINISHED = 32
 REQUEST_TIMEOUT_S = 120  # a stalled client cannot hold a handler thread forever

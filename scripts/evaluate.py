@@ -6,7 +6,7 @@ Usage:
     python scripts/compare_runs.py runs/reference runs/steps50
 
 Images are written as ``<out>/<prompt id>.png`` with a ``meta.json`` holding
-the configuration, per-image sampling time and the environment. Existing
+the configuration and each image's size and sampling time. Existing
 images are kept, so an interrupted run resumes where it stopped. Keep the
 ``holdout`` split for confirming a decision made on ``dev``.
 """

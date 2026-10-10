@@ -121,7 +121,7 @@ class MetalRestorer(Restorer):
 
     @torch.no_grad()
     def restore_tile(self, x: torch.Tensor) -> torch.Tensor:
-        if self.on_tile is not None:  # current: require_finite waited for the previous tile
+        if self.on_tile is not None:  # the previous tile has synced (require_finite)
             self.on_tile()
         t = torch.full((x.shape[0],), self.time, device=x.device)
         v = self.engine(x, t, self.text.expand(x.shape[0], -1, -1))

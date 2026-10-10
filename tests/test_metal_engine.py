@@ -209,7 +209,7 @@ def test_load_dit_precision_plan(tmp_path):
 
 
 @requires_mps
-def test_default_path_is_as_accurate_as_upstream_autocast(tmp_path):
+def test_default_path_is_within_20_percent_of_upstream_autocast_error(tmp_path):
     """The default configuration (FP16 trunk, BF16 pixel stage, fused kernels, FP16
     attention) against upstream under BF16 autocast, both measured against FP32."""
     model = _randomized_model()
@@ -226,7 +226,6 @@ def test_default_path_is_as_accurate_as_upstream_autocast(tmp_path):
         )
         actual = engine(gpu[0], gpu[1], engine.encode_text(states, mask)).cpu()
     reference_error = _relative_error(reference, exact)
-    print(f"engine {_relative_error(actual, exact):.4f}  upstream autocast {reference_error:.4f}")
     assert 0 < reference_error < 0.05
     assert _relative_error(actual, exact) < 1.2 * reference_error
 

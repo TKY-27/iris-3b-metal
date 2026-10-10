@@ -26,7 +26,7 @@ train = [
 ]
 eval = ["lpips>=0.1.4"]
 dev = ["pytest>=8.0", "ruff>=0.8"]
-ui = ["gradio>=5.49,<6", "spaces"]
+ui = ["gradio>=5.49,<6", "spaces", "matplotlib>=3.8"]  # the upstream demo
 
 [project.scripts]
 iris-metal = "iris_metal.cli:main"

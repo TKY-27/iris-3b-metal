@@ -24,13 +24,13 @@ def linear_dtypes(model: nn.Module, trunk: torch.dtype) -> dict[str, torch.dtype
     reaches about 1.4e4, too close to FP16's 6.5e4 limit, and neither part is
     sensitive to BF16 rounding.
     """
-    bf16 = torch.float32 if trunk == torch.float32 else torch.bfloat16
-    bf16_modules = set()
+    side = torch.float32 if trunk == torch.float32 else torch.bfloat16  # text adapter and pixel stage
+    side_modules = set()
     for dit in (module for module in model.modules() if isinstance(module, IrisDiT)):
         for part in (dit.y_embedder, dit.pixel_embedder, dit.pixel_blocks, dit.final_layer):
-            bf16_modules.update(id(sub) for sub in part.modules())
+            side_modules.update(id(sub) for sub in part.modules())
     return {
-        f"{name}.{param}": bf16 if id(module) in bf16_modules else trunk
+        f"{name}.{param}": side if id(module) in side_modules else trunk
         for name, module in model.named_modules()
         if isinstance(module, nn.Linear)
         for param, _ in module.named_parameters(recurse=False)
