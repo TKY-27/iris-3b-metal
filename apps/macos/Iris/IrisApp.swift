@@ -3,36 +3,73 @@ import SwiftUI
 @main
 struct IrisApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
-    @State private var history = History()
-    @State private var generator = Generator()
 
     var body: some Scene {
         Window("Iris", id: "main") {
             ContentView()
                 .environment(delegate.engine)
-                .environment(history)
-                .environment(generator)
-                .frame(minWidth: 820, minHeight: 560)
-                .task { await delegate.engine.start() }
+                .environment(delegate.library)
+                .environment(delegate.generator)
+                .environment(delegate.workspace)
+                .frame(minWidth: 760, minHeight: 520)
+                .task { if !AppDelegate.isTestHost { await delegate.engine.start() } }
         }
-        .defaultSize(width: 1180, height: 800)
+        .defaultSize(width: 1180, height: 820)
         .commands {
-            CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .newItem) {
+                Button("New Conversation") { delegate.workspace.newConversation() }
+                    .keyboardShortcut("n")
+                Button("New Project…") { delegate.workspace.requestsNewProject = true }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+            }
         }
 
         Settings {
             SettingsView()
                 .environment(delegate.engine)
-                .environment(history)
+                .environment(delegate.library)
+                .environment(delegate.generator)
         }
     }
 }
 
-/// Stops an engine this app launched when the app quits.
+/// Owns the app's state, and stops a running request and a launched engine on quit.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Unit tests run inside the app; they must not touch the user's library or start an engine.
+    static let isTestHost = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+
     @MainActor let engine = EngineController()
+    @MainActor let library = Library(store: LibraryStore(
+        root: isTestHost ? .temporaryDirectory.appending(path: "IrisTestHost-\(UUID().uuidString)") : LibraryStore.defaultRoot
+    ))
+    @MainActor let generator = Generator()
+    @MainActor lazy var workspace = Workspace(library: library)
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true  // a launched engine holds several GB of memory
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        MainActor.assumeIsolated {
+            guard generator.isBusy else { return .terminateNow }
+            let alert = NSAlert()
+            alert.messageText = "Stop the current request and quit?"
+            alert.informativeText = "The image in progress will not be finished."
+            alert.addButton(withTitle: "Quit")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
+            Task {
+                await generator.cancelAndWait(engine: engine)
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
+        }
+    }
 
     func applicationWillTerminate(_ notification: Notification) {
-        MainActor.assumeIsolated { engine.stop() }
+        MainActor.assumeIsolated {
+            engine.stop()
+            library.flush()
+        }
     }
 }

@@ -22,6 +22,7 @@ private struct EngineSettings: View {
                 TextField("iris-metal location", text: $path, prompt: Text(engine.resolvedExecutable()?.path ?? "Not found"))
                 Button("Choose…", action: choose)
                 TextField("Port", value: $port, format: .number.grouping(.never))
+                    .help("\(EngineController.portRange.lowerBound)–\(EngineController.portRange.upperBound)")
             } footer: {
                 Text("Iris runs the iris-metal engine (see the README to install it) as a local server on 127.0.0.1. Leave the location empty to search ~/.local/bin and Homebrew.")
                     .font(.caption)
@@ -61,9 +62,11 @@ private struct EngineSettings: View {
 }
 
 private struct StorageSettings: View {
-    @Environment(History.self) private var history
+    @Environment(Library.self) private var library
+    @Environment(Generator.self) private var generator
     @State private var models: [ModelCache] = []
-    @State private var confirmsClearHistory = false
+    @State private var libraryBytes: Int64?
+    @State private var confirmsDelete = false
 
     var body: some View {
         Form {
@@ -89,20 +92,31 @@ private struct StorageSettings: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
-            Section("History") {
-                LabeledContent("^[\(history.items.count) image](inflect: true)") {
-                    Text(history.byteCount, format: .byteCount(style: .file))
-                    Button("Clear History…", role: .destructive) { confirmsClearHistory = true }
-                        .disabled(history.items.isEmpty)
+            Section("Library") {
+                LabeledContent("^[\(library.conversations.count) conversation](inflect: true)") {
+                    if let libraryBytes {
+                        Text(libraryBytes, format: .byteCount(style: .file))
+                    }
+                    Button("Show in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([library.store.root])
+                    }
+                }
+                HStack {
+                    Spacer()
+                    Button("Delete All Conversations…", role: .destructive) { confirmsDelete = true }
+                        .disabled(library.conversations.isEmpty)
                 }
             }
         }
         .formStyle(.grouped)
         .task { models = await ModelCache.scan() }
-        .confirmationDialog("Delete all \(history.items.count) images?", isPresented: $confirmsClearHistory) {
-            Button("Delete All", role: .destructive) { history.removeAll() }
+        .task(id: library.entryCount) { libraryBytes = await library.byteCount() }
+        .confirmationDialog("Delete all conversations and their images?", isPresented: $confirmsDelete) {
+            Button("Delete All", role: .destructive) {
+                library.deleteAllConversations(except: generator.active?.conversation)
+            }
         } message: {
-            Text("This cannot be undone.")
+            Text("Projects are kept. A request that is running is not deleted. This cannot be undone.")
         }
     }
 }

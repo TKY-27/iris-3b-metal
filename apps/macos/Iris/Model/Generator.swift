@@ -1,158 +1,134 @@
 import Foundation
-import ImageIO
 import Observation
 
-/// The native Iris-3B resolutions: the aspect buckets of its 1024-pixel
-/// training stages (`src/iris3b/data/buckets.py`), about one megapixel each.
-struct ImageSize: Hashable, Identifiable, Sendable {
-    let width: Int
-    let height: Int
-
-    var id: String { "\(width)x\(height)" }
-    var label: String { "\(width) × \(height)" }
-
-    static let square = ImageSize(width: 1024, height: 1024)
-    static let landscape: [ImageSize] = [
-        (1088, 960), (1152, 896), (1280, 832), (1344, 768), (1472, 704),
-        (1600, 640), (1664, 640), (1792, 576), (1856, 576), (2048, 512),
-    ].map { ImageSize(width: $0.0, height: $0.1) }
-    static let portrait = landscape.map { ImageSize(width: $0.height, height: $0.width) }
-}
-
+/// Runs one library entry at a time on the engine and records its outcome.
 @MainActor
 @Observable
 final class Generator {
-    enum Phase: Equatable {
-        case idle
-        case waiting  // submitted, queued behind another request or loading the model
-        case sampling(step: Int, of: Int, secondsLeft: Double?)
-        case failed(String)
+    struct Progress: Equatable {
+        /// 0 while queued or loading the model.
+        var step = 0
+        var steps = 0
+        var secondsLeft: Double?
     }
 
-    var prompt = ""
-    var negativePrompt = ""
-    var size = ImageSize.square
-    var steps = 100
-    var cfgScale = 3.0
-    var seed = 0
-    var randomizeSeed = true
+    /// The entry being run and its conversation.
+    private(set) var active: (entry: UUID, conversation: UUID)?
+    private(set) var progress = Progress()
 
-    private(set) var phase: Phase = .idle
-    private var job: String?
+    @ObservationIgnored private var job: String?
+    @ObservationIgnored private var cancelRequested = false
+    @ObservationIgnored private var task: Task<Void, Never>?
 
-    var isBusy: Bool {
-        switch phase {
-        case .waiting, .sampling: true
-        case .idle, .failed: false
-        }
+    var isBusy: Bool { active != nil }
+
+    /// Adds a text-to-image entry to `conversation` (a new one when nil) and runs it.
+    @discardableResult
+    func generate(
+        _ request: GenerationRequest, in conversation: UUID?, project: UUID? = nil,
+        library: Library, engine: EngineController
+    ) -> UUID? {
+        guard !isBusy else { return nil }
+        let entry = Entry(workflow: .create, request: request)
+        let id = library.append(entry, to: conversation, project: project)
+        start(entry, in: id, input: nil, library: library, engine: engine)
+        return id
     }
 
-    var workflow = Workflow.create
-    /// The image to estimate depth of or upscale.
-    var input: URL?
-
-    var canRun: Bool {
-        guard !isBusy else { return false }
-        switch workflow {
-        case .create: return !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        case .depth, .upscale: return input != nil
-        }
+    /// Adds a depth or upscaling entry for an image file or an earlier result and runs it.
+    @discardableResult
+    func process(
+        _ workflow: Workflow, image: URL, named name: String, in conversation: UUID?, project: UUID? = nil,
+        library: Library, engine: EngineController
+    ) -> UUID? {
+        guard !isBusy, workflow.needsImage else { return nil }
+        let entry = Entry(workflow: workflow, inputName: name)
+        let id = library.append(entry, to: conversation, project: project)
+        start(entry, in: id, input: image, library: library, engine: engine)
+        return id
     }
 
-    func reuse(_ request: GenerationRequest) {
-        workflow = .create
-        prompt = request.prompt
-        negativePrompt = request.negativePrompt
-        size = ImageSize(width: request.width, height: request.height)
-        steps = request.steps
-        cfgScale = request.cfgScale
-        seed = request.seed
-        randomizeSeed = false
-    }
-
-    /// Runs the current workflow to completion; returns the saved item, or nil if cancelled or failed.
-    func run(engine: EngineController, history: History) async -> HistoryItem? {
-        guard canRun else { return nil }
-        let workflow = workflow
-        var request: GenerationRequest?
-        if workflow == .create {
-            if randomizeSeed {
-                seed = Int.random(in: 0..<Int(Int32.max))
-            }
-            request = GenerationRequest(
-                prompt: prompt, width: size.width, height: size.height, steps: steps,
-                cfgScale: cfgScale, seed: seed, negativePrompt: negativePrompt
+    /// Runs a finished, failed or cancelled entry's request again as a new entry.
+    func rerun(_ entry: Entry, newSeed: Bool, in conversation: UUID, library: Library, engine: EngineController) {
+        if var request = entry.request {
+            if newSeed { request.seed = Int.random(in: GenerationSettings.seedRange) }
+            generate(request, in: conversation, library: library, engine: engine)
+        } else if FileManager.default.fileExists(atPath: library.inputURL(entry.id).path) {
+            process(
+                entry.workflow, image: library.inputURL(entry.id), named: entry.inputName ?? "image",
+                in: conversation, library: library, engine: engine
             )
         }
-        let source = input?.lastPathComponent
-        phase = .waiting
+    }
+
+    func cancel(engine: EngineController) {
+        guard isBusy else { return }
+        cancelRequested = true
+        if let job {
+            Task { try? await engine.client.cancel(job) }
+        }
+    }
+
+    /// Cancels the running entry and waits briefly for the engine to confirm, e.g. before quitting.
+    func cancelAndWait(engine: EngineController) async {
+        guard let task else { return }
+        cancel(engine: engine)
+        let deadline = ContinuousClock.now + .seconds(2)
+        while isBusy, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        if isBusy { task.cancel() }
+    }
+
+    // MARK: - Private
+
+    private func start(_ entry: Entry, in conversation: UUID, input: URL?, library: Library, engine: EngineController) {
+        active = (entry.id, conversation)
+        progress = Progress()
+        cancelRequested = false
+        task = Task {
+            let outcome = await run(entry, input: input, library: library, engine: engine)
+            library.setOutcome(outcome, of: entry.id)
+            active = nil
+            job = nil
+            task = nil
+        }
+    }
+
+    private func run(_ entry: Entry, input: URL?, library: Library, engine: EngineController) async -> Entry.Outcome {
         let client = engine.client
         do {
             let id: String
-            if let request {
+            if let request = entry.request {
                 id = try await client.submit(request)
             } else if let input {
-                id = try await client.submit(workflow, png: try Self.png(from: input))
+                let png = try await Task.detached(priority: .userInitiated) { try ImageFiles.uploadPNG(from: input) }.value
+                try await library.write(png, for: entry.id, asInput: true)  // kept for "Run Again"
+                id = try await client.submit(entry.workflow, png: png)
             } else {
-                return nil
+                return .failed("This entry has no input.")
             }
             job = id
-            defer { job = nil }
+            if cancelRequested { try? await client.cancel(id) }
             let status = try await poll(id, client: client)
             switch status.status {
             case .done:
                 let png = try await client.image(of: id)
-                let item = try history.add(
-                    png: png, workflow: workflow, request: request, source: source, seconds: status.seconds ?? 0
-                )
-                phase = .idle
-                return item
+                try await library.write(png, for: entry.id)
+                return .done(seconds: status.seconds ?? 0)
             case .cancelled:
-                phase = .idle
+                return .cancelled
             default:
-                phase = .failed(status.error ?? "The engine could not generate this image.")
+                return .failed(status.error ?? "The engine could not finish this request.")
             }
+        } catch is CancellationError {
+            return .interrupted
         } catch EngineError.unreachable {
-            phase = .idle
             engine.connectionLost()
+            return .failed(EngineError.unreachable.localizedDescription)
         } catch {
-            phase = .failed(error.localizedDescription)
+            return cancelRequested ? .cancelled : .failed(error.localizedDescription)
         }
-        return nil
-    }
-
-    func cancel(engine: EngineController) {
-        guard let job else { return }
-        Task { try? await engine.client.cancel(job) }
-    }
-
-    func dismissError() {
-        if case .failed = phase { phase = .idle }
-    }
-
-    /// Any image ImageIO reads (HEIC, RAW, TIFF, ...) as PNG, which the engine accepts.
-    static func png(from url: URL) throws -> Data {
-        // the thumbnail path applies the EXIF orientation, as upstream's exif_transpose does;
-        // 4096 pixels keeps a camera photo's PNG under the engine's upload limit, and depth
-        // and upscaling look at no more than 1024 pixels of the long side by default
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: 4096,
-        ]
-        guard
-            let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-            let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-        else {
-            throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: url.path])
-        }
-        let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        CGImageDestinationAddImage(destination, image, nil)
-        guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
-        return data as Data
     }
 
     private func poll(_ id: String, client: EngineClient) async throws -> JobStatus {
@@ -161,18 +137,18 @@ final class Generator {
             let status = try await client.status(of: id)
             switch status.status {
             case .queued:
-                phase = .waiting
-            case .running where status.step == 0:
-                phase = .waiting  // first request loads the model before step 1
+                progress = Progress()
             case .running:
-                let now = ContinuousClock.now
-                if firstSample == nil { firstSample = (status.step, now) }
-                var secondsLeft: Double?
-                if let first = firstSample, status.step > first.step {
-                    let perStep = (now - first.time) / Double(status.step - first.step)
-                    secondsLeft = Double((perStep * Double(status.steps - status.step)).components.seconds)
+                var next = Progress(step: status.step, steps: status.steps)
+                if status.step > 0 {  // step 0: the first request loads the model
+                    let now = ContinuousClock.now
+                    if firstSample == nil { firstSample = (status.step, now) }
+                    if let first = firstSample, status.step > first.step {
+                        let perStep = (now - first.time) / Double(status.step - first.step)
+                        next.secondsLeft = Double((perStep * Double(status.steps - status.step)).components.seconds)
+                    }
                 }
-                phase = .sampling(step: status.step, of: status.steps, secondsLeft: secondsLeft)
+                progress = next
             case .done, .failed, .cancelled:
                 return status
             }

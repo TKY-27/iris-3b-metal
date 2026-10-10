@@ -23,6 +23,8 @@ targets:
       path: Iris/Info.plist
       properties:
         CFBundleDisplayName: Iris
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.graphics-design
         NSHumanReadableCopyright: Apache License 2.0
         # the engine is a local process on 127.0.0.1
@@ -32,7 +34,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.tky27.iris
         GENERATE_INFOPLIST_FILE: NO
-        MARKETING_VERSION: "0.1.0"
+        MARKETING_VERSION: "0.2.0"
         CURRENT_PROJECT_VERSION: "1"
   IrisTests:
     type: bundle.unit-test

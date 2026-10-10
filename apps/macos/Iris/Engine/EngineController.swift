@@ -19,9 +19,11 @@ final class EngineController {
 
     var client: EngineClient { EngineClient(port: port) }
 
+    static let portRange = 1024...65535
+
     var port: Int {
-        get { UserDefaults.standard.object(forKey: "enginePort") as? Int ?? 8765 }
-        set { UserDefaults.standard.set(newValue, forKey: "enginePort") }
+        get { (UserDefaults.standard.object(forKey: "enginePort") as? Int ?? 8765).clamped(to: Self.portRange) }
+        set { UserDefaults.standard.set(newValue.clamped(to: Self.portRange), forKey: "enginePort") }
     }
 
     /// An explicit path to the `iris-metal` executable; empty means search the usual places.
@@ -74,8 +76,18 @@ final class EngineController {
         state = .stopped
     }
 
+    /// Stops a launched engine and waits for it to exit, so the new one can
+    /// bind the port and the old one cannot answer the first health check.
     func restart() async {
+        let old = process
         stop()
+        if let old {
+            let deadline = ContinuousClock.now + .seconds(10)
+            while old.isRunning, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            if old.isRunning { kill(old.processIdentifier, SIGKILL) }
+        }
         await start()
     }
 
@@ -90,7 +102,12 @@ final class EngineController {
         process.standardOutput = output
         process.standardError = output
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let text = String(decoding: handle.availableData, as: UTF8.self)
+            let data = handle.availableData
+            guard !data.isEmpty else {  // end of file: without this the handler keeps firing
+                handle.readabilityHandler = nil
+                return
+            }
+            let text = String(decoding: data, as: UTF8.self)
             Task { @MainActor in self?.appendLog(text) }
         }
         process.terminationHandler = { [weak self] finished in
