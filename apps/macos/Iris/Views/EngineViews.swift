@@ -22,6 +22,7 @@ struct EngineStatus: View {
         }
         .labelStyle(.titleAndIcon)
         .font(.caption)
+        .padding(.horizontal, 6)  // keeps the text clear of the toolbar item's capsule
     }
 }
 

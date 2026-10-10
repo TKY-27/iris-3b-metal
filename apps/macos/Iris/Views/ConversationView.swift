@@ -55,7 +55,10 @@ struct ConversationView: View {
                 .frame(maxWidth: .infinity)
             }
             .defaultScrollAnchor(.bottom)
-            .onAppear { scrollToFocus(proxy) }
+            .onAppear {
+                if workspace.focusedEntry == nil { scrollToEnd(conversation, proxy, animated: false) }
+                scrollToFocus(proxy)
+            }
             .onChange(of: workspace.focusedEntry) { scrollToFocus(proxy) }
             // follow a new request, and its result when it replaces the progress card
             .onChange(of: conversation.entries.last?.id) { scrollToEnd(conversation, proxy) }
@@ -63,9 +66,10 @@ struct ConversationView: View {
         }
     }
 
-    private func scrollToEnd(_ conversation: Conversation, _ proxy: ScrollViewProxy) {
+    /// Shows the latest entry from its request down, so a tall result never hides its prompt.
+    private func scrollToEnd(_ conversation: Conversation, _ proxy: ScrollViewProxy, animated: Bool = true) {
         guard let last = conversation.entries.last else { return }
-        withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(last.id, anchor: .bottom) }
+        withAnimation(animated && !reduceMotion ? .default : nil) { proxy.scrollTo(last.id, anchor: .top) }
     }
 
     private func scrollToFocus(_ proxy: ScrollViewProxy) {

@@ -223,7 +223,7 @@ private struct ResultImage: View {
     }
 
     static let maxWidth: CGFloat = 640
-    static let maxHeight: CGFloat = 560
+    static let maxHeight: CGFloat = 520
 
     /// The width a result is shown at when its aspect ratio is known, so its caption lines up with it.
     static func width(for entry: Entry) -> CGFloat {
