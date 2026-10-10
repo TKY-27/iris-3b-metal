@@ -84,6 +84,21 @@ def test_validate_rejects_bad_sizes_and_prompts():
             validate({"prompt": "x", "seed": seed}, DEFAULTS)
 
 
+@pytest.mark.parametrize(
+    "body",
+    [["fox"], "fox", {"prompt": "x", "width": 1e999}, {"prompt": "x", "width": 1024.5},
+     {"prompt": "x", "steps": True}, {"prompt": "x", "seed": "7"}, {"prompt": "x", "negative_prompt": 3}],
+)  # fmt: skip
+def test_validate_rejects_malformed_bodies(body):
+    with pytest.raises(ValueError):
+        validate(body, DEFAULTS)
+
+
+def test_validate_treats_null_as_default():
+    params = validate({"prompt": "x", "negative_prompt": None, "seed": None}, DEFAULTS)
+    assert params["negative_prompt"] == DEFAULTS.negative_prompt and params["seed"] == 0
+
+
 def raw(base, method, path, headers, body=b""):
     """A request with exactly these headers, which urllib would normalize."""
     connection = http.client.HTTPConnection(base.removeprefix("http://"))
@@ -193,6 +208,27 @@ def test_task_inputs_are_bounded(server):
     assert upload(base, "/v1/depth?max_side=4096", (16, 16)) == 400
     assert upload(base, "/v1/upscale?budget=0", (1024, 1024)) == 400  # 16 MP out without the budget
     assert upload(base, "/v1/upscale?budget=0", (16, 16)) == 202
+    assert upload(base, "/v1/upscale", (1, 1024)) == 400  # would become a 1024 x 1048576 work area
+    assert upload(base, "/v1/upscale", (64, 256)) == 202  # 4:1, the widest native ratio
+
+
+def test_queued_jobs_cancel_at_once_and_queries_are_ignored(server):
+    pipe, base = server
+    pipe.gate.clear()
+    ids = [
+        json.loads(
+            request(f"{base}/v1/images", "POST", {"prompt": "fox", "width": 16, "height": 16, "steps": 5})[1]
+        )["id"]
+        for _ in range(2)
+    ]
+    wait_for(base, ids[0], "running")
+    request(f"{base}/v1/jobs/{ids[1]}", "DELETE")
+    assert json.loads(request(f"{base}/v1/jobs/{ids[1]}")[1])["status"] == "cancelled"
+    pipe.gate.set()
+    wait_for(base, ids[0], "done")
+    assert request(f"{base}/v1/health?verbose=1")[0] == 200
+    status, png = request(f"{base}/v1/jobs/{ids[0]}/image?download=1")
+    assert status == 200 and png.startswith(b"\x89PNG")
 
 
 def test_unreadable_upload_is_rejected(server):

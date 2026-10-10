@@ -7,6 +7,7 @@ resampling); these subclasses keep all of it and replace only how weights are
 loaded and how the network is evaluated.
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -34,6 +35,19 @@ def resolve_task(source: str | Path, task: str, revision: str | None) -> Path:
     folder = TASK_FOLDERS[task]
     root = snapshot_download(str(source), revision=revision, allow_patterns=[f"{folder}/*"])
     return Path(root) / folder
+
+
+MAX_UPSCALE_ASPECT = 4  # the model's widest native size, 2048 x 512
+
+
+def check_upscale_input(image: Image.Image) -> None:
+    """Reject inputs the restorer cannot bound. It widens the short side of its
+    4x output to a full tile, so a thin strip becomes an enormous work area
+    (1 x 1024 pixels -> 1024 x 1048576)."""
+    if max(image.size) > MAX_UPSCALE_ASPECT * min(image.size):
+        raise ValueError(
+            f"images to upscale may be at most {MAX_UPSCALE_ASPECT}:1, not {image.width} x {image.height}"
+        )
 
 
 def depth_image(depth: np.ndarray) -> Image.Image:
@@ -78,7 +92,13 @@ class MetalDepth(DepthPredictor):
 
 
 class MetalRestorer(Restorer):
-    """One-step restoration and 4x upscaling; see ``Restorer.__call__``."""
+    """One-step restoration and 4x upscaling; see ``Restorer.__call__``.
+
+    ``on_tile``, when set, runs before every tile; raising from it stops the
+    image between tiles (the server uses it for cancellation).
+    """
+
+    on_tile: Callable[[], None] | None = None
 
     def __init__(self, export: Path, device: str = "mps", attention_dtype: torch.dtype = torch.float16):
         cfg, settings, prompt = _read_export(export, "restoration")
@@ -97,6 +117,8 @@ class MetalRestorer(Restorer):
 
     @torch.no_grad()
     def restore_tile(self, x: torch.Tensor) -> torch.Tensor:
+        if self.on_tile is not None:  # current: require_finite waited for the previous tile
+            self.on_tile()
         t = torch.full((x.shape[0],), self.time, device=x.device)
         v = self.engine(x, t, self.text.expand(x.shape[0], -1, -1))
         return require_finite(x.float() - self.sigma * v)

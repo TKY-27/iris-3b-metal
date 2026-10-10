@@ -9,7 +9,8 @@ Endpoints (JSON unless noted):
                                    image file as the body -> 202 {"id"}
     GET    /v1/jobs/<id>           status, progress, timing, error
     GET    /v1/jobs/<id>/image     the result PNG (depth: 16-bit, near = bright)
-    DELETE /v1/jobs/<id>           cancel a queued job, or a generation at its next step
+    DELETE /v1/jobs/<id>           cancel a queued job, a generation at its next step or
+                                   an upscale at its next tile (depth runs in one pass)
     GET    /v1/health              the resident model and queue depth
 
 A full queue answers 429. One worker thread runs the jobs in order, and at most
@@ -18,7 +19,8 @@ model first, which keeps a 24 GB Mac out of swap. Only the standard library is
 used. The server binds to localhost by default and has no authentication: do
 not expose it to a network. Any web page the user opens can also reach
 localhost, so requests that come from a browser (they carry ``Origin``) or
-name a foreign host (DNS rebinding) are refused with 403.
+name a foreign host (DNS rebinding) are refused with 403. Bound to a wildcard
+address, the server cannot tell its own names apart and skips the host check.
 """
 
 import io
@@ -37,6 +39,7 @@ from urllib.parse import parse_qs, urlsplit
 from PIL import Image
 
 from iris_metal.pipeline import IrisPipeline, release_memory
+from iris_metal.tasks import check_upscale_input
 
 MAX_JSON_BYTES = 64 * 1024
 MAX_UPLOAD_BYTES = 64 * 1024 * 1024
@@ -72,6 +75,9 @@ class Job:
 
     def on_step(self, step: int, total: int) -> None:
         self.step, self.steps = step, total
+        self.raise_if_cancelled()
+
+    def raise_if_cancelled(self) -> None:
         if self.cancel.is_set():
             raise Cancelled
 
@@ -116,19 +122,33 @@ class Models:
         return self._task[1]
 
 
-def validate(body: dict, defaults) -> dict:
+def _field(body: dict, key: str, default, kinds: tuple[type, ...]):
+    value = body.get(key)
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, kinds):
+        raise ValueError(f"{key} must be {'an integer' if kinds == (int,) else 'a number'}")
+    return value
+
+
+def validate(body, defaults) -> dict:
     """Request JSON -> generation parameters; raises ValueError with a user-facing message."""
+    if not isinstance(body, dict):
+        raise ValueError("the request body must be a JSON object")
     prompt = body.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("prompt must be a non-empty string")
+    negative_prompt = body.get("negative_prompt")
+    if negative_prompt is not None and not isinstance(negative_prompt, str):
+        raise ValueError("negative_prompt must be a string")
     params = {
         "prompt": prompt,
-        "width": int(body.get("width", 1024)),
-        "height": int(body.get("height", 1024)),
-        "steps": int(body.get("steps", defaults.steps)),
-        "cfg_scale": float(body.get("cfg_scale", defaults.cfg_scale)),
-        "seed": int(body.get("seed", 0)),
-        "negative_prompt": str(body.get("negative_prompt", defaults.negative_prompt)),
+        "width": _field(body, "width", 1024, (int,)),
+        "height": _field(body, "height", 1024, (int,)),
+        "steps": _field(body, "steps", defaults.steps, (int,)),
+        "cfg_scale": float(_field(body, "cfg_scale", defaults.cfg_scale, (int, float))),
+        "seed": _field(body, "seed", 0, (int,)),
+        "negative_prompt": defaults.negative_prompt if negative_prompt is None else negative_prompt,
     }
     width, height = params["width"], params["height"]
     if width < 16 or height < 16 or width % 16 or height % 16 or width * height > MAX_PIXELS:
@@ -150,6 +170,7 @@ def depth_params(query: dict) -> dict:
 
 
 def upscale_params(query: dict, image: Image.Image) -> dict:
+    check_upscale_input(image)
     params = {"budget": query.get("budget", "1") != "0", "color_fix": query.get("color_fix", "1") != "0"}
     if not params["budget"] and image.width * image.height > MAX_UNBUDGETED_UPSCALE_PIXELS:
         raise ValueError(
@@ -201,21 +222,29 @@ class JobRunner:
                 del self.jobs[old.id]
         return job
 
+    def cancel(self, job: Job) -> None:
+        with self.lock:  # a queued job is cancelled at once, not when the worker reaches it
+            job.cancel.set()
+            if job.status == "queued":
+                job.status = "cancelled"
+
     def _work(self) -> None:
         while True:
             job = self.pending.get()
-            if job.cancel.is_set():
-                job.status = "cancelled"
-                continue
-            job.status = "running"
+            with self.lock:
+                if job.cancel.is_set():
+                    job.status = "cancelled"
+                    continue
+                job.status = "running"
             start = time.perf_counter()
             try:
-                job.png, job.status = job.work(job), "done"
+                job.png, status = job.work(job), "done"
             except Cancelled:
-                job.status = "cancelled"
+                status = "cancelled"
             except Exception as exc:  # reported to the client; the worker keeps serving
-                job.status, job.error = "failed", f"{type(exc).__name__}: {exc}"
+                status, job.error = "failed", f"{type(exc).__name__}: {exc}"
             job.seconds = time.perf_counter() - start
+            job.status = status  # last, so a finished job always has its time and result
 
 
 def text_to_image_job(models: Models, params: dict) -> Callable[[Job], bytes]:
@@ -241,7 +270,11 @@ def upscale_job(models: Models, image: Image.Image, budget: bool, color_fix: boo
         from iris3b.downstream.restoration import fit_budget
 
         restorer = models.task("restoration")
-        return png(restorer(fit_budget(image) if budget else image, color_fix=color_fix))
+        restorer.on_tile = job.raise_if_cancelled  # a cancelled upscale stops between tiles
+        try:
+            return png(restorer(fit_budget(image) if budget else image, color_fix=color_fix))
+        finally:
+            restorer.on_tile = None
 
     return work
 
@@ -278,13 +311,14 @@ def make_handler(runner: JobRunner):
         def do_GET(self) -> None:
             if self._refused():
                 return
-            if self.path == "/v1/health":
+            path = urlsplit(self.path).path
+            if path == "/v1/health":
                 self._send(200, {"resident": models.resident, "queued": runner.pending.qsize()})
                 return
             job = self._job()
             if job is None:
                 return
-            if self.path.endswith("/image"):
+            if path.endswith("/image"):
                 if job.png is None:
                     self._send(409, {"error": f"job is {job.status}"})
                 else:
@@ -336,7 +370,7 @@ def make_handler(runner: JobRunner):
                 return
             job = self._job()
             if job is not None:
-                job.cancel.set()
+                runner.cancel(job)
                 self._send(200, job.summary())
 
         def log_message(self, format: str, *args) -> None:  # quiet by default

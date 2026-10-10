@@ -1,11 +1,13 @@
+import pytest
 import torch
 from omegaconf import OmegaConf
+from PIL import Image
 from safetensors.torch import save_file
 
 from iris3b.config import Config
 from iris3b.downstream.depth import IrisDepth
 from iris3b.models.dit import IrisDiT
-from iris_metal.tasks import MetalDepth, MetalRestorer
+from iris_metal.tasks import MetalDepth, MetalRestorer, check_upscale_input
 from test_metal_engine import RELEASED_TOPOLOGY
 
 
@@ -38,7 +40,7 @@ def test_depth_matches_upstream_forward(tmp_path):
         expected = model(rgb, prompt["embeddings"], prompt["mask"])
         actual = MetalDepth(tmp_path, device="cpu").model(rgb, None, None)
     assert actual.shape == expected.shape == (2, 1, 24, 32)
-    assert _relative_error(actual, expected) < 0.03  # BF16 linears against the FP32 reference
+    assert _relative_error(actual, expected) < 0.03  # 16-bit linears against the FP32 reference
 
 
 def test_restorer_matches_upstream_forward(tmp_path):
@@ -50,3 +52,28 @@ def test_restorer_matches_upstream_forward(tmp_path):
         expected = x - 0.5 * model(x, t, prompt["embeddings"], y_mask=prompt["mask"]).x
         actual = MetalRestorer(tmp_path, device="cpu").restore_tile(x)
     assert _relative_error(actual, expected) < 0.01
+
+
+def test_restorer_calls_on_tile_and_stops_when_it_raises(tmp_path):
+    model = IrisDiT(RELEASED_TOPOLOGY).eval()
+    _export(tmp_path, model, {"name": "restoration", "tile": 32, "sigma": 0.5})
+    restorer = MetalRestorer(tmp_path, device="cpu")
+    image = Image.new("RGB", (16, 12))  # 4x: 64 x 48, several overlapping 32-pixel tiles
+    tiles = []
+    restorer.on_tile = lambda: tiles.append(1)
+    assert restorer(image, color_fix=False).size == (64, 48)
+    assert len(tiles) > 1
+
+    def stop():
+        raise InterruptedError
+
+    restorer.on_tile = stop
+    with pytest.raises(InterruptedError):
+        restorer(image)
+
+
+def test_upscale_inputs_beyond_four_to_one_are_rejected():
+    check_upscale_input(Image.new("RGB", (1024, 256)))
+    for size in ((1, 1024), (1025, 256)):
+        with pytest.raises(ValueError, match="4:1"):
+            check_upscale_input(Image.new("RGB", size))

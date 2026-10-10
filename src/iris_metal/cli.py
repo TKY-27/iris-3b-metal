@@ -68,6 +68,8 @@ def serve_main(argv: list[str]) -> None:
     parser.add_argument("--checkpoint", default=REPO_ID, help="local directory or Hugging Face repo")
     parser.add_argument("--revision", help="Hugging Face revision of --checkpoint (default: validated)")
     args = parser.parse_args(argv)
+    if args.queue < 1:
+        parser.error("--queue must be at least 1")
     if not torch.backends.mps.is_available():
         parser.error("no Apple GPU (MPS) available")
     pipe = IrisPipeline(resolve_checkpoint(args.checkpoint, args.revision))
@@ -75,7 +77,7 @@ def serve_main(argv: list[str]) -> None:
 
 
 def task_main(task: str, argv: list[str]) -> None:
-    from iris_metal.tasks import depth_image
+    from iris_metal.tasks import check_upscale_input, depth_image
 
     upscale = task == "restoration"
     parser = argparse.ArgumentParser(
@@ -94,6 +96,12 @@ def task_main(task: str, argv: list[str]) -> None:
     args = parser.parse_args(argv)
     if not torch.backends.mps.is_available():
         parser.error("no Apple GPU (MPS) available")
+    if upscale:  # before the 12 GB model loads
+        for path in args.images:
+            try:
+                check_upscale_input(Image.open(path))
+            except ValueError as error:
+                parser.error(f"{path}: {error}")
     model = load_task(task, args.weights, args.revision)
     args.out.mkdir(parents=True, exist_ok=True)
     for path in args.images:
