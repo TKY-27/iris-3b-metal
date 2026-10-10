@@ -46,7 +46,8 @@ class FakeDepth:
 def server():
     pipe = FakePipeline()
     models = Models(pipe, load_task=lambda task: FakeDepth())
-    httpd = LocalServer(("127.0.0.1", 0), make_handler(JobRunner(models, max_queued=2)))
+    pipe.runner = JobRunner(models, max_queued=2)
+    httpd = LocalServer(("127.0.0.1", 0), make_handler(pipe.runner))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     yield pipe, f"http://127.0.0.1:{httpd.server_address[1]}"
     httpd.shutdown()
@@ -237,3 +238,44 @@ def test_unreadable_upload_is_rejected(server):
     with pytest.raises(urllib.error.HTTPError) as error:
         urllib.request.urlopen(req)
     assert error.value.code == 400
+
+
+def test_cancelling_a_queued_job_frees_its_place(server):
+    pipe, base = server
+    pipe.gate.clear()
+    body = {"prompt": "fox", "width": 16, "height": 16, "steps": 1}
+    ids = [json.loads(request(f"{base}/v1/images", "POST", body)[1])["id"] for _ in range(3)]
+    wait_for(base, ids[0], "running")  # one running, two queued: full
+    assert request(f"{base}/v1/images", "POST", body)[0] == 429
+    request(f"{base}/v1/jobs/{ids[2]}", "DELETE")
+    assert json.loads(request(f"{base}/v1/health")[1])["queued"] == 1
+    assert request(f"{base}/v1/images", "POST", body)[0] == 202
+    pipe.gate.set()
+
+
+def test_finished_jobs_release_their_inputs(server):
+    pipe, base = server
+    assert upload(base, "/v1/depth", (20, 10)) == 202
+    wait_for(base, "1", "done")
+    job = pipe.runner.jobs["1"]
+    assert job.work is None and job.png is not None  # the decoded upload went with work
+
+
+def test_malformed_requests_get_answers_not_dropped_connections(server):
+    _, base = server
+    host = base.removeprefix("http://")
+    huge = b'{"prompt": "x", "cfg_scale": 1' + b"0" * 400 + b"}"
+    assert raw(base, "POST", "/v1/images", {"Host": host, "Content-Length": str(len(huge))}, huge)[0] == 400
+    assert upload(base, "/v1/upscale?budget=false", (16, 16)) == 202
+    assert upload(base, "/v1/upscale?budget=no", (16, 16)) == 400
+    assert raw(base, "POST", "/v1/elsewhere", {"Host": host, "Content-Length": "0"})[0] == 404
+    assert request(f"{base}/v1/jobs/1/image", "DELETE")[0] == 404
+    assert request(f"{base}/v1/jobs/1/other")[0] == 404
+    assert request(f"{base}/v1/nothing")[0] == 404
+
+
+def test_cross_site_browser_requests_are_refused(server):
+    _, base = server
+    host = base.removeprefix("http://")
+    assert raw(base, "GET", "/v1/jobs/1/image", {"Host": host, "Sec-Fetch-Site": "cross-site"})[0] == 403
+    assert raw(base, "GET", "/v1/health", {"Host": host, "Sec-Fetch-Site": "none"})[0] == 200

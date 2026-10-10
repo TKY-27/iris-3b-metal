@@ -13,12 +13,13 @@ Endpoints (JSON unless noted):
                                    an upscale at its next tile (depth runs in one pass)
     GET    /v1/health              the resident model and queue depth
 
-A full queue answers 429. One worker thread runs the jobs in order, and at most
-one network is resident: a request for a different task releases the previous
-model first, which keeps a 24 GB Mac out of swap. Only the standard library is
-used. The server binds to localhost by default and has no authentication: do
-not expose it to a network. Any web page the user opens can also reach
-localhost, so requests that come from a browser (they carry ``Origin``) or
+A full queue answers 429; cancelling a queued job frees its place at once.
+One worker thread runs the jobs in order, and at most one network is resident:
+a request for a different task releases the previous model first, which keeps
+a 24 GB Mac out of swap. Only the standard library is used. The server binds to
+localhost by default and has no authentication: do not expose it to a network.
+Any web page the user opens can also reach localhost, so requests that come
+from a browser (they carry ``Origin`` or a cross-site ``Sec-Fetch-Site``) or
 name a foreign host (DNS rebinding) are refused with 403. Bound to a wildcard
 address, the server cannot tell its own names apart and skips the host check.
 """
@@ -28,6 +29,8 @@ import itertools
 import json
 import math
 import queue
+import re
+import socket
 import socketserver
 import threading
 import time
@@ -50,6 +53,7 @@ MAX_DEPTH_SIDE = 2048
 # without the budget, the output area the budget allows (2048 x 4096 at 4x)
 MAX_UNBUDGETED_UPSCALE_PIXELS = 512 * 1024
 KEEP_FINISHED = 32
+REQUEST_TIMEOUT_S = 120  # a stalled client cannot hold a handler thread forever
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
 
@@ -63,7 +67,8 @@ class Job:
     id: str
     kind: str
     params: dict
-    work: Callable[["Job"], bytes]  # runs on the worker thread, returns the PNG
+    # runs on the worker thread and returns the PNG; dropped afterwards with the input it holds
+    work: Callable[["Job"], bytes] | None
     status: str = "queued"  # queued | running | done | failed | cancelled
     step: int = 0
     steps: int = 0
@@ -118,6 +123,7 @@ class Models:
         if self._task is None or self._task[0] != name:
             self._task = None
             self.pipe.unload()
+            release_memory()  # also after a different task model, which unload() does not cover
             self._task = (name, self._load_task(name))
         return self._task[1]
 
@@ -129,6 +135,13 @@ def _field(body: dict, key: str, default, kinds: tuple[type, ...]):
     if isinstance(value, bool) or not isinstance(value, kinds):
         raise ValueError(f"{key} must be {'an integer' if kinds == (int,) else 'a number'}")
     return value
+
+
+def _number(body: dict, key: str, default: float) -> float:
+    try:
+        return float(_field(body, key, default, (int, float)))
+    except OverflowError:  # an integer too large for a float
+        raise ValueError(f"{key} must be a finite number") from None
 
 
 def validate(body, defaults) -> dict:
@@ -146,7 +159,7 @@ def validate(body, defaults) -> dict:
         "width": _field(body, "width", 1024, (int,)),
         "height": _field(body, "height", 1024, (int,)),
         "steps": _field(body, "steps", defaults.steps, (int,)),
-        "cfg_scale": float(_field(body, "cfg_scale", defaults.cfg_scale, (int, float))),
+        "cfg_scale": _number(body, "cfg_scale", defaults.cfg_scale),
         "seed": _field(body, "seed", 0, (int,)),
         "negative_prompt": defaults.negative_prompt if negative_prompt is None else negative_prompt,
     }
@@ -162,6 +175,13 @@ def validate(body, defaults) -> dict:
     return params
 
 
+def _flag(query: dict, key: str) -> bool:
+    value = query.get(key, "1")
+    if value not in ("0", "1", "true", "false"):
+        raise ValueError(f"{key} must be 0, 1, true or false")
+    return value in ("1", "true")
+
+
 def depth_params(query: dict) -> dict:
     max_side = int(query.get("max_side", 1024))
     if not 16 <= max_side <= MAX_DEPTH_SIDE:
@@ -171,7 +191,7 @@ def depth_params(query: dict) -> dict:
 
 def upscale_params(query: dict, image: Image.Image) -> dict:
     check_upscale_input(image)
-    params = {"budget": query.get("budget", "1") != "0", "color_fix": query.get("color_fix", "1") != "0"}
+    params = {"budget": _flag(query, "budget"), "color_fix": _flag(query, "color_fix")}
     if not params["budget"] and image.width * image.height > MAX_UNBUDGETED_UPSCALE_PIXELS:
         raise ValueError(
             f"without the budget, inputs may have at most {MAX_UNBUDGETED_UPSCALE_PIXELS} pixels"
@@ -206,20 +226,31 @@ def png(image: Image.Image) -> bytes:
 class JobRunner:
     def __init__(self, models: Models, max_queued: int):
         self.models = models
+        self.max_queued = max_queued
         self.jobs: dict[str, Job] = {}
-        self.pending: queue.Queue[Job] = queue.Queue(maxsize=max_queued)
+        self.queued = 0  # jobs waiting and not cancelled; guarded by lock
+        self._pending: queue.SimpleQueue[Job] = queue.SimpleQueue()
         self.lock = threading.Lock()
         self._ids = itertools.count(1)
         threading.Thread(target=self._work, name="iris-worker", daemon=True).start()
 
-    def submit(self, kind: str, params: dict, work: Callable[[Job], bytes]) -> Job:
-        job = Job(id=str(next(self._ids)), kind=kind, params=params, work=work)
-        self.pending.put_nowait(job)  # raises queue.Full
+    @property
+    def full(self) -> bool:
         with self.lock:
+            return self.queued >= self.max_queued
+
+    def submit(self, kind: str, params: dict, work: Callable[[Job], bytes]) -> Job:
+        """Queues a job; raises queue.Full when ``max_queued`` jobs are already waiting."""
+        job = Job(id=str(next(self._ids)), kind=kind, params=params, work=work)
+        with self.lock:
+            if self.queued >= self.max_queued:
+                raise queue.Full
+            self.queued += 1
             self.jobs[job.id] = job
             finished = [j for j in self.jobs.values() if j.status in ("done", "failed", "cancelled")]
             for old in sorted(finished, key=lambda j: j.created)[:-KEEP_FINISHED]:
                 del self.jobs[old.id]
+        self._pending.put(job)
         return job
 
     def cancel(self, job: Job) -> None:
@@ -227,14 +258,16 @@ class JobRunner:
             job.cancel.set()
             if job.status == "queued":
                 job.status = "cancelled"
+                job.work = None
+                self.queued -= 1
 
     def _work(self) -> None:
         while True:
-            job = self.pending.get()
+            job = self._pending.get()
             with self.lock:
-                if job.cancel.is_set():
-                    job.status = "cancelled"
+                if job.status == "cancelled":
                     continue
+                self.queued -= 1
                 job.status = "running"
             start = time.perf_counter()
             try:
@@ -243,6 +276,8 @@ class JobRunner:
                 status = "cancelled"
             except Exception as exc:  # reported to the client; the worker keeps serving
                 status, job.error = "failed", f"{type(exc).__name__}: {exc}"
+            finally:
+                job.work = None
             job.seconds = time.perf_counter() - start
             job.status = status  # last, so a finished job always has its time and result
 
@@ -279,10 +314,16 @@ def upscale_job(models: Models, image: Image.Image, budget: bool, color_fix: boo
     return work
 
 
+JOB_PATH = re.compile(r"/v1/jobs/([0-9]+)(/image)?")
+POST_LIMITS = {"/v1/images": MAX_JSON_BYTES, "/v1/depth": MAX_UPLOAD_BYTES, "/v1/upscale": MAX_UPLOAD_BYTES}
+
+
 def make_handler(runner: JobRunner):
     models = runner.models
 
     class Handler(BaseHTTPRequestHandler):
+        timeout = REQUEST_TIMEOUT_S
+
         def _send(self, status: int, payload: dict | bytes, content_type: str = "application/json") -> None:
             body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
             self.send_response(status)
@@ -296,41 +337,59 @@ def make_handler(runner: JobRunner):
             bound = self.server.server_name
             allowed = LOOPBACK_HOSTS | {bound}
             host_ok = bound in WILDCARD_HOSTS or host_name(self.headers.get("Host", "")) in allowed
-            if "Origin" in self.headers or not host_ok:
+            # a page's fetch carries Origin; its <img> or form carries a cross-site Sec-Fetch-Site
+            from_page = "Origin" in self.headers or self.headers.get("Sec-Fetch-Site", "none") != "none"
+            if from_page or not host_ok:
                 self._send(403, {"error": "requests from web pages or for other host names are refused"})
                 return True
             return False
 
-        def _job(self) -> Job | None:
-            parts = urlsplit(self.path).path.strip("/").split("/")
-            job = runner.jobs.get(parts[2]) if len(parts) >= 3 and parts[:2] == ["v1", "jobs"] else None
+        def _route(self, method) -> None:
+            if self._refused():
+                return
+            try:
+                method(urlsplit(self.path))
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # the client left; nobody to answer
+            except Exception as exc:  # a response rather than a dropped connection
+                self._send(500, {"error": f"{type(exc).__name__}: {exc}"})
+
+        def _job(self, path: str, image: bool) -> Job | None:
+            match = JOB_PATH.fullmatch(path)
+            job = runner.jobs.get(match[1]) if match and bool(match[2]) == image else None
             if job is None:
-                self._send(404, {"error": "no such job"})
+                self._send(404, {"error": "no such job" if match else "unknown endpoint"})
             return job
 
         def do_GET(self) -> None:
-            if self._refused():
-                return
-            path = urlsplit(self.path).path
-            if path == "/v1/health":
-                self._send(200, {"resident": models.resident, "queued": runner.pending.qsize()})
-                return
-            job = self._job()
-            if job is None:
-                return
-            if path.endswith("/image"):
-                if job.png is None:
-                    self._send(409, {"error": f"job is {job.status}"})
-                else:
-                    self._send(200, job.png, "image/png")
-                return
-            self._send(200, job.summary())
+            self._route(self._get)
 
         def do_POST(self) -> None:
-            if self._refused():
+            self._route(self._post)
+
+        def do_DELETE(self) -> None:
+            self._route(self._delete)
+
+        def _get(self, url) -> None:
+            if url.path == "/v1/health":
+                self._send(200, {"resident": models.resident, "queued": runner.queued})
                 return
-            url = urlsplit(self.path)
-            query = {key: values[-1] for key, values in parse_qs(url.query).items()}
+            image = url.path.endswith("/image")
+            job = self._job(url.path, image)
+            if job is None:
+                return
+            if not image:
+                self._send(200, job.summary())
+            elif job.png is None:
+                self._send(409, {"error": f"job is {job.status}"})
+            else:
+                self._send(200, job.png, "image/png")
+
+        def _post(self, url) -> None:
+            limit = POST_LIMITS.get(url.path)
+            if limit is None:
+                self._send(404, {"error": "unknown endpoint"})
+                return
             try:
                 length = int(self.headers.get("Content-Length", 0))
             except ValueError:
@@ -338,10 +397,13 @@ def make_handler(runner: JobRunner):
             if length < 0:
                 self._send(400, {"error": "invalid Content-Length"})
                 return
-            limit = MAX_JSON_BYTES if url.path == "/v1/images" else MAX_UPLOAD_BYTES
             if length > limit:
                 self._send(413, {"error": "request too large"})
                 return
+            if runner.full:  # before reading and decoding a large upload
+                self._send(429, {"error": "queue is full"})
+                return
+            query = {key: values[-1] for key, values in parse_qs(url.query).items()}
             try:
                 body = self.rfile.read(length)
                 if url.path == "/v1/images":
@@ -350,14 +412,11 @@ def make_handler(runner: JobRunner):
                 elif url.path == "/v1/depth":
                     params = depth_params(query)
                     job = runner.submit("depth", params, depth_job(models, decode_upload(body), **params))
-                elif url.path == "/v1/upscale":
+                else:
                     image = decode_upload(body)
                     params = upscale_params(query, image)
                     job = runner.submit("upscale", params, upscale_job(models, image, **params))
-                else:
-                    self._send(404, {"error": "unknown endpoint"})
-                    return
-            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            except (ValueError, TypeError) as exc:  # json.JSONDecodeError is a ValueError
                 self._send(400, {"error": str(exc)})
                 return
             except queue.Full:
@@ -365,10 +424,8 @@ def make_handler(runner: JobRunner):
                 return
             self._send(202, {"id": job.id})
 
-        def do_DELETE(self) -> None:
-            if self._refused():
-                return
-            job = self._job()
+        def _delete(self, url) -> None:
+            job = self._job(url.path, image=False)
             if job is not None:
                 runner.cancel(job)
                 self._send(200, job.summary())
@@ -386,7 +443,12 @@ class LocalServer(ThreadingHTTPServer):
         self.server_name, self.server_port = self.server_address[:2]
 
 
+class LocalServer6(LocalServer):
+    address_family = socket.AF_INET6
+
+
 def serve(models: Models, host: str = "127.0.0.1", port: int = 8765, max_queued: int = 8) -> None:
-    server = LocalServer((host, port), make_handler(JobRunner(models, max_queued)))
-    print(f"iris-metal serving on http://{host}:{port}", flush=True)
+    server_type = LocalServer6 if ":" in host else LocalServer
+    server = server_type((host, port), make_handler(JobRunner(models, max_queued)))
+    print(f"iris-metal serving on http://{f'[{host}]' if ':' in host else host}:{port}", flush=True)
     server.serve_forever()
