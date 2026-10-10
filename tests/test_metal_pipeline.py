@@ -45,3 +45,45 @@ def test_requested_texts_survive_eviction(tmp_path, monkeypatch):
         assert _values(pipe.encode([prompt, ""])) == [len(prompt), 0]
     # "a" was evicted by the size-2 cache and re-encoded; the negative never was
     assert FakeEncoder.batches == [["a", ""], ["bb"], ["ccc"], ["a"]]
+
+
+def test_steps_are_reported_after_the_gpu_finishes_them(monkeypatch):
+    log = []
+
+    class FakeEvent:
+        """Stands in for torch.mps.Event and records the order of calls."""
+
+        count = 0
+
+        def __init__(self):
+            FakeEvent.count += 1
+            self.id = FakeEvent.count
+
+        def record(self):
+            log.append(("record", self.id))
+
+        def synchronize(self):
+            log.append(("wait", self.id))
+
+    monkeypatch.setattr(torch.mps, "Event", FakeEvent)
+    reporter = pipeline.StepReporter(3, lambda step, total: log.append(("report", step)), torch.device("mps"))
+    for _ in range(3):
+        reporter.queued()
+    reporter.finish()
+    # step k is reported only after waiting for step k's event, and step k + 1
+    # is queued before that wait, so the GPU always has work
+    assert log == [
+        ("record", 1),
+        ("record", 2), ("wait", 1), ("report", 1),
+        ("record", 3), ("wait", 2), ("report", 2),
+        ("wait", 3), ("report", 3),
+    ]  # fmt: skip
+
+
+def test_steps_are_reported_immediately_off_the_gpu():
+    steps = []
+    reporter = pipeline.StepReporter(2, lambda step, total: steps.append((step, total)), torch.device("cpu"))
+    reporter.queued()
+    reporter.queued()
+    reporter.finish()
+    assert steps == [(1, 2), (2, 2)]

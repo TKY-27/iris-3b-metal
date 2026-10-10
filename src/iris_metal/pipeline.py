@@ -29,6 +29,48 @@ def to_images(samples: torch.Tensor) -> list[Image.Image]:
     return [Image.fromarray(np.ascontiguousarray(x.permute(1, 2, 0).cpu().numpy())) for x in pixels]
 
 
+class StepReporter:
+    """Reports each sampling step once the GPU has finished it.
+
+    The host queues steps far ahead of the GPU, so a callback run when a step is
+    queued would show progress that has not happened and would check for
+    cancellation after the last step had already been queued. Each step records
+    an event and the next step waits for it, which keeps one step queued and the
+    GPU busy.
+    """
+
+    def __init__(self, total: int, on_step: Callable[[int, int], None] | None, device: torch.device):
+        self.total = total
+        self.on_step = on_step
+        self.use_events = device.type == "mps"
+        self.done = 0
+        self._pending: torch.mps.Event | None = None
+
+    def queued(self) -> None:
+        """Call after queuing a step."""
+        if not self.use_events:  # the CPU runs each step before returning
+            self._report()
+            return
+        event = torch.mps.Event()
+        event.record()
+        if self._pending is not None:
+            self._pending.synchronize()
+            self._report()
+        self._pending = event
+
+    def finish(self) -> None:
+        """Wait for the last queued step and report it."""
+        if self._pending is not None:
+            self._pending.synchronize()
+            self._pending = None
+            self._report()
+
+    def _report(self) -> None:
+        self.done += 1
+        if self.on_step is not None:
+            self.on_step(self.done, self.total)
+
+
 class IrisPipeline:
     """Loads the diffusion model on first use and keeps it resident.
 
@@ -112,14 +154,11 @@ class IrisPipeline:
         cond = engine.encode_text(states, mask)
         uncond = engine.encode_text(*encodings[-1]).expand_as(cond) if guided else None
 
-        step = 0
+        reporter = StepReporter(steps, on_step, self.device)
 
         def velocity(x: torch.Tensor, t: torch.Tensor, text: torch.Tensor) -> torch.Tensor:
-            nonlocal step
             out = engine(x, t, text)
-            step += 1
-            if on_step is not None:
-                on_step(step, steps)
+            reporter.queued()
             return out
 
         # CPU noise keeps a seed's image identical across machines
@@ -140,4 +179,5 @@ class IrisPipeline:
             order=sample.order,
             shift=self.cfg.flow.shift,
         )
+        reporter.finish()
         return to_images(require_finite(x))
