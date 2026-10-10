@@ -209,9 +209,9 @@ def test_load_dit_precision_plan(tmp_path):
 
 
 @requires_mps
-def test_shipped_bf16_path_is_as_accurate_as_upstream_autocast(tmp_path):
-    """The default configuration (BF16 linears, fused kernels, FP16 attention) against
-    upstream under BF16 autocast, both measured against the FP32 forward."""
+def test_default_path_is_as_accurate_as_upstream_autocast(tmp_path):
+    """The default configuration (FP16 trunk, BF16 pixel stage, fused kernels, FP16
+    attention) against upstream under BF16 autocast, both measured against FP32."""
     model = _randomized_model()
     x, t, states, mask = _inputs()
     with torch.no_grad():
@@ -231,7 +231,6 @@ def test_shipped_bf16_path_is_as_accurate_as_upstream_autocast(tmp_path):
     assert _relative_error(actual, exact) < 1.2 * reference_error
 
 
-@requires_mps
 def test_require_finite_rejects_overflow():
     ok = torch.zeros(2, 3)
     assert require_finite(ok) is ok

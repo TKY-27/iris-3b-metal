@@ -3,8 +3,9 @@
 Upstream runs the released model as FP32 master weights under BF16 autocast.
 This module keeps norm gains, adaLN biases and the residual streams in FP32,
 like that recipe, but evaluates the patch transformer's linear layers and
-attention in FP16, which carries three more bits than BF16 (the pixel stage
-and the text adapter stay BF16; see ``loading.linear_dtypes``). Elementwise
+attention in FP16, which carries three more bits than BF16 (the linear layers
+of the pixel stage and the text adapter stay BF16; see ``loading.linear_dtypes``;
+attention everywhere uses ``attention_dtype``, FP16 by default). Elementwise
 work is fused and rounded less often than under autocast (see ``kernels``),
 so results are closer to an FP32 forward than the upstream recipe, not
 bit-identical to it. The computation is restructured for Apple GPUs:
@@ -239,7 +240,7 @@ class MetalIris:
 
     def _attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
         """``q``, ``k``: ``[B, H, N, 128]`` (K possibly grouped); ``v``: ``[B, N, H_kv*128]``.
-        Returns ``[B, N, H*128]`` in the compute dtype."""
+        Returns ``[B, N, H*128]`` in the patch transformer's dtype."""
         batch, heads, tokens, _ = q.shape
         v_heads = k.new_empty(k.shape).copy_(v.unflatten(2, (k.shape[1], HEAD_DIM)).transpose(1, 2))
         out = F.scaled_dot_product_attention(q, k, v_heads, enable_gqa=k.shape[1] != heads)
@@ -321,8 +322,8 @@ class MetalIris:
     ) -> torch.Tensor:
         """Updates ``pixels`` in place and returns ``next_norm(pixels)``.
 
-        ``pixels``: ``[B*L, p*p, d_pix]`` in the compute dtype, like the upstream
-        autocast pixel stream; ``h``: ``block.norm1(pixels)``; ``cond``: FP32 ``[B*L, D]``.
+        ``pixels``: ``[B*L, p*p, d_pix]`` in the pixel stage's dtype (BF16), like the
+        upstream autocast pixel stream; ``h``: ``block.norm1(pixels)``; ``cond``: FP32 ``[B*L, D]``.
         """
         if block.modulation != "post":
             raise ValueError("MetalIris supports post-modulated PiT blocks only")
