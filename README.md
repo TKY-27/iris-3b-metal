@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/metal/icon.png" width="128" alt="The Iris app icon: an iris flower of translucent violet and blue petals with a warm yellow heart on a dark indigo background, drawn by Iris-3B"></p>
+
 # Iris-3B Metal
 
 Run [Iris-3B](https://github.com/speridlabs/iris-3b), Speridlabs' 3B-parameter
@@ -60,9 +62,12 @@ iris-metal depth photo.jpg            # depth/photo_depth.png and .npy
 iris-metal upscale photo.jpg          # upscaled/photo_x4.png
 ```
 
-Inputs that share a file name (`a/photo.jpg b/photo.jpg`) get numbered
-outputs (`photo_depth.png`, `photo-2_depth.png`) instead of overwriting each
-other, and every input is checked before the model loads.
+`iris-metal` never replaces an existing file unless you name it with `-o`
+(several prompts with `-o fox.png` write `fox.png`, `fox-2.png`, ...):
+without it, images are numbered `iris.png`, `iris-2.png`, ..., and depth and
+upscaling outputs (`photo_depth.png`, `photo-2_depth.png`, ...) skip names
+already taken, including inputs that share a file name. Every input and output
+is checked before the model loads.
 
 From Python:
 
@@ -76,29 +81,56 @@ image.save("panda.png")
 
 `IrisPipeline` keeps the model loaded between calls and caches recent prompt
 encodings, so repeated generations skip the load and the text encoder.
+`iris_metal.cli.resolve_checkpoint("speridlabs/iris-3b", None)` downloads the
+validated checkpoint and returns its directory.
 
 ## The macOS app
 
 `apps/macos` is a SwiftUI app that drives a local `iris-metal serve`; it
-holds no model code of its own. Work is organized like a chat app:
+holds no model code of its own. It works like a chat app:
 
-- **Conversations** list each request (a prompt, or an image to process) and
-  its result in order, with live progress and Stop. Each request is generated
-  on its own: Iris-3B does not see earlier prompts or images, and the app does
-  not pretend otherwise.
-- **A composer** at the bottom switches between creating an image, estimating
-  depth and upscaling, and holds the size, steps, guidance, seed and negative
-  prompt for the next image.
-- **Results** open in Quick Look and can be copied, saved, generated again
-  with a new seed, reused as settings, or upscaled and depth-estimated as new
-  entries of the same conversation.
-- **The sidebar** groups conversations into projects, searches titles and
-  prompts, and shows every result under All Images.
+- **A new chat** opens on one question and a composer, over a faint glow
+  that the pointer stirs like liquid. Type a prompt, or add or drop an image to upscale
+  it or estimate its depth: the composer switches to what can be done with an
+  image, because Iris-3B does not edit images from instructions.
+- **Each request is generated on its own.** Iris-3B does not see earlier
+  prompts or images in the chat, and the app does not pretend otherwise.
+- **While an image is made**, the frame it will fill shows the iris at work
+  and what the engine reports: preparing, then `65% · 13 / 20 steps` with the
+  time left, then finishing. Stop is where Send was.
+- **Settings stay out of the way.** The composer shows the shape (`16:9`
+  and so on, from the model's native sizes) and two words for quality and
+  prompt adherence; a popover holds the preset sliders, with `>` beside each
+  for the exact steps or guidance scale, and the seed and negative prompt.
+- **Several images at once.** Choose 1 to 4 images in the composer: they are
+  made one after another (the engine holds one model and one image in memory),
+  each with its own seed, and the later ones wait as “Queued”. Stop ends the
+  rest of the batch. The count is back to one at every launch.
+- **Results** open in Quick Look, and can be copied, saved, varied with a new
+  seed, reused as settings, or upscaled and depth-estimated in the same chat.
+- **The sidebar** has search, New Chat, every result under All Images,
+  pinned chats, projects with their chats, and recent chats by date, each with
+  its latest image.
+- **Projects** group chats. Create one with New Project (⇧⌘N), then start a
+  chat on its page, choose it in the folder menu of a new chat's composer, or
+  drag chats onto it in the sidebar. Pin a chat from its context menu (or swipe) to
+  keep it at the top.
+
+Quality presets are Draft, Fast, Standard, High and Maximum: 10, 15, 20, 30
+and 50 steps. The app starts at Standard (20 steps) so that trying prompts
+takes about a minute and a half at 1024 × 1024; that is a preview, not the
+model's evaluated setting. Iris-3B was evaluated at 100 steps (the default of
+the command line and the API), and fewer steps change fine detail such as
+hands (see [Fewer steps](#image-quality)); type 100 in the exact field for a
+final image. Prompt adherence ranges from Creative to Literal around the
+checkpoint's guidance of 3.
 
 The library lives in `~/Library/Application Support/Iris` (`Library.json`
-plus the images). The history of Iris 0.1 is imported on first launch into
-a conversation named “Earlier images”. The app needs macOS 15 and was built
-with Xcode 27:
+plus the images); a `History` folder from Iris 0.1 is imported once into a
+chat named “Earlier images”. The app needs macOS 15 and was built with Xcode 27.
+Its icon, an iris flower, was drawn by Iris-3B itself at 100 steps
+(`apps/macos/icon`) and is an Icon Composer document, so macOS applies its own
+shape, light and appearances:
 
 ```bash
 cd apps/macos && xcodebuild -scheme Iris -configuration Release build
@@ -109,7 +141,7 @@ The app uses a server that is already running on its port, or starts
 `/usr/local/bin`. If you installed into a virtual environment, set the path
 to its `bin/iris-metal` in the app's Settings.
 
-<p align="center"><img src="assets/metal/app.jpg" width="760" alt="The Iris app: a sidebar with search, All Images, projects and conversations on the left; on the right a conversation showing the prompt about a lighthouse on a rocky coast at dusk, the generated photograph with its size, steps, guidance, seed and time below it, and the composer with the workflow and settings at the bottom"></p>
+<p align="center"><img src="assets/metal/app.jpg" width="760" alt="The Iris app in dark appearance: a sidebar with search, New Chat, All Images, a pinned chat, projects Landscapes and Portraits with their chats, and recent chats by date, each with its latest image; on the right a chat in the Landscapes project showing the prompt about rolling green hills with a winding road and the generated photograph, and the composer with Add Image, the shape and the quality settings"></p>
 
 ## HTTP API
 
@@ -209,8 +241,8 @@ pass. What it changes, and what it does not:
   checked for overflow. The pixel stage and the text adapter keep BF16: the
   pixel stream reaches about 1.4 × 10⁴, and neither part is sensitive to
   BF16 rounding (see [Image quality](#image-quality)).
-- **The text encoder is streamed.** Iris reads hidden layers 2–35 of
-  Qwen3-VL-4B for the real prompt tokens only; the engine runs those layers one
+- **The text encoder is streamed.** Iris reads 12 hidden layers of
+  Qwen3-VL-4B (every third from 2 to 35) for the real prompt tokens only; the engine runs those layers one
   at a time from the checkpoint files instead of loading the 8 GB model.
 
 In a single-stream block at 1024 × 1024 (16 of the 24 blocks), 66% of the GPU
@@ -271,8 +303,8 @@ running 1.7–5× faster than the FP32 code on the same GPU.
 **Patch seams.** Iris-3B predicts pixels in 16 × 16 patches. At 768 × 768 and
 1024 × 1024 the engine's outputs show no visible seams at 3× magnification,
 and the attention precision does not change the measured patch-grid
-statistics. An earlier port of this model applied an image-space deblocking
-filter; it suppressed real detail along the grid and is not used.
+statistics. An image-space deblocking filter was tried and rejected: it
+suppressed real detail along the grid.
 
 **Fewer steps.** 50 steps keep the composition of the 100-step image but
 change fine structure (mean LPIPS 0.26 against 100 steps on the development
@@ -311,11 +343,19 @@ touch the real library. `python apps/macos/fake_engine.py` serves the real
 HTTP API over CPU stand-ins with synthetic images, for working on the app
 without a GPU or model downloads; the app attaches to it on port 8765, and
 `TEST_RUNNER_IRIS_ENGINE_TEST=1 xcodebuild -scheme Iris test` adds an
-end-to-end test against it. The
+end-to-end test against it. To keep a development build away from your own
+chats, launch it with `--args -libraryRoot /tmp/iris-dev -enginePort 8790`. The
 Xcode project is generated from `apps/macos/project.yml` with XcodeGen.
 
 The upstream training code is kept unchanged under `src/iris3b/` and needs
-`pip install -e ".[train]"` and CUDA.
+`pip install -e ".[train]"` and CUDA; the full test suite needs
+`".[train,dev]"`, and the upstream Gradio demo `".[train,ui]"`.
+`UPSTREAM_README.md` is upstream's README as it was, so where it says
+`pip install -e .`, read `pip install -e ".[train]"`.
+
+`apps/macos/icon/iris_icon.py` draws app icon candidates with Iris itself
+through a running `iris-metal serve`, masks them into the macOS icon shape and
+lays them out for review (see its docstring).
 
 ## License and attribution
 
