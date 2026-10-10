@@ -2,6 +2,7 @@
 
 import argparse
 import functools
+import math
 import re
 import sys
 import time
@@ -60,6 +61,13 @@ def int_range(low: int, high: int | None = None):
         return value
 
     return parse
+
+
+def finite_float(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise argparse.ArgumentTypeError("must be a finite number")
+    return value
 
 
 def output_paths(output: Path, count: int) -> list[Path]:
@@ -200,7 +208,7 @@ def main(argv: list[str] | None = None) -> None:
         "--size", type=parse_size, default=(1024, 1024), help="WIDTHxHEIGHT, default 1024x1024"
     )
     parser.add_argument("--steps", type=int_range(1), help="default: the checkpoint's (100)")
-    parser.add_argument("--cfg-scale", type=float, help="default: the checkpoint's (3)")
+    parser.add_argument("--cfg-scale", type=finite_float, help="default: the checkpoint's (3)")
     parser.add_argument("--seed", type=int_range(0, MAX_SEED), default=0)
     parser.add_argument("--negative-prompt", help="default: the checkpoint's (empty)")
     parser.add_argument("--checkpoint", default=REPO_ID, help="local directory or Hugging Face repo")

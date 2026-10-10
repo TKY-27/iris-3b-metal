@@ -56,6 +56,7 @@ def test_bad_outputs_and_arguments_fail_before_generating(tmp_path, monkeypatch)
         ["fox", "-o", str(tmp_path)],  # a directory
         ["fox", "-o", str(tmp_path / "out")],  # no image extension
         ["fox", "--steps", "0"],
+        ["fox", "--cfg-scale", "nan"],
         ["fox", "--seed", str(2**64)],
     ):
         with pytest.raises(SystemExit):
