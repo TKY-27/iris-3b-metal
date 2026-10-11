@@ -55,7 +55,9 @@ struct EntryView: View {
                         .monospacedDigit()
                         .lineLimit(1)
                         .help(exactSettings)
-                        .textSelection(.enabled)
+                        // Not selectable: a selectable Text with its own accessibility label sends
+                        // SwiftUI's label resolution into endless recursion when an assistive
+                        // client reads it, which crashed the app.
                         .accessibilityLabel(caption(seconds: seconds).spokenSizes)
                     Spacer(minLength: 12)
                     actionBar
