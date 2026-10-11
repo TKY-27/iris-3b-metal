@@ -34,6 +34,33 @@ struct EngineHealth: Decodable, Sendable {
     /// "text-to-image", "depth", "restoration" or nil
     let resident: String?
     let queued: Int
+    let engineVersion: String?
+    let apiVersion: Int?
+
+    static let instructionsURL = URL(string: "https://github.com/TKY-27/iris-3b-metal#install")!
+
+    enum CodingKeys: String, CodingKey {
+        case resident, queued
+        case engineVersion = "engine_version"
+        case apiVersion = "api_version"
+    }
+
+    var compatibilityIssue: String? {
+        if let apiVersion, apiVersion != 1 {
+            return "This engine uses API \(apiVersion); Iris requires API 1. See Engine update instructions in Settings."
+        }
+        if let engineVersion {
+            guard let version = ReleaseVersion(engineVersion), version.major == 0, version.minor == 3 else {
+                return "Engine \(engineVersion) is not supported by this app. Use iris-metal 0.3.x; see Settings."
+            }
+        }
+        return nil
+    }
+
+    var compatibilityNotice: String? {
+        compatibilityIssue ?? ((engineVersion == nil || apiVersion == nil)
+            ? "This legacy engine does not report its version. Compatibility cannot be fully verified." : nil)
+    }
 }
 
 enum EngineError: LocalizedError {

@@ -85,7 +85,7 @@ final class Generator {
     ) -> UUID? {
         guard !isBusy, !library.isReadOnly, !requests.isEmpty else { return nil }
         let entries = requests.map { Entry(workflow: .create, request: $0) }
-        let id = library.append(entries[0], to: conversation, project: project)
+        guard let id = library.append(entries[0], to: conversation, project: project) else { return nil }
         for entry in entries.dropFirst() { library.append(entry, to: id) }
         queued = Array(entries.dropFirst())
         start(entries[0], in: id, input: nil, library: library, engine: engine)
@@ -100,7 +100,7 @@ final class Generator {
     ) -> UUID? {
         guard !isBusy, !library.isReadOnly, workflow.needsImage else { return nil }
         let entry = Entry(workflow: workflow, inputName: name)
-        let id = library.append(entry, to: conversation, project: project)
+        guard let id = library.append(entry, to: conversation, project: project) else { return nil }
         start(entry, in: id, input: image, library: library, engine: engine)
         return id
     }
@@ -140,6 +140,7 @@ final class Generator {
             }
         }
         if isBusy { task.cancel() }
+        await task.value
     }
 
     // MARK: - Private
@@ -170,13 +171,16 @@ final class Generator {
     private func run(_ entry: Entry, input: URL?, library: Library, engine: EngineController) async -> Entry.Outcome {
         let client = engine.client
         do {
+            try checkCancellation()
             let id: String
             if let request = entry.request {
                 id = try await client.submit(request)
             } else if let input {
                 let png = try await Task.detached(priority: .userInitiated) { try ImageFiles.uploadPNG(from: input) }.value
+                try checkCancellation()
                 try await library.write(png, for: entry.id, asInput: true)  // kept for "Run Again"
                 storedInput = entry.id
+                try checkCancellation()
                 id = try await client.submit(entry.workflow, png: png)
             } else {
                 return .failed("This entry has no input.")
@@ -186,8 +190,11 @@ final class Generator {
             let status = try await poll(id, workflow: entry.workflow, client: client)
             switch status.status {
             case .done:
+                try checkCancellation()
                 let png = try await client.image(of: id)
+                try checkCancellation()
                 try await library.write(png, for: entry.id)
+                try checkCancellation()
                 return .done(seconds: status.seconds ?? 0)
             case .cancelled:
                 return .cancelled
@@ -197,11 +204,17 @@ final class Generator {
         } catch is CancellationError {
             return cancelRequested ? .cancelled : .interrupted
         } catch EngineError.unreachable {
+            if cancelRequested { return .cancelled }
             engine.connectionLost()
             return .failed(EngineError.unreachable.localizedDescription)
         } catch {
             return cancelRequested ? .cancelled : .failed(error.localizedDescription)
         }
+    }
+
+    private func checkCancellation() throws {
+        try Task.checkCancellation()
+        if cancelRequested { throw CancellationError() }
     }
 
     private func poll(_ id: String, workflow: Workflow, client: EngineClient) async throws -> JobStatus {

@@ -196,6 +196,14 @@ The app uses a server already running on its port, or starts `iris-metal
 serve` itself from `~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin`;
 for a virtual environment, set the path to its `bin/iris-metal` in Settings.
 
+Use **Iris → Check for Updates…** for published stable releases. Automatic
+checks run at most daily and can be disabled in Settings. A compatible newer
+release shows a small toolbar indicator and **View Release**; the current
+source distribution cannot install app updates. The app and Python engine
+have separate versions. Engine Settings shows compatibility and manual
+update instructions; Iris never changes a Python environment. See
+[macOS release and update requirements](docs/macos-updates.md).
+
 - **Chats.** Type a prompt, or add or drop an image to restore and upscale it
   or estimate its depth. Results open in Quick Look and can be copied, saved,
   varied with a new seed, reused as settings, or passed on to upscaling and

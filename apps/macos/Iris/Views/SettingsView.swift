@@ -12,10 +12,12 @@ struct SettingsView: View {
 }
 
 private struct GeneralSettings: View {
+    @Environment(UpdateChecker.self) private var updates
     @AppStorage(FieldSettings.animatesKey) private var animatesCanvas = true
     @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system
 
     var body: some View {
+        @Bindable var updates = updates
         Form {
             Section {
                 Picker("Appearance", selection: $appearance) {
@@ -27,6 +29,12 @@ private struct GeneralSettings: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section("Updates") {
+                LabeledContent("App version", value: "\(updates.appVersion) (\(UpdateChecker.installedBuild))")
+                Toggle("Check automatically", isOn: $updates.automatic)
+                CheckForUpdatesButton()
+            }
+
         }
         .formStyle(.grouped)
     }
@@ -42,12 +50,21 @@ private struct EngineSettings: View {
         Form {
             Section {
                 LabeledContent("Status") { Text(status) }
+                LabeledContent("Engine version", value: engine.health?.engineVersion ?? "Not reported")
+                if let notice = engine.health?.compatibilityNotice {
+                    Text(notice).foregroundStyle(.secondary)
+                }
+                DisclosureGroup("Engine update instructions") {
+                    Text("Use iris-metal 0.3.x with this app. Quit Iris before changing the engine. Install the chosen release into a new Python environment, then select its bin/iris-metal here. Keep the old environment until the new one works; select the old path again to roll back.")
+                    Text("For pipx or another package manager, use the tool that owns the installation. App updates do not update Python packages. Checkpoints and the Hugging Face cache can stay where they are.")
+                    Link("Official installation guide", destination: EngineHealth.instructionsURL)
+                }
                 TextField("iris-metal location", text: $path, prompt: Text(engine.resolvedExecutable()?.path ?? "Not found"))
                 Button("Choose…", action: choose)
                 TextField("Port", value: $port, format: .number.grouping(.never))
                     .help("\(EngineController.portRange.lowerBound)–\(EngineController.portRange.upperBound)")
             } footer: {
-                Text("Iris runs the iris-metal engine (see the README to install it) as a local server on 127.0.0.1. Leave the location empty to search ~/.local/bin and Homebrew.")
+                Text("The Python engine is installed separately. Iris never changes your Python environment. Leave the location empty to search ~/.local/bin and Homebrew.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

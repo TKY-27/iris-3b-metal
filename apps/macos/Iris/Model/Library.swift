@@ -73,7 +73,8 @@ final class Library {
 
     /// Adds `entry` to a conversation, or to a new one titled after it when `conversation` is nil.
     @discardableResult
-    func append(_ entry: Entry, to conversation: UUID?, project: UUID? = nil) -> UUID {
+    func append(_ entry: Entry, to conversation: UUID?, project: UUID? = nil) -> UUID? {
+        guard !isReadOnly else { return nil }
         if let index = conversations.firstIndex(where: { $0.id == conversation }) {
             conversations[index].entries.append(entry)
             conversations[index].updated = entry.created
@@ -118,6 +119,7 @@ final class Library {
     // MARK: - Entries
 
     func setOutcome(_ outcome: Entry.Outcome, of id: UUID) {
+        guard !isReadOnly else { return }
         for c in conversations.indices {
             if let e = conversations[c].entries.firstIndex(where: { $0.id == id }) {
                 conversations[c].entries[e].outcome = outcome
@@ -136,6 +138,7 @@ final class Library {
 
     /// Writes an entry's result or input PNG off the main thread.
     func write(_ png: Data, for entry: UUID, asInput: Bool = false) async throws {
+        guard !isReadOnly else { throw CocoaError(.fileWriteNoPermission) }
         let store = store
         try await Task.detached(priority: .userInitiated) {
             if asInput {

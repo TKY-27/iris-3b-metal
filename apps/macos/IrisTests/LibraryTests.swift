@@ -6,11 +6,11 @@ import XCTest
 final class LibraryTests: XCTestCase {
     private var root: URL!
 
-    override func setUp() {
+    override func setUp() async throws {
         root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         try? FileManager.default.removeItem(at: root)
     }
 
@@ -41,7 +41,7 @@ final class LibraryTests: XCTestCase {
         let library = Library(store: LibraryStore(root: root))
         let project = try XCTUnwrap(library.createProject(named: "Tests"))
         let entry = Entry(workflow: .create, request: request("fox"), outcome: .done(seconds: 1))
-        let conversation = library.append(entry, to: nil, project: project)
+        let conversation = try XCTUnwrap(library.append(entry, to: nil, project: project))
         try await library.write(Data([1, 2, 3]), for: entry.id)
 
         library.delete(project: project)
@@ -124,6 +124,65 @@ final class LibraryTests: XCTestCase {
         let second = Library(store: LibraryStore(root: root))
         XCTAssertTrue(second.isReadOnly)
         XCTAssertEqual(second.conversation(conversation)?.entries.first?.outcome, .running)
+    }
+
+    func testReadOnlyLibraryRejectsEntryAndImageChanges() async throws {
+        let first = Library(store: LibraryStore(root: root))
+        let entry = Entry(workflow: .create, request: request("fox"))
+        let conversation = try XCTUnwrap(first.append(entry, to: nil))
+        try await first.write(Data([1]), for: entry.id)
+        first.flush()
+        let index = try Data(contentsOf: first.store.indexURL)
+        let second = Library(store: LibraryStore(root: root))
+
+        XCTAssertNil(second.append(Entry(workflow: .depth), to: conversation))
+        second.setOutcome(.cancelled, of: entry.id)
+        XCTAssertEqual(second.conversation(conversation)?.entries, [entry])
+        for asInput in [false, true] {
+            do {
+                try await second.write(Data([2]), for: entry.id, asInput: asInput)
+                XCTFail("Read-only writes must fail")
+            } catch {
+                XCTAssertEqual((error as? CocoaError)?.code, .fileWriteNoPermission)
+            }
+        }
+        second.flush()
+        XCTAssertEqual(try Data(contentsOf: first.store.indexURL), index)
+        XCTAssertEqual(try Data(contentsOf: first.imageURL(entry.id)), Data([1]))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: first.inputURL(entry.id).path))
+    }
+
+    func testMigrationRestoresIndexedImagesBeforeRemovingHistory() throws {
+        let store = LibraryStore(root: root)
+        let entry = Entry(workflow: .create, request: request("fox"), outcome: .done(seconds: 1))
+        let conversation = Conversation(title: "fox", projectID: nil, entries: [entry])
+        try store.save(LibrarySnapshot(conversations: [conversation]))
+        try FileManager.default.createDirectory(at: store.legacyDirectory, withIntermediateDirectories: true)
+        let record = #"{"id":"\#(entry.id)","created":800000000,"seconds":1}"#
+        try Data(record.utf8).write(to: store.legacyDirectory.appending(path: "\(entry.id).json"))
+        let png = Data([1, 2, 3])
+        try png.write(to: store.legacyDirectory.appending(path: "\(entry.id).png"))
+
+        let loaded = store.load()
+        XCTAssertNil(loaded.problem)
+        XCTAssertEqual(loaded.snapshot.conversations, [conversation])
+        XCTAssertEqual(try Data(contentsOf: store.imageURL(entry.id)), png)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.legacyDirectory.path))
+    }
+
+    func testMigrationImportsDuplicateLegacyIDsOnce() throws {
+        let store = LibraryStore(root: root)
+        try FileManager.default.createDirectory(at: store.legacyDirectory, withIntermediateDirectories: true)
+        let id = UUID()
+        let record = #"{"id":"\#(id)","created":800000000,"seconds":1}"#
+        for name in [id.uuidString, "duplicate"] {
+            try Data(record.utf8).write(to: store.legacyDirectory.appending(path: "\(name).json"))
+        }
+        try Data([1]).write(to: store.legacyDirectory.appending(path: "\(id).png"))
+
+        let loaded = store.load()
+        XCTAssertNil(loaded.problem)
+        XCTAssertEqual(loaded.snapshot.conversations.flatMap(\.entries).map(\.id), [id])
     }
 
     func testALibraryFromANewerVersionIsLeftAlone() throws {

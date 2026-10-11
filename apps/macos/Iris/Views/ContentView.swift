@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(UpdateChecker.self) private var updates
+    @Environment(\.openWindow) private var openWindow
     @Environment(Library.self) private var library
     @Environment(Workspace.self) private var workspace
 
@@ -23,6 +25,14 @@ struct ContentView: View {
             }
         }
         .toolbar {
+            if let release = updates.available {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { openWindow(id: "updates") } label: {
+                        Label("Iris \(release.displayVersion) available", systemImage: "arrow.down.circle")
+                    }
+                    .help("Iris \(release.displayVersion) is available")
+                }
+            }
             ToolbarItem(placement: .navigation) {
                 Button {
                     workspace.newConversationHere(library: library)

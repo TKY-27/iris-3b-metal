@@ -7,11 +7,11 @@ import XCTest
 final class OrganizationTests: XCTestCase {
     private var root: URL!
 
-    override func setUp() {
+    override func setUp() async throws {
         root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         try? FileManager.default.removeItem(at: root)
     }
 
@@ -62,7 +62,7 @@ final class OrganizationTests: XCTestCase {
     func testAPinnedChatInAProjectStaysInTheProject() throws {
         let library = Library(store: LibraryStore(root: root))
         let project = try XCTUnwrap(library.createProject(named: "Coasts"))
-        let chat = library.append(entry("a"), to: nil, project: project)
+        let chat = try XCTUnwrap(library.append(entry("a"), to: nil, project: project))
         library.setPinned(true, conversation: chat)
         XCTAssertEqual(library.conversations(in: project).map(\.id), [chat])
         XCTAssertEqual(library.pinnedConversations.map(\.id), [chat])
@@ -102,7 +102,7 @@ final class OrganizationTests: XCTestCase {
         workspace.newConversationHere(library: library)
         XCTAssertNil(workspace.draftProject)
         // inside a project's chat, New Chat stays in the project
-        let chat = library.append(Entry(workflow: .create, request: nil, outcome: .cancelled), to: nil, project: project)
+        let chat = try XCTUnwrap(library.append(Entry(workflow: .create, request: nil, outcome: .cancelled), to: nil, project: project))
         workspace.show(chat)
         workspace.newConversationHere(library: library)
         XCTAssertEqual(workspace.draftProject, project)

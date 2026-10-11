@@ -7,6 +7,101 @@ import XCTest
 
 @MainActor
 final class WorkflowTests: XCTestCase {
+    func testImmediateCancellationDoesNotSubmitABatch() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = Library(store: LibraryStore(root: root))
+        let engine = EngineController()
+        let generator = Generator()
+        var settings = GenerationSettings()
+        let chat = try XCTUnwrap(generator.generate(
+            settings.requests(for: "fox", count: 3), in: nil, library: library, engine: engine
+        ))
+        await generator.cancelAndWait(engine: engine)
+
+        XCTAssertFalse(generator.isBusy)
+        XCTAssertTrue(generator.queued.isEmpty)
+        XCTAssertEqual(library.conversation(chat)?.entries.map(\.outcome), [.cancelled, .cancelled, .cancelled])
+        library.flush()
+        XCTAssertEqual(LibraryStore(root: root).load(readOnly: true).snapshot.conversations.first?.entries.map(\.outcome),
+                       [.cancelled, .cancelled, .cancelled])
+    }
+
+    func testCancellationDuringResultDownloadDoesNotPublishImage() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let marker = root.appending(path: "port")
+        let downloading = root.appending(path: "downloading")
+        let release = root.appending(path: "release")
+        let script = """
+        import pathlib, time
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        root = pathlib.Path('\(root.path)')
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def reply(self, body):
+                self.send_response(200)
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get('Content-Length', 0)))
+                self.reply(b'{"id":"test"}')
+            def do_DELETE(self): self.reply(b'{}')
+            def do_GET(self):
+                if self.path.endswith('/health'):
+                    self.reply(b'{"resident":null,"queued":0}')
+                elif self.path.endswith('/image'):
+                    (root / 'downloading').touch()
+                    deadline = time.monotonic() + 5
+                    while not (root / 'release').exists() and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    self.reply(b'result')
+                else:
+                    self.reply(b'{"id":"test","status":"done","step":1,"steps":1,"seconds":1}')
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        (root / 'port').write_text(str(server.server_port))
+        server.serve_forever()
+        """
+        let server = Process()
+        server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        server.arguments = ["-c", script]
+        try server.run()
+        defer { if server.isRunning { server.terminate() } }
+        let startupDeadline = ContinuousClock.now + .seconds(5)
+        while !FileManager.default.fileExists(atPath: marker.path), ContinuousClock.now < startupDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let suite = "io.github.tky27.iris.download-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let engine = EngineController(defaults: defaults)
+        engine.port = try XCTUnwrap(Int(String(contentsOf: marker, encoding: .utf8)))
+        await engine.start()
+        XCTAssertEqual(engine.state, .ready)
+        let library = Library(store: LibraryStore(root: root))
+        let generator = Generator()
+        var settings = GenerationSettings()
+        let chat = try XCTUnwrap(generator.generate(
+            [settings.request(for: "fox")], in: nil, library: library, engine: engine
+        ))
+        let downloadDeadline = ContinuousClock.now + .seconds(5)
+        while !FileManager.default.fileExists(atPath: downloading.path), ContinuousClock.now < downloadDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: downloading.path))
+        generator.cancel(engine: engine)
+        try Data().write(to: release)
+        await generator.cancelAndWait(engine: engine)
+
+        let entry = try XCTUnwrap(library.conversation(chat)?.entries.first)
+        XCTAssertEqual(entry.outcome, .cancelled)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: library.imageURL(entry.id).path))
+        XCTAssertFalse(generator.isBusy)
+        library.flush()
+    }
+
     func testAlreadyCancelledStartupDoesNotConnect() async {
         let engine = EngineController()
         let startup = Task { @MainActor in

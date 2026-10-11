@@ -156,7 +156,7 @@ struct LibraryStore: Sendable {
     private func importLegacyHistory(into snapshot: inout LibrarySnapshot) throws {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: legacyDirectory.path) else { return }
-        let known = Set(snapshot.conversations.flatMap { $0.entries.map(\.id) })
+        var known = Set(snapshot.conversations.flatMap { $0.entries.map(\.id) })
         let files = try fileManager.contentsOfDirectory(at: legacyDirectory, includingPropertiesForKeys: nil)
         let records = files.filter { $0.pathExtension == "json" }
         let items = records
@@ -170,11 +170,11 @@ struct LibraryStore: Sendable {
         for item in items {
             let legacyImage = legacyDirectory.appending(path: "\(item.id.uuidString).png")
             guard fileManager.fileExists(atPath: legacyImage.path) else { continue }  // Iris 0.1 showed none either
-            if known.contains(item.id) { continue }
             try fileManager.createDirectory(at: imagesDirectory, withIntermediateDirectories: true)
             if !fileManager.fileExists(atPath: imageURL(item.id).path) {
                 try fileManager.copyItem(at: legacyImage, to: imageURL(item.id))  // a clone on APFS
             }
+            guard known.insert(item.id).inserted else { continue }
             imported.append(Entry(
                 id: item.id, created: item.created, workflow: item.workflow ?? .create,
                 request: item.request, inputName: item.source, outcome: .done(seconds: item.seconds)

@@ -13,6 +13,9 @@ final class EngineController {
         case failed(String)
     }
 
+    private(set) var health: EngineHealth?
+    private let healthCheck: (@Sendable (Int) async throws -> EngineHealth)?
+
     private(set) var state: State = .stopped
     /// The last lines the engine printed, for diagnosing a slow or failed start.
     private(set) var logTail: [String] = []
@@ -23,8 +26,9 @@ final class EngineController {
 
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, healthCheck: (@Sendable (Int) async throws -> EngineHealth)? = nil) {
         self.defaults = defaults
+        self.healthCheck = healthCheck
     }
 
     var port: Int {
@@ -72,11 +76,12 @@ final class EngineController {
         let id = UUID()
         connectionID = id
         state = .starting
+        health = nil
         guard !Task.isCancelled else { stop(); return }
-        if (try? await client.health()) != nil {
+        if let health = try? await probeHealth() {
             guard connectionID == id, state == .starting else { return }
             guard !Task.isCancelled else { stop(); return }
-            state = .ready
+            accept(health)
             return
         }
         guard connectionID == id, state == .starting else { return }
@@ -113,6 +118,7 @@ final class EngineController {
             if !process.isRunning { self.process = nil }
         }
         state = .stopped
+        health = nil
     }
 
     /// Stops a launched engine and waits for it to exit, so the new one can
@@ -187,10 +193,10 @@ final class EngineController {
     private func waitUntilReady(id: UUID) async {
         while connectionID == id, state == .starting {
             guard !Task.isCancelled else { stop(); return }
-            if (try? await client.health()) != nil {
+            if let health = try? await probeHealth() {
                 guard connectionID == id, state == .starting else { return }
                 guard !Task.isCancelled else { stop(); return }
-                state = .ready
+                accept(health)
                 return
             }
             guard connectionID == id, state == .starting else { return }
@@ -202,6 +208,16 @@ final class EngineController {
                 return
             }
         }
+    }
+
+    private func probeHealth() async throws -> EngineHealth {
+        if let healthCheck { return try await healthCheck(port) }
+        return try await client.health()
+    }
+
+    private func accept(_ health: EngineHealth) {
+        self.health = health
+        state = health.compatibilityIssue.map(State.failed) ?? .ready
     }
 
     private func appendLog(_ text: String) {

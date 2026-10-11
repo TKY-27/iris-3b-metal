@@ -12,12 +12,17 @@ struct IrisApp: App {
                 .environment(delegate.library)
                 .environment(delegate.generator)
                 .environment(delegate.workspace)
+                .environment(delegate.updates)
                 .frame(minWidth: 760, minHeight: 520)
                 .task { if !AppDelegate.isTestHost { await delegate.engine.start() } }
+                .task { if !AppDelegate.isTestHost { await delegate.updates.monitor() } }
                 .onChange(of: appearance, initial: true) { NSApp.appearance = appearance.nsAppearance }
         }
         .defaultSize(width: 1180, height: 820)
         .commands {
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesButton().environment(delegate.updates)
+            }
             CommandGroup(replacing: .newItem) {
                 Button("New Chat") { delegate.workspace.newConversationHere(library: delegate.library) }
                     .keyboardShortcut("n")
@@ -36,8 +41,17 @@ struct IrisApp: App {
         .commandsRemoved()  // opened from a result, never from File > New
         .restorationBehavior(.disabled)
 
+        Window("Software Update", id: "updates") {
+            UpdateView()
+                .environment(delegate.updates)
+                .environment(delegate.generator)
+        }
+        .windowResizability(.contentSize)
+        .restorationBehavior(.disabled)
+
         Settings {
             SettingsView()
+                .environment(delegate.updates)
                 .environment(delegate.engine)
                 .environment(delegate.library)
                 .environment(delegate.generator)
@@ -51,6 +65,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let isTestHost = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
     @MainActor let engine = EngineController()
+    @MainActor let updates = UpdateChecker(
+        defaults: isTestHost ? UserDefaults(suiteName: "IrisTestHost")! : .standard
+    )
     @MainActor let library = Library(store: LibraryStore(
         root: isTestHost ? .temporaryDirectory.appending(path: "IrisTestHost-\(UUID().uuidString)") : LibraryStore.defaultRoot
     ))
