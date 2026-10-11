@@ -19,7 +19,7 @@ An Apple Silicon inference engine built on the Iris-3B repository
 official Speridlabs release.
 
 Added: src/iris_metal/, apps/macos/, benchmarks/, assets/metal/,
-assets/benchmarks/, scripts/benchmark.py, scripts/compare_runs.py,
+assets/downstream/, assets/benchmarks/, scripts/benchmark.py, scripts/compare_runs.py,
 scripts/denoise_fixture.py, scripts/evaluate.py, scripts/plot_benchmarks.py,
 scripts/precision_study.py, scripts/restore_study.py, tests/test_metal_*.py,
 tests/test_compare_runs.py, tests/test_data_retries.py, .github/, and the
