@@ -177,9 +177,7 @@ def test_drop_removes_exactly_the_text_tail(overrides, extra):
 
     assert set(keep.state_dict()) - set(drop.state_dict()) == removed
     assert set(drop.state_dict()) - set(keep.state_dict()) == set()
-    assert keep.num_parameters - drop.num_parameters == sum(
-        keep.state_dict()[key].numel() for key in removed
-    )
+    assert keep.num_parameters - drop.num_parameters == sum(keep.state_dict()[key].numel() for key in removed)
     # only the last block loses anything
     assert all(
         len(list(k.parameters())) == len(list(d.parameters()))

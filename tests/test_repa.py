@@ -247,9 +247,7 @@ def test_forward_is_a_bounded_cosine_that_trains_only_the_projector(monkeypatch,
     assert -1.0 <= value.item() <= 1.0
 
     value.backward()
-    assert all(
-        p.grad is not None and torch.isfinite(p.grad).all() for p in loss.projector.parameters()
-    )
+    assert all(p.grad is not None and torch.isfinite(p.grad).all() for p in loss.projector.parameters())
     assert all(p.grad is None for p in teacher.parameters())
     assert tokens.grad is not None  # the student stream is trained through it
 
@@ -441,4 +439,3 @@ def test_hf_teacher_failure_disables_the_loss(monkeypatch):
     monkeypatch.setattr(transformers.AutoModel, "from_pretrained", staticmethod(boom))
     loss = REPALoss(tiny_cfg(teacher_source="hf"), student_dim=32)
     assert loss.available is False and loss._teacher_holder == ()
-

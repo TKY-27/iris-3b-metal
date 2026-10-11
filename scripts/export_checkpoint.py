@@ -55,7 +55,9 @@ def main(argv: list[str] | None = None) -> None:
     sections = {key: resolved[key] for key in INFERENCE_SECTIONS}
     del sections["text_encoder"]["null_embed_dir"]
     OmegaConf.save(OmegaConf.create(sections), str(out / "config.yaml"))
-    print(f"wrote {out / 'model.safetensors'} ({len(weights)} tensors, {args.dtype}) and {out / 'config.yaml'}")
+    print(
+        f"wrote {out / 'model.safetensors'} ({len(weights)} tensors, {args.dtype}) and {out / 'config.yaml'}"
+    )
 
 
 if __name__ == "__main__":

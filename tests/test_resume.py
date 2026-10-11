@@ -101,9 +101,7 @@ def _tiny_run_cfg(work_dir: Path, **train_overrides) -> Config:
         gradient_clip=0.5,
         text_dropout=0.5,
         seed=7,
-        optimizer=OptimizerConfig(
-            name="adamw", lr=1e-3, betas=[0.9, 0.95], auto_lr="none", warmup_steps=2
-        ),
+        optimizer=OptimizerConfig(name="adamw", lr=1e-3, betas=[0.9, 0.95], auto_lr="none", warmup_steps=2),
         ema=EMAConfig(enabled=True, decay=0.999),
         save_every_steps=3,
         save_every_epochs=0,
@@ -196,9 +194,7 @@ def test_resumed_shape_batched_run_is_bit_exact(tmp_path: Path):
 def test_load_checkpoint_optimizer_core_prefix(tmp_path: Path):
     torch.manual_seed(0)
     core1 = nn.Sequential(nn.Linear(4, 8), nn.SiLU(), nn.Linear(8, 4))
-    aux_repa = nn.Sequential(
-        nn.Linear(4, 8), nn.SiLU(), nn.Linear(8, 8), nn.SiLU(), nn.Linear(8, 2)
-    )
+    aux_repa = nn.Sequential(nn.Linear(4, 8), nn.SiLU(), nn.Linear(8, 8), nn.SiLU(), nn.Linear(8, 2))
     opt1 = torch.optim.AdamW(
         list(core1.parameters()) + list(aux_repa.parameters()),
         lr=1e-3,
@@ -211,9 +207,7 @@ def test_load_checkpoint_optimizer_core_prefix(tmp_path: Path):
 
     torch.manual_seed(1)
     core2 = nn.Sequential(nn.Linear(4, 8), nn.SiLU(), nn.Linear(8, 4))
-    aux_new = nn.Sequential(
-        nn.Linear(4, 8), nn.SiLU(), nn.Linear(8, 8), nn.SiLU(), nn.Linear(8, 4)
-    )
+    aux_new = nn.Sequential(nn.Linear(4, 8), nn.SiLU(), nn.Linear(8, 8), nn.SiLU(), nn.Linear(8, 4))
     ncore = len(list(core2.parameters()))
 
     def fresh_opt() -> torch.optim.AdamW:

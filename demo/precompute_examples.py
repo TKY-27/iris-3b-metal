@@ -30,14 +30,17 @@ UPSCALE_EXAMPLES = ["1", "57", "20", "157", "152", "79", "71", "116"]
 def degrade(image: Image.Image, short_side: int = 256) -> Image.Image:
     scale = short_side / min(image.size)
     small = image.filter(ImageFilter.GaussianBlur(1.2)).resize(
-        (round(image.width * scale), round(image.height * scale)), Image.Resampling.BICUBIC)
+        (round(image.width * scale), round(image.height * scale)), Image.Resampling.BICUBIC
+    )
     buf = io.BytesIO()
     small.save(buf, "JPEG", quality=35)
     return Image.open(buf).convert("RGB")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--weights", default="speridlabs/iris-3b", help="local release dir or Hub repo id")
     args = parser.parse_args()
     for sub in ("depth", "upscale", "lowres"):

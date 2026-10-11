@@ -639,9 +639,7 @@ def test_fsdp2_resume_still_rejects_a_changed_aux_group_when_repa_is_on():
         [
             _routed_group("core", "hidden_matrix", "muon", [w], ["model.w"], 0.5),
             _routed_group("core", "boundary_or_vector", "adamw", [b], ["model.b"], 0.5),
-            _routed_group(
-                "aux", "auxiliary", "adamw", [projector], ["repa.projector.2.weight"], 0.5
-            ),
+            _routed_group("aux", "auxiliary", "adamw", [projector], ["repa.projector.2.weight"], 0.5),
         ]
     )
     with pytest.raises(ValueError, match="group 2 parameter names diverge"):
@@ -661,9 +659,7 @@ def test_fsdp2_resume_still_rejects_a_core_mismatch_when_repa_is_off():
     )
     with pytest.raises(ValueError, match="group 1 parameter names diverge"):
         _load_fsdp2_optimizer_state(optimizer, _repa_on_checkpoint())
-    only_core = _FakeOptimizer(
-        [_routed_group("core", "hidden_matrix", "muon", [w], ["model.w"], 0.5)]
-    )
+    only_core = _FakeOptimizer([_routed_group("core", "hidden_matrix", "muon", [w], ["model.w"], 0.5)])
     with pytest.raises(ValueError, match="group count mismatch"):
         _load_fsdp2_optimizer_state(only_core, _repa_on_checkpoint())
 

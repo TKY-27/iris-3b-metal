@@ -55,9 +55,7 @@ SAVE_OP_NAMES: tuple[str, ...] = (
 
 def validate_policy(policy: str, every: int) -> None:
     if policy not in POLICIES:
-        raise ValueError(
-            f"unknown train.activation_checkpointing '{policy}' ({' | '.join(POLICIES)})"
-        )
+        raise ValueError(f"unknown train.activation_checkpointing '{policy}' ({' | '.join(POLICIES)})")
     if policy == "selective_layer" and every < 1:
         raise ValueError(
             "train.activation_checkpointing='selective_layer' recomputes every Nth block "

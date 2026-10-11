@@ -73,9 +73,7 @@ def test_rope2d_frame_axis_reserves_the_inert_tail():
     torch.testing.assert_close(tagged[:, :28], base[:, :28], rtol=0, atol=0)
     freqs = 1.0 / 10000.0 ** (torch.arange(0, 64, 4).float() / 64)
     assert (freqs[-2:] * 16.0).max() < 1e-2  # the donated pairs were inert
-    torch.testing.assert_close(
-        tagged[:, 28:], torch.ones(24, 4, dtype=torch.complex64), rtol=0, atol=0
-    )
+    torch.testing.assert_close(tagged[:, 28:], torch.ones(24, 4, dtype=torch.complex64), rtol=0, atol=0)
 
 
 def test_rope2d_frame_tag_is_live_at_index_one():

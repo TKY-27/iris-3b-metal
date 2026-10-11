@@ -14,9 +14,7 @@ _IMAGENET_MEAN = (0.485, 0.456, 0.406)
 _IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
-def _resize_token_grid(
-    tokens: torch.Tensor, src: tuple[int, int], dst: tuple[int, int]
-) -> torch.Tensor:
+def _resize_token_grid(tokens: torch.Tensor, src: tuple[int, int], dst: tuple[int, int]) -> torch.Tensor:
     """Bilinearly resample a [B, src_h*src_w, C] token map onto the ``dst`` grid."""
     b, n, c = tokens.shape
     if src[0] * src[1] != n:
@@ -166,9 +164,7 @@ class REPALoss(nn.Module):
         # fp32. Forcing fp32 activations here instead would crash under fsdp2,
         # whose MixedPrecisionPolicy casts these weights to bf16.
         weight_dtype = next(self.projector.parameters()).dtype
-        student = F.normalize(
-            self._project(student_tokens.to(weight_dtype), student_grid).float(), dim=-1
-        )
+        student = F.normalize(self._project(student_tokens.to(weight_dtype), student_grid).float(), dim=-1)
         if teacher_grid != student_grid:
             # upsampling the smaller grid would fabricate detail, so meet on
             # whichever grid has fewer tokens

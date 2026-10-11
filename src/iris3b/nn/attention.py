@@ -70,9 +70,7 @@ def scaled_dot_product(
     if backend not in ATTENTION_BACKENDS:
         raise ValueError(f"unknown attention backend '{backend}'")
     if backend == "sdpa":
-        return F.scaled_dot_product_attention(
-            q, k, v, attn_mask=attn_mask, enable_gqa=enable_gqa
-        )
+        return F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, enable_gqa=enable_gqa)
     if backend in ("torch_flash", "torch_cudnn"):
         if attn_mask is not None:
             # both kernels are selected explicitly here, and neither consumes an
@@ -80,11 +78,7 @@ def scaled_dot_product(
             # the call silently degrades or errors deep in dispatch. Refuse it
             # loudly so a future packing mask cannot produce quiet garbage.
             raise ValueError(f"attention backend '{backend}' does not support arbitrary attention masks")
-        selected = (
-            SDPBackend.FLASH_ATTENTION
-            if backend == "torch_flash"
-            else SDPBackend.CUDNN_ATTENTION
-        )
+        selected = SDPBackend.FLASH_ATTENTION if backend == "torch_flash" else SDPBackend.CUDNN_ATTENTION
         with sdpa_kernel(selected):
             return F.scaled_dot_product_attention(q, k, v, enable_gqa=enable_gqa)
 

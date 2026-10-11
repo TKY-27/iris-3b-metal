@@ -50,8 +50,10 @@ def cloud_html(depth: np.ndarray, image: Image.Image) -> str:
     xyz = np.stack([(u + 0.5 - w / 2) * z / f, (v + 0.5 - h / 2) * z / f, z], -1).reshape(-1, 3)
     payload = xyz.astype("<f4").tobytes() + rgb[v, u].reshape(-1, 3).astype(np.uint8).tobytes()
     data = base64.b64encode(payload).decode()
-    return (f'<div class="iris-cloud" data-points="{len(xyz)}" data-cloud="{data}" '
-            'aria-label="Point cloud from predicted depth. Drag to orbit, scroll to zoom."></div>')
+    return (
+        f'<div class="iris-cloud" data-points="{len(xyz)}" data-cloud="{data}" '
+        'aria-label="Point cloud from predicted depth. Drag to orbit, scroll to zoom."></div>'
+    )
 
 
 CSS = """

@@ -47,7 +47,9 @@ def restoration(payload: dict, conditioning: str) -> tuple[dict, dict, dict]:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("task", choices=["depth", "restoration"])
     parser.add_argument("checkpoint")
     parser.add_argument("out_dir")
@@ -74,12 +76,19 @@ def main(argv: list[str] | None = None) -> None:
 
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    save_file({k: v.float().contiguous() for k, v in weights.items()}, str(out / "model.safetensors"),
-              metadata={"format": "pt"})
-    save_file({"embeddings": embeddings.float().contiguous(), "mask": mask.bool().contiguous()},
-              str(out / "empty_prompt.safetensors"))
-    OmegaConf.save(OmegaConf.create({**{k: raw[k] for k in ("model", "text_encoder", "flow")}, "task": task}),
-                   str(out / "config.yaml"))
+    save_file(
+        {k: v.float().contiguous() for k, v in weights.items()},
+        str(out / "model.safetensors"),
+        metadata={"format": "pt"},
+    )
+    save_file(
+        {"embeddings": embeddings.float().contiguous(), "mask": mask.bool().contiguous()},
+        str(out / "empty_prompt.safetensors"),
+    )
+    OmegaConf.save(
+        OmegaConf.create({**{k: raw[k] for k in ("model", "text_encoder", "flow")}, "task": task}),
+        str(out / "config.yaml"),
+    )
     print(f"wrote {out}: {len(weights)} tensors, task {task}")
 
 

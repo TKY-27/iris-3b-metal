@@ -143,9 +143,7 @@ def _adapter_stacks(core: nn.Module) -> list[tuple[str, nn.Module]]:
     if layer_blocks is not None:
         stacks.append(("y_embedder.layer_blocks", layer_blocks))
     refiner = getattr(embedder, "refiner", None)
-    host, prefix = (
-        (refiner, "y_embedder.refiner") if refiner is not None else (embedder, "y_embedder")
-    )
+    host, prefix = (refiner, "y_embedder.refiner") if refiner is not None else (embedder, "y_embedder")
     blocks = getattr(host, "blocks", None)
     if blocks is not None:
         stacks.append((f"{prefix}.blocks", blocks))
@@ -188,9 +186,7 @@ def compile_model(core: nn.Module, perf_cfg: PerfConfig, *, shape_count: int) ->
     units = len(targets) if scope == "block" else 1
 
     dynamic = _resolve_dynamic(perf_cfg.compile_dynamic, shape_count)
-    limit = _raise_dynamo_limits(
-        max(perf_cfg.recompile_limit, shape_count * 2 + _BUDGET_SLACK), units
-    )
+    limit = _raise_dynamo_limits(max(perf_cfg.recompile_limit, shape_count * 2 + _BUDGET_SLACK), units)
     _isolate_recompiles()
 
     kwargs = {

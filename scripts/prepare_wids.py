@@ -77,7 +77,9 @@ def _folder_items(root: Path) -> list[tuple[Path, Path]]:
     """``(image, sidecar)`` pairs under ``root`` in path order."""
     items = []
     for image in sorted(p for p in root.rglob("*") if p.suffix.lower() in IMAGE_EXTS and p.is_file()):
-        sidecar = next((s for s in (image.with_suffix(".json"), image.with_suffix(".txt")) if s.is_file()), None)
+        sidecar = next(
+            (s for s in (image.with_suffix(".json"), image.with_suffix(".txt")) if s.is_file()), None
+        )
         if sidecar is not None:
             items.append((image, sidecar))
     return items

@@ -29,7 +29,9 @@ def load_export(source: str | Path, task: str) -> tuple[object, dict, dict[str, 
         from huggingface_hub import snapshot_download
 
         owner, repo, sub = str(source).split("/", 2)
-        root = snapshot_download(f"{owner}/{repo}", allow_patterns=f"{sub}/*", token=os.environ.get("HF_TOKEN"))
+        root = snapshot_download(
+            f"{owner}/{repo}", allow_patterns=f"{sub}/*", token=os.environ.get("HF_TOKEN")
+        )
         path = Path(root) / sub
     raw = OmegaConf.to_container(OmegaConf.load(path / "config.yaml"))
     settings = raw.pop("task")

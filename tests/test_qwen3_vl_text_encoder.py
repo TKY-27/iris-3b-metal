@@ -210,9 +210,7 @@ def test_null_and_negative_prompts_use_template_and_empty_null_is_cached(monkeyp
     caption = torch.tensor(encoder.tokenizer.encode("low quality"))
     ids = decoder.last_kwargs["input_ids"]
     assert torch.equal(ids[0, start : start + len(caption)], caption)
-    assert torch.equal(
-        ids[0, start + len(caption) : start + len(caption) + suffix_len], encoder._suffix_ids
-    )
+    assert torch.equal(ids[0, start + len(caption) : start + len(caption) + suffix_len], encoder._suffix_ids)
 
 
 def test_checkpoint_width_must_match_config(monkeypatch, tmp_path):

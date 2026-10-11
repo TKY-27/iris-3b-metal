@@ -25,7 +25,9 @@ from iris3b.downstream.restoration import Restorer, fit_budget
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("images", nargs="+")
     parser.add_argument("--out", default="upscaled")
     parser.add_argument("--weights", default="speridlabs/iris-3b/upscaler")

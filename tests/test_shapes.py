@@ -206,9 +206,7 @@ def test_shape_resume_rejects_a_changed_world():
     source = ShapeBatchSampler(RangedSampler(8), dataset, batch_size=2)
     state = source.resume_state(1, 2)
 
-    changed_world = ShapeBatchSampler(
-        RangedSampler(8, rank=0, world_size=2), dataset, batch_size=2
-    )
+    changed_world = ShapeBatchSampler(RangedSampler(8, rank=0, world_size=2), dataset, batch_size=2)
     with pytest.raises(ValueError, match="unchanged world size"):
         changed_world.load_resume_state(state)
 
@@ -249,9 +247,7 @@ def test_shape_microbatch_regroup_preserves_partial_buffers_and_recheckpoint():
     assert len(migrated) == len(expected)
     assert list(migrated) == expected
     for cut in range(len(expected) + 1):
-        checkpoint = json.loads(
-            json.dumps(migrated.resume_state(cut, 8, samples_per_rank=cut * 8))
-        )
+        checkpoint = json.loads(json.dumps(migrated.resume_state(cut, 8, samples_per_rank=cut * 8)))
         resumed = ShapeBatchSampler(RangedSampler(32), dataset, batch_size=8)
         resumed.load_resume_state(checkpoint)
         assert len(resumed) == len(expected) - cut
@@ -262,11 +258,7 @@ def test_shape_microbatch_regroup_preserves_partial_buffers_and_recheckpoint():
 
 
 def test_shape_regroup_shared_world64_checkpoint_preserves_each_rank_and_limit():
-    keys = [
-        key
-        for rank in range(64)
-        for key in ["a"] * (10 + rank % 12) + ["b"] * (70 - rank % 12)
-    ]
+    keys = [key for rank in range(64) for key in ["a"] * (10 + rank % 12) + ["b"] * (70 - rank % 12)]
     dataset = _KeyedDataset(keys)
 
     def sampler(rank, batch_size):
@@ -282,9 +274,7 @@ def test_shape_regroup_shared_world64_checkpoint_preserves_each_rank_and_limit()
         consumed = {index for batch in old_batches[:3] for index in batch}
         current = sampler(rank, 8)
         current.load_resume_state(shared)
-        expected = _remaining_shape_batches(
-            keys, range(current.start, current.end), consumed, 8
-        )
+        expected = _remaining_shape_batches(keys, range(current.start, current.end), consumed, 8)
         assert list(current) == expected
         migrated.append(current)
         references.append(expected)
@@ -375,7 +365,6 @@ def test_shape_regroup_rejects_unreplayable_progress_and_changed_tail_policy():
         changed_policy.load_resume_state(state)
 
 
-
 def test_ranged_sampler_resume_is_still_a_sample_offset():
     sampler = RangedSampler(8)
     sampler.set_start_batches(2, 2)
@@ -438,9 +427,7 @@ def test_shift_is_a_pure_log_snr_translation():
     sigma = torch.linspace(0.01, 0.99, 21, dtype=torch.float64)
     for shift in (1.0, 2.0, 3.1582):
         shifted = shift_sigma(sigma, shift)
-        torch.testing.assert_close(
-            shifted / (1 - shifted), shift * sigma / (1 - sigma), rtol=1e-9, atol=1e-9
-        )
+        torch.testing.assert_close(shifted / (1 - shifted), shift * sigma / (1 - sigma), rtol=1e-9, atol=1e-9)
 
 
 def test_flow_resolves_the_stage_shift_from_token_count():
@@ -556,10 +543,7 @@ def _state_unread(state: dict) -> tuple[tuple[int, int], ...]:
 def _restored_snapshot(state: dict, world: int):
     from iris3b.data.samplers import CANONICAL_CHUNKS
 
-    samplers = [
-        RangedSampler(_PORTABLE_N, rank, world, CANONICAL_CHUNKS)
-        for rank in range(world)
-    ]
+    samplers = [RangedSampler(_PORTABLE_N, rank, world, CANONICAL_CHUNKS) for rank in range(world)]
     for sampler in samplers:
         sampler.load_resume_state(state)
     raw_unread = [span for sampler in samplers for span in sampler.ranges]
@@ -575,9 +559,7 @@ def test_resume_position_survives_every_supported_world_transition():
     global_batch, batches = 640, 5000
     for prior_world in _PORTABLE_WORLDS:
         batch_size = global_batch // prior_world
-        source = RangedSampler(
-            _PORTABLE_N, 0, prior_world, CANONICAL_CHUNKS
-        )
+        source = RangedSampler(_PORTABLE_N, 0, prior_world, CANONICAL_CHUNKS)
         state = source.resume_state(batches, batch_size)
         expected_unread = _state_unread(state)
         expected_consumed = _complement(expected_unread, source.bounds[-1])
@@ -593,17 +575,13 @@ def test_resume_position_survives_every_supported_world_transition():
             if current_world == prior_world:
                 for rank, sampler in enumerate(samplers):
                     plan = tuple(map(tuple, state["ranges_by_rank"][rank]))
-                    assert sampler.ranges == RangedSampler._trim_ranges(
-                        plan, state["samples_per_rank"]
-                    )
+                    assert sampler.ranges == RangedSampler._trim_ranges(plan, state["samples_per_rank"])
 
 
 def test_resume_plan_is_closed_under_resize_and_recheckpoint():
     from iris3b.data.samplers import CANONICAL_CHUNKS
 
-    initial = RangedSampler(
-        _PORTABLE_N, 0, 16, CANONICAL_CHUNKS
-    ).resume_state(5000, 40)
+    initial = RangedSampler(_PORTABLE_N, 0, 16, CANONICAL_CHUNKS).resume_state(5000, 40)
     mid = RangedSampler(_PORTABLE_N, 0, 32, CANONICAL_CHUNKS)
     mid.load_resume_state(initial)
     recheckpointed = mid.resume_state(100, 2)
@@ -612,9 +590,7 @@ def test_resume_plan_is_closed_under_resize_and_recheckpoint():
     final, restored_unread = _restored_snapshot(recheckpointed, 64)
     assert restored_unread == expected_unread
     assert len({len(sampler) for sampler in final}) == 1
-    assert _interval_total(_complement(restored_unread, mid.bounds[-1])) == (
-        5000 * 640 + 100 * 2 * 32
-    )
+    assert _interval_total(_complement(restored_unread, mid.bounds[-1])) == (5000 * 640 + 100 * 2 * 32)
 
 
 def test_resume_refuses_invalid_layout_progress_or_divisibility():
@@ -625,13 +601,9 @@ def test_resume_refuses_invalid_layout_progress_or_divisibility():
     source = RangedSampler(_PORTABLE_N, 0, 16, CANONICAL_CHUNKS)
     state = source.resume_state(5000, 40)
     with pytest.raises(ValueError, match="canonical_chunks"):
-        RangedSampler(
-            _PORTABLE_N, 0, 16, CANONICAL_CHUNKS // 2
-        ).load_resume_state(state)
+        RangedSampler(_PORTABLE_N, 0, 16, CANONICAL_CHUNKS // 2).load_resume_state(state)
     with pytest.raises(ValueError, match="samples"):
-        RangedSampler(
-            _PORTABLE_N - 1, 0, 16, CANONICAL_CHUNKS
-        ).load_resume_state(state)
+        RangedSampler(_PORTABLE_N - 1, 0, 16, CANONICAL_CHUNKS).load_resume_state(state)
     with pytest.raises(ValueError, match="nonnegative"):
         source.resume_state(-1, 40)
 
@@ -647,13 +619,9 @@ def test_resume_refuses_invalid_layout_progress_or_divisibility():
 
     indivisible_remainder = source.resume_state(1, 1)
     with pytest.raises(ValueError, match="not divisible"):
-        RangedSampler(
-            _PORTABLE_N, 0, 32, CANONICAL_CHUNKS
-        ).load_resume_state(indivisible_remainder)
+        RangedSampler(_PORTABLE_N, 0, 32, CANONICAL_CHUNKS).load_resume_state(indivisible_remainder)
     with pytest.raises(ValueError, match="current world_size"):
-        RangedSampler(
-            _PORTABLE_N, 0, 3, CANONICAL_CHUNKS
-        ).load_resume_state(state)
+        RangedSampler(_PORTABLE_N, 0, 3, CANONICAL_CHUNKS).load_resume_state(state)
 
 
 def test_partial_final_batch_records_actual_sample_progress():
@@ -686,7 +654,10 @@ def test_canonical_partition_keeps_each_rank_contiguous_and_the_tail_unassigned(
             prev_end == next_start
             for (_, prev_end), (next_start, _) in zip(spans[:-1], spans[1:], strict=True)
         )
-    assert [
-        (RangedSampler(12, rank, 5).start, RangedSampler(12, rank, 5).end)
-        for rank in range(5)
-    ] == [(0, 2), (2, 4), (4, 6), (6, 8), (8, 10)]
+    assert [(RangedSampler(12, rank, 5).start, RangedSampler(12, rank, 5).end) for rank in range(5)] == [
+        (0, 2),
+        (2, 4),
+        (4, 6),
+        (6, 8),
+        (8, 10),
+    ]

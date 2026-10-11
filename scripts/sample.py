@@ -51,11 +51,15 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--height", type=int, default=1024)
     parser.add_argument("--width", type=int, default=1024)
     parser.add_argument("--steps", type=int, default=None, help="default: sample.steps (100)")
-    parser.add_argument("--order", type=int, default=None, help="DPM-Solver++ order, default: sample.order (2)")
+    parser.add_argument(
+        "--order", type=int, default=None, help="DPM-Solver++ order, default: sample.order (2)"
+    )
     parser.add_argument("--cfg-scale", type=float, default=None, help="default: sample.cfg_scale (3.0)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--negative-prompt", default=None)
-    parser.add_argument("--shift", type=float, default=None, help="flow shift (default: checkpoint flow.shift)")
+    parser.add_argument(
+        "--shift", type=float, default=None, help="flow shift (default: checkpoint flow.shift)"
+    )
     parser.add_argument("--outdir", default="output/samples")
     parser.add_argument("--device", default=None, help="default: cuda when available, else cpu")
     args = parser.parse_args(argv)

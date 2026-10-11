@@ -59,7 +59,8 @@ def _load_dion_muon():
     if _torch_release() < (2, 7, 1):
         raise RuntimeError(f"optimizer.name=muon requires torch>=2.7.1, found {torch.__version__}")
     torch._dynamo.config.recompile_limit = max(  # type: ignore[attr-defined]
-        torch._dynamo.config.recompile_limit, _MUON_MIN_RECOMPILE_LIMIT  # type: ignore[attr-defined]
+        torch._dynamo.config.recompile_limit,
+        _MUON_MIN_RECOMPILE_LIMIT,  # type: ignore[attr-defined]
     )
     try:
         from dion import Muon
@@ -261,9 +262,7 @@ def _muon_distributed_mesh(distributed_mesh):
     if getattr(distributed_mesh, "ndim", 1) > 1:
         names = distributed_mesh.mesh_dim_names or ()
         if "dp_shard" not in names:
-            raise ValueError(
-                f"muon needs the 1-D sharded sub-mesh, but the mesh dimensions are {names}"
-            )
+            raise ValueError(f"muon needs the 1-D sharded sub-mesh, but the mesh dimensions are {names}")
         return distributed_mesh["dp_shard"]
     return distributed_mesh
 

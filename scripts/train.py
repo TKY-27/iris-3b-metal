@@ -59,7 +59,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Train a pixel-space rectified-flow DiT")
     parser.add_argument("--config", default=None, help="YAML config path")
     parser.add_argument(
-        "--expected-nodes", type=int, default=None, help="refuse to start unless the world spans this many nodes"
+        "--expected-nodes",
+        type=int,
+        default=None,
+        help="refuse to start unless the world spans this many nodes",
     )
     parser.add_argument("--prestage", action="store_true", help="fill node-local caches and exit")
     parser.add_argument("overrides", nargs="*", help="dotlist overrides, e.g. train.batch_size=8")

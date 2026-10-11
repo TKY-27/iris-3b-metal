@@ -64,9 +64,7 @@ def resolve_checkpoint_io(mode: str, num_nodes: int) -> str:
     filesystem: beyond a single node it writes a full copy per node.
     """
     if mode not in CHECKPOINT_IO_MODES:
-        raise ValueError(
-            f"unknown train.dist.checkpoint_io '{mode}' ({' | '.join(CHECKPOINT_IO_MODES)})"
-        )
+        raise ValueError(f"unknown train.dist.checkpoint_io '{mode}' ({' | '.join(CHECKPOINT_IO_MODES)})")
     if mode != "auto":
         return mode
     return "rank0" if num_nodes <= 1 else "per_node"
@@ -122,9 +120,7 @@ class CheckpointPlan:
 def checkpoint_plan(
     mode: str, *, rank: int, local_rank: int, node_rank: int, num_nodes: int
 ) -> CheckpointPlan:
-    return CheckpointPlan(
-        resolve_checkpoint_io(mode, num_nodes), rank, local_rank, node_rank, num_nodes
-    )
+    return CheckpointPlan(resolve_checkpoint_io(mode, num_nodes), rank, local_rank, node_rank, num_nodes)
 
 
 def _probe_failure(ckpt_dir: str | Path, plan: CheckpointPlan, detail: str) -> str:
@@ -405,8 +401,7 @@ def clone_shards(state_dict: dict) -> dict:
     that are restored the moment the swap unwinds.
     """
     return {
-        key: value.clone() if isinstance(value, torch.Tensor) else value
-        for key, value in state_dict.items()
+        key: value.clone() if isinstance(value, torch.Tensor) else value for key, value in state_dict.items()
     }
 
 
@@ -566,9 +561,7 @@ def save_dcp_checkpoint(
         # whole payload's worth of host memory every time
         **_kwargs_if_supported(dcp.FileSystemWriter, cache_staged_state_dict=True),
     )
-    planner = dcp.DefaultSavePlanner(
-        **_kwargs_if_supported(dcp.DefaultSavePlanner, enable_plan_caching=True)
-    )
+    planner = dcp.DefaultSavePlanner(**_kwargs_if_supported(dcp.DefaultSavePlanner, enable_plan_caching=True))
     future = _async_dcp_save(state, path, writer, planner, process_group) if prefer_async else None
     if future is None:
         dcp.save(
@@ -603,9 +596,7 @@ def load_dcp_meta(path: str | Path) -> dict[str, Any]:
 
 
 def _step_checkpoints(ckpt_dir: Path) -> list[Path]:
-    return sorted(ckpt_dir.glob("epoch_*_step_*.pth")) + sorted(
-        ckpt_dir.glob(f"epoch_*_step_*{DCP_SUFFIX}")
-    )
+    return sorted(ckpt_dir.glob("epoch_*_step_*.pth")) + sorted(ckpt_dir.glob(f"epoch_*_step_*{DCP_SUFFIX}"))
 
 
 def prune_checkpoints(

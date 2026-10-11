@@ -394,8 +394,7 @@ class DistConfig:
         if not self.sharded:
             if self.sharding != "full":
                 raise ValueError(
-                    "train.dist.sharding applies to fsdp2 only; "
-                    f"strategy={self.strategy!r} shards nothing"
+                    f"train.dist.sharding applies to fsdp2 only; strategy={self.strategy!r} shards nothing"
                 )
             if self.mesh.dp_shard or self.mesh.dp_replicate:
                 raise ValueError("train.dist.mesh applies to fsdp2 only")
@@ -544,7 +543,9 @@ def _known_keys(schema, raw: dict) -> dict:
         if key not in schema:
             continue
         node = schema[key]
-        kept[key] = _known_keys(node, value) if isinstance(value, dict) and OmegaConf.is_config(node) else value
+        kept[key] = (
+            _known_keys(node, value) if isinstance(value, dict) and OmegaConf.is_config(node) else value
+        )
     return kept
 
 

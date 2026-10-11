@@ -67,23 +67,16 @@ class RangedSampler(Sampler[int]):
         self._ranges_by_rank = self._normal_ranges_by_rank(world_size)
         self._progress_samples = 0
 
-    def _normal_ranges_by_rank(
-        self, world_size: int
-    ) -> tuple[tuple[tuple[int, int], ...], ...]:
+    def _normal_ranges_by_rank(self, world_size: int) -> tuple[tuple[tuple[int, int], ...], ...]:
         capacity = (self.canonical_chunks // world_size) * self.chunk_size
-        return tuple(
-            ((rank * capacity, (rank + 1) * capacity),)
-            for rank in range(world_size)
-        )
+        return tuple(((rank * capacity, (rank + 1) * capacity),) for rank in range(world_size))
 
     @staticmethod
     def _ranges_length(ranges: tuple[tuple[int, int], ...]) -> int:
         return sum(hi - lo for lo, hi in ranges)
 
     @staticmethod
-    def _trim_ranges(
-        ranges: tuple[tuple[int, int], ...], skip: int
-    ) -> tuple[tuple[int, int], ...]:
+    def _trim_ranges(ranges: tuple[tuple[int, int], ...], skip: int) -> tuple[tuple[int, int], ...]:
         unread: list[tuple[int, int]] = []
         for lo, hi in ranges:
             span = hi - lo
@@ -172,9 +165,7 @@ class RangedSampler(Sampler[int]):
         batches_per_rank = _require_int("batches_per_rank", batches_per_rank)
         batch_size = _require_int("batch_size", batch_size, minimum=1)
         prior_world = (
-            self.world_size
-            if world_size is None
-            else _require_int("world_size", world_size, minimum=1)
+            self.world_size if world_size is None else _require_int("world_size", world_size, minimum=1)
         )
         layout = self._resume_layout(prior_world)
         plans = (
@@ -200,16 +191,13 @@ class RangedSampler(Sampler[int]):
                 )
         if samples_per_rank > capacity:
             raise ValueError(
-                f"samples_per_rank={samples_per_rank} exceeds the prior rank capacity "
-                f"of {capacity}"
+                f"samples_per_rank={samples_per_rank} exceeds the prior rank capacity of {capacity}"
             )
         return {
             "version": _STATE_VERSION,
             "kind": "contiguous_samples",
             **layout,
-            "ranges_by_rank": [
-                [[lo, hi] for lo, hi in ranges] for ranges in plans
-            ],
+            "ranges_by_rank": [[[lo, hi] for lo, hi in ranges] for ranges in plans],
             "samples_per_rank": samples_per_rank,
         }
 
@@ -217,9 +205,7 @@ class RangedSampler(Sampler[int]):
         if not isinstance(layout, dict):
             raise ValueError(f"resume layout must be a mapping, got {type(layout).__name__}")
         try:
-            chunks = _require_int(
-                "canonical_chunks", layout["canonical_chunks"], minimum=1
-            )
+            chunks = _require_int("canonical_chunks", layout["canonical_chunks"], minimum=1)
             num_samples = _require_int("num_samples", layout["num_samples"])
             prior_world = _require_int("world_size", layout["world_size"], minimum=1)
         except KeyError as exc:
@@ -238,13 +224,9 @@ class RangedSampler(Sampler[int]):
         self._require_divisible_world(self.world_size, "current")
         return prior_world
 
-    def _validate_plans(
-        self, raw_plans: object, prior_world: int
-    ) -> tuple[tuple[tuple[int, int], ...], ...]:
+    def _validate_plans(self, raw_plans: object, prior_world: int) -> tuple[tuple[tuple[int, int], ...], ...]:
         if not isinstance(raw_plans, (list, tuple)) or len(raw_plans) != prior_world:
-            raise ValueError(
-                f"ranges_by_rank must contain exactly {prior_world} rank plans"
-            )
+            raise ValueError(f"ranges_by_rank must contain exactly {prior_world} rank plans")
         covered_end = self.bounds[-1]
         plans: list[tuple[tuple[int, int], ...]] = []
         all_ranges: list[tuple[int, int]] = []
@@ -256,28 +238,17 @@ class RangedSampler(Sampler[int]):
             previous_hi = -1
             for position, raw_range in enumerate(raw_ranges):
                 if not isinstance(raw_range, (list, tuple)) or len(raw_range) != 2:
-                    raise ValueError(
-                        f"ranges_by_rank[{rank}][{position}] must be a [lo, hi] pair"
-                    )
-                lo = _require_int(
-                    f"ranges_by_rank[{rank}][{position}][0]", raw_range[0]
-                )
-                hi = _require_int(
-                    f"ranges_by_rank[{rank}][{position}][1]", raw_range[1]
-                )
+                    raise ValueError(f"ranges_by_rank[{rank}][{position}] must be a [lo, hi] pair")
+                lo = _require_int(f"ranges_by_rank[{rank}][{position}][0]", raw_range[0])
+                hi = _require_int(f"ranges_by_rank[{rank}][{position}][1]", raw_range[1])
                 if lo >= hi:
-                    raise ValueError(
-                        f"ranges_by_rank[{rank}][{position}] must be nonempty"
-                    )
+                    raise ValueError(f"ranges_by_rank[{rank}][{position}] must be nonempty")
                 if hi > covered_end:
                     raise ValueError(
-                        f"ranges_by_rank[{rank}][{position}] exceeds the covered corpus "
-                        f"bound {covered_end}"
+                        f"ranges_by_rank[{rank}][{position}] exceeds the covered corpus bound {covered_end}"
                     )
                 if lo < previous_hi:
-                    raise ValueError(
-                        f"ranges_by_rank[{rank}] must be sorted and non-overlapping"
-                    )
+                    raise ValueError(f"ranges_by_rank[{rank}] must be sorted and non-overlapping")
                 plan.append((lo, hi))
                 all_ranges.append((lo, hi))
                 previous_hi = hi
@@ -300,21 +271,16 @@ class RangedSampler(Sampler[int]):
         kind = state.get("kind")
         if kind is not None:
             if kind != "contiguous_samples":
-                raise ValueError(
-                    f"RangedSampler cannot restore resume state kind {kind!r}"
-                )
+                raise ValueError(f"RangedSampler cannot restore resume state kind {kind!r}")
             version = _require_int("version", state.get("version"), minimum=1)
             if version != _STATE_VERSION:
                 raise ValueError(
-                    f"unsupported sampler resume state version {version}; "
-                    f"expected {_STATE_VERSION}"
+                    f"unsupported sampler resume state version {version}; expected {_STATE_VERSION}"
                 )
 
         prior_world = self._validate_layout(state)
         try:
-            samples_per_rank = _require_int(
-                "samples_per_rank", state["samples_per_rank"]
-            )
+            samples_per_rank = _require_int("samples_per_rank", state["samples_per_rank"])
         except KeyError as exc:
             raise ValueError("resume state is missing 'samples_per_rank'") from exc
         if "ranges_by_rank" in state:
@@ -327,13 +293,10 @@ class RangedSampler(Sampler[int]):
         capacity = self._ranges_length(plans[0])
         if samples_per_rank > capacity:
             raise ValueError(
-                f"samples_per_rank={samples_per_rank} exceeds the prior rank capacity "
-                f"of {capacity}"
+                f"samples_per_rank={samples_per_rank} exceeds the prior rank capacity of {capacity}"
             )
         unread = [
-            physical_range
-            for plan in plans
-            for physical_range in self._trim_ranges(plan, samples_per_rank)
+            physical_range for plan in plans for physical_range in self._trim_ranges(plan, samples_per_rank)
         ]
         total_remaining = prior_world * (capacity - samples_per_rank)
         if total_remaining % self.world_size:
@@ -342,16 +305,12 @@ class RangedSampler(Sampler[int]):
                 f"world_size={self.world_size}; refusing unequal per-rank work"
             )
         remaining_per_rank = total_remaining // self.world_size
-        self._ranges_by_rank = self._split_ranges(
-            unread, self.world_size, remaining_per_rank
-        )
+        self._ranges_by_rank = self._split_ranges(unread, self.world_size, remaining_per_rank)
         self._progress_samples = 0
 
     @property
     def ranges(self) -> tuple[tuple[int, int], ...]:
-        return self._trim_ranges(
-            self._ranges_by_rank[self.rank], self._progress_samples
-        )
+        return self._trim_ranges(self._ranges_by_rank[self.rank], self._progress_samples)
 
     @property
     def next_index(self) -> int | None:
@@ -449,8 +408,7 @@ class ShapeBatchSampler:
         capacity = self._batch_capacity()
         if batches > capacity:
             raise ValueError(
-                f"batches_per_rank={batches} exceeds this rank's capacity of "
-                f"{capacity} shape batches"
+                f"batches_per_rank={batches} exceeds this rank's capacity of {capacity} shape batches"
             )
         return batches
 
@@ -480,8 +438,10 @@ class ShapeBatchSampler:
                 f"batch_size={self.batch_size}"
             )
         plan_local_batches = _require_int("batches_per_rank", batches_per_rank)
-        prior_world = self.sampler.world_size if world_size is None else _require_int(
-            "world_size", world_size, minimum=1
+        prior_world = (
+            self.sampler.world_size
+            if world_size is None
+            else _require_int("world_size", world_size, minimum=1)
         )
         if prior_world != self.sampler.world_size:
             raise ValueError(
@@ -490,17 +450,12 @@ class ShapeBatchSampler:
             )
         if samples_per_rank is not None:
             samples_per_rank = _require_int("samples_per_rank", samples_per_rank)
-        batches_per_rank = self._validate_batch_skip(
-            self._installed_skip_batches + plan_local_batches
-        )
+        batches_per_rank = self._validate_batch_skip(self._installed_skip_batches + plan_local_batches)
         if samples_per_rank is not None:
             expected_samples = (
                 plan_local_batches * batch_size
                 if self.drop_last
-                else sum(
-                    len(self.plan()[i])
-                    for i in range(self._installed_skip_batches, batches_per_rank)
-                )
+                else sum(len(self.plan()[i]) for i in range(self._installed_skip_batches, batches_per_rank))
             )
             if samples_per_rank != expected_samples:
                 raise ValueError(
@@ -515,8 +470,7 @@ class ShapeBatchSampler:
             "drop_last": self.drop_last,
             "batch_limit": self._limit,
             "regroup_history": [
-                {"batch_size": size, "batches_per_rank": count}
-                for size, count in self._batch_history
+                {"batch_size": size, "batches_per_rank": count} for size, count in self._batch_history
             ],
             "layout": self.sampler._resume_layout(prior_world),
         }
@@ -534,9 +488,7 @@ class ShapeBatchSampler:
             raise ValueError(f"unsupported shape sampler resume state version {version}")
         try:
             layout = state["layout"]
-            batches_per_rank = _require_int(
-                "batches_per_rank", state["batches_per_rank"]
-            )
+            batches_per_rank = _require_int("batches_per_rank", state["batches_per_rank"])
             batch_size = _require_int("batch_size", state["batch_size"], minimum=1)
         except KeyError as exc:
             raise ValueError(f"resume state is missing {exc.args[0]!r}") from exc
@@ -634,9 +586,7 @@ class ShapeBatchSampler:
 
     def limit_batches(self, limit: int | None) -> None:
         """Truncate the upcoming pass to ``limit`` remaining batches."""
-        self._limit = (
-            None if limit is None else self._skip_batches + _require_int("limit", limit)
-        )
+        self._limit = None if limit is None else self._skip_batches + _require_int("limit", limit)
 
     @property
     def start(self) -> int:

@@ -43,7 +43,9 @@ class IrisDepth(nn.Module):
         batch, _, height, width = rgb.shape
         x = torch.cat([rgb, rgb.new_zeros(batch, 1, height, width)], dim=1)
         t = rgb.new_full((batch,), float(self.num_train_timesteps))
-        out = self.pixel(x, t, embeddings.expand(batch, *embeddings.shape[1:]), y_mask=mask.expand(batch, -1)).x
+        out = self.pixel(
+            x, t, embeddings.expand(batch, *embeddings.shape[1:]), y_mask=mask.expand(batch, -1)
+        ).x
         return self.depth_reducer(out)
 
 
@@ -78,7 +80,9 @@ class DepthPredictor:
         image = ImageOps.exif_transpose(image).convert("RGB")
         width, height = image.size
         scale = min(1.0, max_side / max(width, height)) if max_side else 1.0
-        size = tuple(max(self.patch, round(side * scale / self.patch) * self.patch) for side in (width, height))
+        size = tuple(
+            max(self.patch, round(side * scale / self.patch) * self.patch) for side in (width, height)
+        )
         if size != (width, height):
             image = image.resize(size, Image.Resampling.LANCZOS)
         rgb = torch.from_numpy(np.array(image)).permute(2, 0, 1)[None].to(self.device, torch.float32)

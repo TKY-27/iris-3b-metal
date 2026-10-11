@@ -29,22 +29,30 @@ try:
     gpu = spaces.GPU
     ZERO_GPU = True
 except ImportError:
+
     def gpu(duration):
         return lambda fn: fn
+
     ZERO_GPU = False
 
 
 MODEL_REPO = os.environ.get("IRIS_MODEL_REPO", "speridlabs/iris-3b")
 # (height, width) buckets with real training mass (>=2% of the 1024 stage, >=4% of SFT);
 # the rarer training buckets show artifacts
-SIZES = {f"{w}×{h}": (h, w) for h, w in [(768, 1344), (832, 1280), (896, 1152), (1024, 1024),
-                                          (1152, 896), (1280, 832), (1344, 768)]}
+SIZES = {
+    f"{w}×{h}": (h, w)
+    for h, w in [(768, 1344), (832, 1280), (896, 1152), (1024, 1024), (1152, 896), (1280, 832), (1344, 768)]
+}
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # All three models together are ~45 GB. On ZeroGPU (or with IRIS_OFFLOAD=1) they live on the CPU and
 # only the one a request needs is moved to the GPU for that call.
 HOME = torch.device("cpu") if ZERO_GPU or os.environ.get("IRIS_OFFLOAD") == "1" else DEVICE
 
-source = MODEL_REPO if os.path.isdir(MODEL_REPO) else snapshot_download(MODEL_REPO, token=os.environ.get("HF_TOKEN"))
+source = (
+    MODEL_REPO
+    if os.path.isdir(MODEL_REPO)
+    else snapshot_download(MODEL_REPO, token=os.environ.get("HF_TOKEN"))
+)
 raw, weights = load_for_inference(source)
 cfg = inference_config(raw, [])
 with torch.device("meta"):
@@ -72,13 +80,26 @@ def infer(prompt, negative, size, steps, cfg_scale, seed, randomize):
     if randomize:
         seed = random.randint(0, 2**31 - 1)
     height, width = SIZES[size]
-    with on_gpu(model, text_encoder), torch.autocast(DEVICE.type, dtype=torch.bfloat16,
-                                                    enabled=DEVICE.type == "cuda"):
+    with (
+        on_gpu(model, text_encoder),
+        torch.autocast(DEVICE.type, dtype=torch.bfloat16, enabled=DEVICE.type == "cuda"),
+    ):
         image = generate(
-            model, text_encoder, [prompt], height=height, width=width, steps=int(steps), order=cfg.sample.order,
-            cfg_scale=cfg_scale, cfg_interval=tuple(cfg.sample.cfg_interval), shift=cfg.flow.shift,
-            negative_prompt=negative, generator=torch.Generator(device=DEVICE).manual_seed(int(seed)), device=DEVICE,
-            num_train_timesteps=cfg.flow.num_train_timesteps, prediction=cfg.flow.prediction,
+            model,
+            text_encoder,
+            [prompt],
+            height=height,
+            width=width,
+            steps=int(steps),
+            order=cfg.sample.order,
+            cfg_scale=cfg_scale,
+            cfg_interval=tuple(cfg.sample.cfg_interval),
+            shift=cfg.flow.shift,
+            negative_prompt=negative,
+            generator=torch.Generator(device=DEVICE).manual_seed(int(seed)),
+            device=DEVICE,
+            num_train_timesteps=cfg.flow.num_train_timesteps,
+            prediction=cfg.flow.prediction,
         )[0]
     pixels = ((image.float().clamp(-1, 1) + 1) * 127.5).round().byte().permute(1, 2, 0).cpu().numpy()
     return Image.fromarray(pixels), seed
@@ -90,8 +111,10 @@ PRESETS = json.loads((ROOT / "examples/presets.json").read_text())
 
 
 def meta(kind, size, seed, steps, cfg_scale):
-    return (f'<div class="sl-meta"><span>{kind}</span><span>{size} · seed {int(seed)} · '
-            f"{int(steps)} steps · CFG {cfg_scale:.1f}</span></div>")
+    return (
+        f'<div class="sl-meta"><span>{kind}</span><span>{size} · seed {int(seed)} · '
+        f"{int(steps)} steps · CFG {cfg_scale:.1f}</span></div>"
+    )
 
 
 def run(prompt, negative, size, steps, cfg_scale, seed, randomize):
@@ -101,21 +124,32 @@ def run(prompt, negative, size, steps, cfg_scale, seed, randomize):
 
 def pick(evt: gr.SelectData):
     p = PRESETS[evt.index]
-    return (p["prompt"], p["size"], p["steps"], p["cfg"], p["seed"], False, str(ROOT / p["image"]),
-            meta("Preset", p["size"], p["seed"], p["steps"], p["cfg"]))
-
-
+    return (
+        p["prompt"],
+        p["size"],
+        p["steps"],
+        p["cfg"],
+        p["seed"],
+        False,
+        str(ROOT / p["image"]),
+        meta("Preset", p["size"], p["seed"], p["steps"], p["cfg"]),
+    )
 
 
 def depth_view(image, depth, note):
-    return (slider_html(image, colorize(depth), "Photo", "Depth"), cloud_html(depth, image),
-            f'<div class="sl-meta"><span>{note}</span><span>{image.width}×{image.height} · near = bright · '
-            "drag the cloud to orbit, scroll to zoom</span></div>")
+    return (
+        slider_html(image, colorize(depth), "Photo", "Depth"),
+        cloud_html(depth, image),
+        f'<div class="sl-meta"><span>{note}</span><span>{image.width}×{image.height} · near = bright · '
+        "drag the cloud to orbit, scroll to zoom</span></div>",
+    )
 
 
 def upscale_view(small, result, note):
-    return (slider_html(small, result, "Input", "Iris-3B"),
-            f'<div class="sl-meta"><span>Restored</span><span>{note}</span></div>')
+    return (
+        slider_html(small, result, "Input", "Iris-3B"),
+        f'<div class="sl-meta"><span>Restored</span><span>{note}</span></div>',
+    )
 
 
 @gpu(duration=60)
@@ -151,7 +185,9 @@ def run_upscale(image):
 def upscale_example(name):
     small = Image.open(ROOT / f"examples/lowres/{name}.png").convert("RGB")
     result = Image.open(ROOT / f"examples/upscale/{name}.webp").convert("RGB")
-    return small, *upscale_view(small, result, f"Example · {small.width}×{small.height} → {result.width}×{result.height}")
+    return small, *upscale_view(
+        small, result, f"Example · {small.width}×{small.height} → {result.width}×{result.height}"
+    )
 
 
 def pick_upscale(evt: gr.SelectData):
@@ -161,21 +197,39 @@ def pick_upscale(evt: gr.SelectData):
 FONT = [gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"]
 MONO = [gr.themes.GoogleFont("IBM Plex Mono"), "ui-monospace", "monospace"]
 theme = gr.themes.Base(font=FONT, font_mono=MONO, radius_size=gr.themes.sizes.radius_none).set(
-    body_background_fill="#ffffff", body_background_fill_dark="#000000",
-    body_text_color="#000000", body_text_color_dark="#ffffff",
-    block_background_fill="#ffffff", block_background_fill_dark="#000000",
-    background_fill_primary="#ffffff", background_fill_primary_dark="#000000",
-    background_fill_secondary="#f7f7f7", background_fill_secondary_dark="#111111",
-    border_color_primary="#e3e3e3", border_color_primary_dark="rgba(255,255,255,0.15)",
-    block_border_color="#e3e3e3", block_border_color_dark="rgba(255,255,255,0.15)", block_shadow="none",
-    input_background_fill="#ffffff", input_background_fill_dark="#000000",
-    input_border_color="#d4d4d4", input_border_color_dark="rgba(255,255,255,0.25)",
-    input_border_color_focus="#000000", input_border_color_focus_dark="#ffffff",
-    button_primary_background_fill="#000000", button_primary_background_fill_dark="#ffffff",
-    button_primary_background_fill_hover="#d94a1f", button_primary_background_fill_hover_dark="#d94a1f",
-    button_primary_text_color="#ffffff", button_primary_text_color_dark="#000000",
-    color_accent="#d94a1f", color_accent_soft="#fbe7e0", slider_color="#d94a1f", slider_color_dark="#d94a1f",
-    checkbox_background_color_selected="#000000", checkbox_background_color_selected_dark="#ffffff",
+    body_background_fill="#ffffff",
+    body_background_fill_dark="#000000",
+    body_text_color="#000000",
+    body_text_color_dark="#ffffff",
+    block_background_fill="#ffffff",
+    block_background_fill_dark="#000000",
+    background_fill_primary="#ffffff",
+    background_fill_primary_dark="#000000",
+    background_fill_secondary="#f7f7f7",
+    background_fill_secondary_dark="#111111",
+    border_color_primary="#e3e3e3",
+    border_color_primary_dark="rgba(255,255,255,0.15)",
+    block_border_color="#e3e3e3",
+    block_border_color_dark="rgba(255,255,255,0.15)",
+    block_shadow="none",
+    input_background_fill="#ffffff",
+    input_background_fill_dark="#000000",
+    input_border_color="#d4d4d4",
+    input_border_color_dark="rgba(255,255,255,0.25)",
+    input_border_color_focus="#000000",
+    input_border_color_focus_dark="#ffffff",
+    button_primary_background_fill="#000000",
+    button_primary_background_fill_dark="#ffffff",
+    button_primary_background_fill_hover="#d94a1f",
+    button_primary_background_fill_hover_dark="#d94a1f",
+    button_primary_text_color="#ffffff",
+    button_primary_text_color_dark="#000000",
+    color_accent="#d94a1f",
+    color_accent_soft="#fbe7e0",
+    slider_color="#d94a1f",
+    slider_color_dark="#d94a1f",
+    checkbox_background_color_selected="#000000",
+    checkbox_background_color_selected_dark="#ffffff",
 )
 CSS = """
 :root { --sl-fg: #000; --sl-fg-2: #444; --sl-fg-3: #6b6b6b; --sl-rule: #e3e3e3; }
@@ -245,8 +299,9 @@ HEAD = """
 """
 
 first = PRESETS[0]
-with gr.Blocks(title="Iris-3B · Speridlabs", theme=theme, css=CSS + VIEWER_CSS, js=THEME_JS,
-               head=HEAD_JS) as demo:
+with gr.Blocks(
+    title="Iris-3B · Speridlabs", theme=theme, css=CSS + VIEWER_CSS, js=THEME_JS, head=HEAD_JS
+) as demo:
     gr.HTML(HEAD)
     with gr.Tabs():
         with gr.Tab("Generate"):
@@ -262,13 +317,28 @@ with gr.Blocks(title="Iris-3B · Speridlabs", theme=theme, css=CSS + VIEWER_CSS,
                         seed = gr.Number(value=first["seed"], precision=0, label="Seed")
                         randomize = gr.Checkbox(value=False, label="Random seed")
                 with gr.Column(scale=7):
-                    image = gr.Image(value=str(ROOT / first["image"]), type="pil", format="png", show_label=False,
-                                     elem_id="result", height="min(640px, 92vw)")
+                    image = gr.Image(
+                        value=str(ROOT / first["image"]),
+                        type="pil",
+                        format="png",
+                        show_label=False,
+                        elem_id="result",
+                        height="min(640px, 92vw)",
+                    )
                     info = gr.HTML(meta("Preset", first["size"], first["seed"], first["steps"], first["cfg"]))
             gr.HTML('<div class="sl-section">Presets — click to load prompt and settings</div>')
-            presets = gr.Gallery([str(ROOT / p["image"]) for p in PRESETS], columns=6, rows=4, height="auto",
-                                 object_fit="cover", allow_preview=False, show_label=False,
-                                 show_share_button=False, show_download_button=False, elem_classes="presets")
+            presets = gr.Gallery(
+                [str(ROOT / p["image"]) for p in PRESETS],
+                columns=6,
+                rows=4,
+                height="auto",
+                object_fit="cover",
+                allow_preview=False,
+                show_label=False,
+                show_share_button=False,
+                show_download_button=False,
+                elem_classes="presets",
+            )
         with gr.Tab("Depth"):
             with gr.Row(equal_height=False):
                 with gr.Column(scale=5):
@@ -280,9 +350,18 @@ with gr.Blocks(title="Iris-3B · Speridlabs", theme=theme, css=CSS + VIEWER_CSS,
                     depth_info = gr.HTML(d0[3])
                     depth_cloud = gr.HTML(d0[2])
             gr.HTML('<div class="sl-section">Examples — click to load</div>')
-            depth_gallery = gr.Gallery([str(ROOT / f"examples/{n}.webp") for n in DEPTH_EXAMPLES], columns=8, rows=1,
-                                       height="auto", object_fit="cover", allow_preview=False, show_label=False,
-                                       show_share_button=False, show_download_button=False, elem_classes="presets")
+            depth_gallery = gr.Gallery(
+                [str(ROOT / f"examples/{n}.webp") for n in DEPTH_EXAMPLES],
+                columns=8,
+                rows=1,
+                height="auto",
+                object_fit="cover",
+                allow_preview=False,
+                show_label=False,
+                show_share_button=False,
+                show_download_button=False,
+                elem_classes="presets",
+            )
         with gr.Tab("Upscale"):
             with gr.Row(equal_height=False):
                 with gr.Column(scale=5):
@@ -293,9 +372,18 @@ with gr.Blocks(title="Iris-3B · Speridlabs", theme=theme, css=CSS + VIEWER_CSS,
                     up_out = gr.HTML(u0[1])
                     up_info = gr.HTML(u0[2])
             gr.HTML('<div class="sl-section">Examples — click to load</div>')
-            up_gallery = gr.Gallery([str(ROOT / f"examples/lowres/{n}.png") for n in UPSCALE_EXAMPLES], columns=8, rows=1,
-                                    height="auto", object_fit="cover", allow_preview=False, show_label=False,
-                                    show_share_button=False, show_download_button=False, elem_classes="presets")
+            up_gallery = gr.Gallery(
+                [str(ROOT / f"examples/lowres/{n}.png") for n in UPSCALE_EXAMPLES],
+                columns=8,
+                rows=1,
+                height="auto",
+                object_fit="cover",
+                allow_preview=False,
+                show_label=False,
+                show_share_button=False,
+                show_download_button=False,
+                elem_classes="presets",
+            )
     inputs = [prompt, negative, size, steps, cfg_scale, seed, randomize]
     run_btn.click(run, inputs, [image, seed, info])
     prompt.submit(run, inputs, [image, seed, info])

@@ -105,9 +105,7 @@ def test_ddp_kwargs_auto_resolves_find_unused_from_the_final_block(
     """Only a dual-stream final block leaves gradient-free parameters: its text
     tail is computed and discarded. Everything else pays the reducer's
     per-iteration graph walk for nothing."""
-    model = ModelConfig(
-        block=block, depth=14, dual_depth=dual_depth, final_block_text=final_block_text
-    )
+    model = ModelConfig(block=block, depth=14, dual_depth=dual_depth, final_block_text=final_block_text)
     assert ddp_kwargs(DistConfig(), model)["find_unused_parameters"] is expected
 
 
@@ -155,4 +153,3 @@ def test_wrap_class_names_covers_both_families_of_a_hybrid_stack():
 
     hybrid = ModelConfig(block="single_stream", dual_depth=4)
     assert wrap_class_names(hybrid) == {"SingleStreamBlock", "MMDiTBlock", "PiTBlock", *text}
-

@@ -392,9 +392,7 @@ class _LossLogAccumulator:
         if self._sums and tuple(values) != tuple(self._sums):
             raise RuntimeError("loss metric names changed within one optimizer step")
         if not self._sums:
-            self._sums = {
-                name: value.detach().float().mul(samples) for name, value in values.items()
-            }
+            self._sums = {name: value.detach().float().mul(samples) for name, value in values.items()}
         else:
             for name, value in values.items():
                 self._sums[name].add_(value.detach().float(), alpha=samples)
