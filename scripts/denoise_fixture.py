@@ -9,6 +9,10 @@ unconditional row first), ``mask`` (``[2, 300]``) and ``noise``
 inputs: the text encoder and the random number generator are out of the
 loop. Each repeat is timed from synchronized start to the finished FP32 state,
 without per-step synchronization; text-adapter preparation is included.
+
+``--reference fp32`` or ``--reference autocast`` runs the upstream PyTorch
+model instead, with FP32 weights, in FP32 or under the BF16 autocast of
+upstream's ``scripts/sample.py``: the baselines the engine is compared with.
 """
 
 import argparse
@@ -34,6 +38,7 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--attention", choices=("float16", "bfloat16", "float32"), default="float16")
+    parser.add_argument("--reference", choices=("fp32", "autocast"), help="run the upstream model instead")
     parser.add_argument("--out", type=Path, help="write the final FP32 state and timings")
     args = parser.parse_args()
     args.checkpoint = resolve_checkpoint(args.checkpoint, None)
@@ -41,18 +46,32 @@ def main() -> None:
     fixture = np.load(args.fixture)
     device = torch.device("mps")
     cfg = load_config(args.checkpoint)
-    start = time.perf_counter()
-    engine = MetalIris(load_dit(args.checkpoint, cfg, device), attention_dtype=getattr(torch, args.attention))
-    torch.mps.synchronize()
-    load_s = time.perf_counter() - start
     states, mask = torch.from_numpy(fixture["y"]), torch.from_numpy(fixture["mask"])
     noise = torch.from_numpy(fixture["noise"]).to(device)
     sample = cfg.sample
+    start = time.perf_counter()
+    if args.reference:
+        model = load_dit(args.checkpoint, cfg, device, torch.float32)
+        states, mask = states.to(device).float(), mask.to(device)
+
+        def velocity(x: torch.Tensor, t: torch.Tensor, rows: torch.Tensor) -> torch.Tensor:
+            # ``rows`` index the fixture's text states, as ``text`` does for the engine
+            with torch.autocast("mps", dtype=torch.bfloat16, enabled=args.reference == "autocast"):
+                return model(x, t, states[rows], y_mask=mask[rows]).x.float()
+
+        denoiser, prepare = velocity, lambda: torch.arange(2, device=device)
+    else:
+        engine = MetalIris(
+            load_dit(args.checkpoint, cfg, device), attention_dtype=getattr(torch, args.attention)
+        )
+        denoiser, prepare = engine, lambda: engine.encode_text(states, mask)
+    torch.mps.synchronize()
+    load_s = time.perf_counter() - start
 
     def denoise() -> torch.Tensor:
-        text = engine.encode_text(states, mask)
+        text = prepare()
         solver = FlowDPMSolver(
-            engine,
+            denoiser,
             num_timesteps=cfg.flow.num_train_timesteps,
             cfg_scale=sample.cfg_scale,
             cfg_interval=tuple(sample.cfg_interval),
