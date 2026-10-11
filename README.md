@@ -1,20 +1,73 @@
-<p align="center"><img src="assets/metal/icon.png" width="128" alt="The Iris app icon: an iris flower of translucent violet and blue petals with a warm yellow heart on a dark indigo background, drawn by Iris-3B"></p>
+<p align="center"><img src="assets/metal/icon.png" width="112" alt="The Iris app icon: an iris flower of translucent violet and blue petals with a warm yellow heart on a dark indigo background, drawn by Iris-3B"></p>
 
-# Iris-3B Metal
+<h1 align="center">Iris-3B Metal</h1>
 
-Run [Iris-3B](https://github.com/speridlabs/iris-3b), Speridlabs' 3B-parameter
-pixel-space text-to-image model, on the GPU of an Apple Silicon Mac: from the
-command line, from Python, over a local HTTP API, or in a native macOS app.
+<p align="center">
+Fast, local <a href="https://github.com/speridlabs/iris-3b">Iris-3B</a> image generation on Apple Silicon:<br>
+a Metal-optimized inference engine with a native macOS app, a CLI, a Python API and a local HTTP API.
+</p>
 
-Iris-3B generates RGB pixels directly — no VAE — and its fine-tunes also
-estimate depth and restore and upscale images. This project runs the
-unmodified official weights with an inference engine written for Apple GPUs:
-fused Metal kernels, a restructured forward pass, a text encoder that is
-streamed one layer at a time, and an FP16 transformer trunk. Against the
-upstream code run in FP32, its images have about a third of the error of the
-BF16 recipe the model ships with over eight 512 × 512 generations, and a bit
-over half on the one 1024 × 1024 image compared (see
+<p align="center">
+<a href="https://github.com/TKY-27/iris-3b-metal/actions/workflows/ci.yml"><img src="https://github.com/TKY-27/iris-3b-metal/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+<a href="https://github.com/TKY-27/iris-3b-metal/releases/latest"><img src="https://img.shields.io/github/v/release/TKY-27/iris-3b-metal?label=release" alt="Latest release"></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="Apache License 2.0"></a>
+<img src="https://img.shields.io/badge/platform-Apple%20Silicon%20%C2%B7%20macOS%2015%2B-lightgrey" alt="Apple Silicon, macOS 15 or later">
+</p>
+
+<p align="center"><img src="assets/metal/app.jpg" width="820" alt="The Iris app in dark appearance: a sidebar with search, New Chat, All Images, a pinned chat, projects with their chats and recent chats by date; on the right a chat showing the prompt about rolling green hills with a winding road and the generated photograph, and the composer with Add Image, the shape and the quality settings"></p>
+
+[Iris-3B](https://github.com/speridlabs/iris-3b) is Speridlabs' 3B-parameter
+diffusion transformer that generates RGB pixels directly, without a VAE; its
+fine-tunes also estimate depth and restore and upscale images. This project is
+an independent inference implementation for Apple GPUs. It runs the
+**unmodified official weights**, downloaded from Speridlabs' Hugging Face
+repository, and adds no training, distillation or quantization.
+
+On a base M5 MacBook Pro with 24 GB, a 1024 × 1024 image takes
+**45 s at 10 steps** and **91 s at 20 steps** once the model is loaded, in
+about 10 GiB of memory. On the same Mac and the same inputs, the engine runs
+1.8–2.0× as fast as the fastest MLX port we measured and 1.5–1.6× as fast as
+the upstream PyTorch code with its BF16 recipe, and its images are closer to
+the upstream model run in full FP32 than that recipe's (see
 [Image quality](#image-quality)).
+
+## Performance
+
+<p align="center"><img src="assets/benchmarks/latency.svg" width="820" alt="Bar chart of the time to denoise one 1024 × 1024 image on a base M5 with 24 GB, the same inputs for every implementation. 10 steps: Iris-3B Metal 42 s, iris3b-mlx-optimized speed preset 84 s, memory preset 84 s, upstream PyTorch with BF16 autocast 69 s. 20 steps: 93 s, 169 s, 169 s and 135 s."></p>
+
+| 1024 × 1024, base M5, 24 GB | 10 steps (Fast) | 20 steps (Standard) | 100 steps |
+|---|---:|---:|---:|
+| Next image, model loaded | **45 s** | **91 s** | 457 s |
+| First image after launch, model load included | 55 s | 100 s | 465 s |
+| Peak memory of the process | 10.0 GiB | 10.0 GiB | 10.0 GiB |
+
+Times run from the prompt to the finished image, measured with
+`scripts/benchmark.py` in fresh processes: medians of three processes per step
+count, and one process at 100 steps. A new prompt adds about 4 s of text
+encoding; a repeated one is cached. Each sampling step evaluates the model
+twice (classifier-free guidance), about 4.5 s per step. The chart times the
+denoising of a saved fixture (text states and noise) by each implementation;
+whiskers span the fastest and slowest run.
+
+These numbers were taken with the Claude desktop app, which drove the
+measurements, and the window server using about 40% of the GPU's
+time; every implementation ran under the same load, interleaved. Runs at the
+start of the session, with the GPU nearly idle, took 39 s for 10 steps
+(3.9 s per step). The methodology, the raw logs and every comparison are in
+[benchmarks/](benchmarks/README.md).
+
+<details>
+<summary>Where the time goes, and peak memory compared</summary>
+<p align="center"><img src="assets/benchmarks/startup.svg" width="820" alt="Stacked bar chart of a request's phases for Iris-3B Metal at 1024 × 1024. 10 steps: first image after launch 55 s (startup 2 s, text encoding 2 s, model load 6 s, denoising 45 s); a new prompt 48 s; the same prompt 45 s. 20 steps: 100 s, 95 s and 91 s."></p>
+<p align="center"><img src="assets/benchmarks/memory.svg" width="820" alt="Bar chart of peak process memory at 1024 × 1024 and 10 steps: Iris-3B Metal 10.0 GiB, iris3b-mlx-optimized speed preset 11.4 GiB, memory preset 10.1 GiB, upstream PyTorch with BF16 autocast 17.9 GiB."></p>
+</details>
+
+**Steps.** Iris-3B was evaluated with 100 sampling steps, the default of the
+CLI and the API. 10 and 20 steps keep the composition but simplify fine
+structure such as hands and small text; they are previews, which is how the
+app's Fast and Standard presets present them.
+
+## Examples
 
 <p align="center">
 <img src="assets/metal/portrait-fisherman.jpg" height="230" alt="Close-up portrait of an elderly fisherman with a weathered face and a white beard in window light">
@@ -25,380 +78,284 @@ over half on the one 1024 × 1024 image compared (see
 <img src="assets/metal/watercolor-lighthouse.jpg" height="200" alt="Watercolor illustration of a lighthouse on a rocky coast">
 <img src="assets/metal/texture-wool.jpg" height="200" alt="Macro photograph of knitted wool with individual fibers visible">
 </p>
-<p align="center"><sub>Generated by this engine with the default settings (100 steps, guidance 3, seed 0) from the development prompts in <code>benchmarks/prompts.json</code>; not curated across seeds.</sub></p>
+<p align="center"><sub>Generated by this engine with the defaults (100 steps, guidance 3, seed 0) from the development prompts in <a href="benchmarks/prompts.json"><code>benchmarks/prompts.json</code></a>, at their listed sizes; not curated across seeds.</sub></p>
 
-## What you get
+<p align="center"><img src="assets/metal/steps.jpg" width="760" alt="Three prompts at 10, 20 and 100 steps with the same seed: a fisherman portrait, a potter's hands on a wheel, and a shop sign reading FRESH BREAD. The 10-step images keep the composition with rougher detail; the 20-step images are closer to the 100-step ones."></p>
+<p align="center"><sub>The same seed at 10, 20 and 100 steps (guidance 3). Fewer steps keep the composition and simplify fine detail.</sub></p>
+
+## Features
 
 - **Text-to-image** at about one megapixel in any aspect ratio from 4:1 to
   1:4 (the model was trained on 21 sizes from 2048 × 512 to 512 × 2048), with
-  the upstream sampler: 100 DPM-Solver++ steps, guidance 3.
-- **Depth estimation and 4× restoration/upscaling** with the official
-  fine-tunes, each downloaded only when first used.
-- `iris-metal` command, Python API, `iris-metal serve` HTTP API, and the
-  **Iris** macOS app.
-- On the same Mac, a 1024 × 1024 image in about 7 minutes in under 11 GiB: about
-  2× faster than the upstream code with its BF16 recipe or the fastest MLX
-  port we measured, and 7× faster than the upstream code in FP32, its default
-  on a Mac (see [Performance](#performance)).
+  the upstream sampler (DPM-Solver++, guidance 3). Steps, guidance, seed, size
+  and negative prompt are adjustable.
+- **Depth estimation** and **4× restoration and upscaling** with the official
+  fine-tunes, each downloaded on first use.
+- **A native macOS app** (SwiftUI) organized like a chat app: chats, projects,
+  pinned chats, an All Images library, batches of up to four images, per-step
+  progress and Stop, and a comparison window for depth maps and upscales.
+- **`iris-metal`**, a command line for generation, depth and upscaling that
+  never overwrites an existing file unless asked.
+- **A Python API**, `IrisPipeline`, that keeps the model loaded and caches
+  prompt encodings between calls.
+- **`iris-metal serve`**, a local HTTP API with a job queue, progress and
+  cancellation; the app is a client of it.
+- **Local and memory-conscious**: nothing leaves the Mac, the text encoder is
+  streamed one layer at a time, and only one model is resident.
 
-## Requirements
+Iris-3B does not edit images from instructions, inpaint, or see earlier
+messages of a chat; each request is generated on its own.
 
-A Mac with Apple Silicon and macOS 15 or later, Python 3.11+, PyTorch 2.14+.
-Everything here was measured on a MacBook Pro with an M5 and 24 GB, where
-text-to-image peaks under 11 GiB at 1024 × 1024; Macs with 16 GB are
-untested. The first run downloads the Iris-3B checkpoint (12 GB) and the
-Qwen3-VL-4B text encoder (9 GB) from Hugging Face.
+## Install
 
-## Quick start
+**Requirements.** A Mac with Apple Silicon and macOS 15 or later, Python
+3.11 or later. Everything here was measured on a MacBook Pro with a base M5 and
+24 GB, where text-to-image peaks at about 10 GiB at 1024 × 1024. Macs with
+16 GB are untested.
+
+**Disk.** The first generation downloads the Iris-3B checkpoint (12.0 GB) and
+the Qwen3-VL-4B-Instruct text encoder weights (8.9 GB) from Hugging Face into
+its cache (`~/.cache/huggingface`), at the revisions the engine was validated
+against. Depth estimation and upscaling download one more 12.0 GB checkpoint
+each, only when first used.
 
 ```bash
-pip install "iris-3b-metal @ git+https://github.com/TKY-27/iris-3b-metal"
-iris-metal "A red fox sleeping in fresh snow, golden hour" -o fox.png
+pipx install "git+https://github.com/TKY-27/iris-3b-metal@v0.3.0"
+iris-metal "A red fox sleeping in fresh snow, golden hour" --steps 20 -o fox.png
 ```
+
+[pipx](https://pipx.pypa.io) installs `iris-metal` into `~/.local/bin`, where
+the macOS app finds it. `pip install` into a virtual environment works too.
+
+## Usage
+
+### Command line
 
 ```bash
 iris-metal "a lighthouse on a rocky coast, watercolor" --size 1152x896 --seed 7
-iris-metal depth photo.jpg            # depth/photo_depth.png and .npy
-iris-metal upscale photo.jpg          # upscaled/photo_x4.png
+iris-metal "a red panda in a bamboo forest" --steps 10       # a quick preview
+iris-metal depth photo.jpg           # depth/photo_depth.png and .npy
+iris-metal upscale photo.jpg         # upscaled/photo_x4.png
 ```
 
-`iris-metal` never replaces an existing file unless you name it with `-o`
-(several prompts with `-o fox.png` write `fox.png`, `fox-2.png`, ...):
-without it, images are numbered `iris.png`, `iris-2.png`, ..., and depth and
-upscaling outputs (`photo_depth.png`, `photo-2_depth.png`, ...) skip names
-already taken, including inputs that share a file name. Every input and output
-is checked before the model loads.
+Without `-o`, images are numbered `iris.png`, `iris-2.png`, ... and existing
+files are never replaced; depth and upscaling outputs skip names already
+taken. Every input and output is checked before a model loads. Each command
+has `--help`.
 
-From Python:
+### Python
 
 ```python
+from iris_metal.cli import resolve_checkpoint
 from iris_metal.pipeline import IrisPipeline
 
-pipe = IrisPipeline("path/to/iris-3b")  # a directory with config.yaml and model.safetensors
-image = pipe(["a red panda in a bamboo forest"], height=1024, width=1024, seed=0)[0]
+pipe = IrisPipeline(resolve_checkpoint("speridlabs/iris-3b", None))  # downloads the validated revision
+image = pipe(["a red panda in a bamboo forest"], height=1024, width=1024, steps=20, seed=0)[0]
 image.save("panda.png")
 ```
 
-`IrisPipeline` keeps the model loaded between calls and caches recent prompt
-encodings, so repeated generations skip the load and the text encoder.
-`iris_metal.cli.resolve_checkpoint("speridlabs/iris-3b", None)` downloads the
-validated checkpoint and returns its directory.
+`IrisPipeline` also takes a local directory with `config.yaml` and
+`model.safetensors`, and accepts `cfg_scale`, `negative_prompt` and an
+`on_step(step, total)` progress callback.
 
-## The macOS app
-
-`apps/macos` is a SwiftUI app that drives a local `iris-metal serve`; it
-holds no model code of its own. It works like a chat app:
-
-- **A new chat** opens on one question and a composer, over a faint glow
-  that the pointer stirs like liquid. Type a prompt, or add or drop an image to
-  restore and upscale it or estimate its depth: the composer switches to what can
-  be done with an image, with the size the result will have, because Iris-3B does
-  not edit images from instructions.
-- **Each request is generated on its own.** Iris-3B does not see earlier
-  prompts or images in the chat, and the app does not pretend otherwise.
-- **While an image is made**, the frame it will fill shows the iris at work
-  and what the engine reports: preparing, then `65% · 13 / 20 steps` with the
-  time left, then finishing; an upscale counts its 1024-pixel tiles
-  (`tile 5 of 9`). Stop is where Send was.
-- **Settings stay out of the way.** The composer shows the shape (`16:9`
-  and so on, from the model's native sizes) and two words for quality and
-  prompt adherence; a popover holds the preset sliders, with `>` beside each
-  for the exact steps or guidance scale, and the seed and negative prompt.
-- **Several images at once.** Choose 1 to 4 images in the composer: they are
-  made one after another (the engine holds one model and one image in memory),
-  each with its own seed, and the later ones wait as “Queued”. Stop ends the
-  rest of the batch. The count is back to one at every launch.
-- **Results** open in Quick Look, and can be copied, saved, varied with a new
-  seed, reused as settings, or restored and upscaled and depth-estimated in the
-  same chat (also from All Images). A depth map or upscale opens next to its
-  original in a comparison window: drag the divider, zoom with a pinch or ⌘+/⌘−,
-  ⌘0 for actual pixels, ⌘9 to fit.
-- **Restoration comes with upscaling.** The upscaler fine-tune repairs blur,
-  noise and compression while it enlarges four times; like `iris-metal serve`,
-  the app first reduces an input above 512 pixels on the short side or 1024 on
-  the long side, so a 1024 × 1024 image becomes 2048 × 2048. There is no
-  same-size restoration: tested at 1×, the model redraws fine structure (see
-  [Image quality](#image-quality)). For the same reason the app does not offer
-  it for an image that would come out smaller, such as a 12-megapixel photo
-  (4032 × 3024 → 2732 × 2048).
-- **The sidebar** has search, New Chat, every result under All Images,
-  pinned chats, projects with their chats, and recent chats by date, each with
-  its latest image.
-- **Projects** group chats. Create one with New Project (⇧⌘N), then start a
-  chat on its page, choose it in the folder menu of a new chat's composer, or
-  drag chats onto it in the sidebar. Pin a chat from its context menu (or swipe) to
-  keep it at the top.
-
-Quality presets are Draft, Fast, Standard, High and Maximum: 4, 10, 20, 30
-and 50 steps. Draft shows little more than the composition. The app starts at
-Standard (20 steps) so that trying prompts
-takes about a minute and a half at 1024 × 1024; that is a preview, not the
-model's evaluated setting. Iris-3B was evaluated at 100 steps (the default of
-the command line and the API), and fewer steps change fine detail such as
-hands (see [Fewer steps](#image-quality)); type 100 in the exact field for a
-final image. Prompt adherence ranges from Creative to Literal around the
-checkpoint's guidance of 3.
-
-The library lives in `~/Library/Application Support/Iris` (`Library.json`
-plus the images); a `History` folder from Iris 0.1 is imported once into a
-chat named “Earlier images”. The app needs macOS 15 and was built with Xcode 27.
-Its icon, an iris flower, was drawn by Iris-3B itself at 100 steps
-(`apps/macos/icon`) and is an Icon Composer document, so macOS applies its own
-shape, light and appearances:
-
-```bash
-cd apps/macos && xcodebuild -scheme Iris -configuration Release build
-```
-
-The app uses a server that is already running on its port, or starts
-`iris-metal serve` itself from `~/.local/bin`, `/opt/homebrew/bin` or
-`/usr/local/bin`. If you installed into a virtual environment, set the path
-to its `bin/iris-metal` in the app's Settings.
-
-<p align="center"><img src="assets/metal/app.jpg" width="760" alt="The Iris app in dark appearance: a sidebar with search, New Chat, All Images, a pinned chat, projects Landscapes and Portraits with their chats, and recent chats by date, each with its latest image; on the right a chat in the Landscapes project showing the prompt about rolling green hills with a winding road and the generated photograph, and the composer with Add Image, the shape and the quality settings"></p>
-
-## HTTP API
+### HTTP API
 
 `iris-metal serve` runs one resident engine on `127.0.0.1:8765`:
 
 ```bash
-curl -s localhost:8765/v1/images -d '{"prompt": "a tabby cat on a windowsill"}'   # {"id": "1"}
-curl -s localhost:8765/v1/jobs/1                                                # status, step, seconds
+curl -s localhost:8765/v1/images -d '{"prompt": "a tabby cat on a windowsill", "steps": 20}'   # {"id": "1"}
+curl -s localhost:8765/v1/jobs/1                     # status, step, steps, seconds
 curl -s localhost:8765/v1/jobs/1/image -o cat.png
-curl -s localhost:8765/v1/depth --data-binary @photo.jpg                        # also /v1/upscale
+curl -s -X DELETE localhost:8765/v1/jobs/1           # cancel
+curl -s localhost:8765/v1/depth --data-binary @photo.jpg   # also /v1/upscale
 ```
 
-Jobs run in order with a bounded queue. A job's `step` and `steps` count
-sampling steps, or for an upscale its finished and total tiles. Cancelling stops
-a generation at its next step and an upscale at its next tile; a depth estimate
-runs in one pass of a few seconds, then discards its result if cancelled.
-At most two requests can read or decode uploads concurrently; additional
-submissions receive 429 while health checks and cancellation remain available.
-Only one network is resident at a time; switching between text-to-image,
-depth and upscaling releases the previous model. `--checkpoint` and
-`--weights` take local directories for offline use. The server has no
-authentication and should not be exposed beyond localhost; it refuses requests
-from web pages (which carry an `Origin` or cross-site `Sec-Fetch-Site` header)
-and for other host names. With
-`--host 0.0.0.0` it cannot tell its own names apart and skips the host check.
+`/v1/images` takes `prompt`, `width`, `height`, `steps`, `cfg_scale`, `seed`
+and `negative_prompt`. Jobs run in order from a bounded queue (a full queue
+answers 429). Cancelling stops a generation at its next step and an upscale
+at its next tile. Only one network is resident: switching between
+text-to-image, depth and upscaling releases the previous model.
+`--checkpoint` and `--weights` take local directories for offline use.
 
-## Performance
+The server has no authentication and must not be exposed beyond localhost.
+It refuses requests from web pages (an `Origin` header or a cross-site
+`Sec-Fetch-Site`) and for other host names. See [SECURITY.md](SECURITY.md).
 
-Measured on a MacBook Pro with an M5 (10-core GPU) and 24 GB, macOS 27.0.1,
-PyTorch 2.14.1. A laptop slows down as it warms up, and other applications
-compete for the GPU and memory, so absolute times vary by 10–20% between
-sessions.
+### macOS app
 
-**Text-to-image, 1024 × 1024, 100 steps.** Every implementation denoises the
-same saved input (text-encoder states and initial noise) with the upstream
-sampler (`scripts/denoise_fixture.py` for this engine); time is the denoising
-loop, memory is the peak physical footprint of
-the process, and the error is against the upstream code in FP32:
+The app is a SwiftUI client of `iris-metal serve` and holds no model code.
+It is not distributed as a signed binary; build it with Xcode 27:
 
-| | Time | Peak memory | NRMSE vs FP32 |
-|---|---|---|---|
-| Upstream code, FP32 (how it runs on MPS) | 2940 s | 20.1 GiB + swap | — |
-| Upstream code, BF16 autocast | 919 s | 18.4 GiB | 12.7% |
-| [iris3b-mlx-optimized](https://github.com/octaviusp/iris3b-mlx-optimized), speed preset | 844–852 s | 11.4 GiB | 3.1% |
-| iris3b-mlx-optimized, memory preset (8-bit MLP weights) | 842–864 s | 10.0 GiB | 7.2% |
-| **This engine** | **387–414 s** | **10.6 GiB** | 7.2% |
+```bash
+cd apps/macos
+xcodebuild -scheme Iris -configuration Release -derivedDataPath build build
+open build/Build/Products/Release/Iris.app
+```
 
-The last three rows ran interleaved in one session, two runs each; the
-upstream rows are single runs from a few hours earlier. The error column is
-one image; [Image quality](#image-quality) compares eight prompts. The speed
-preset of iris3b-mlx-optimized keeps everything but the MLP projections in
-FP32, attention included, which is why it stays closer to FP32 and takes
-about twice as long; its memory preset stores the MLP weights in 8 bits and
-lands at the same error as this engine on this image. The upstream BF16
-recipe is both slower and further from FP32 than either.
+The app uses a server already running on its port, or starts `iris-metal
+serve` itself from `~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin`;
+for a virtual environment, set the path to its `bin/iris-metal` in Settings.
 
-**Per phase**, from `scripts/benchmark.py` (a full generation from a prompt):
+- **Chats.** Type a prompt, or add or drop an image to restore and upscale it
+  or estimate its depth. Results open in Quick Look and can be copied, saved,
+  varied with a new seed, reused as settings, or passed on to upscaling and
+  depth. A depth map or upscale opens next to its original in a comparison
+  window.
+- **Settings stay out of the way.** The composer shows the shape and two
+  words for quality and prompt adherence; a popover holds the presets, the
+  exact steps and guidance, the seed and the negative prompt. Quality presets
+  are Draft, Fast, Standard, High and Maximum: 4, 10, 20, 30 and 50 steps;
+  the app starts at Standard. Type 100 in the exact field for the model's
+  evaluated setting.
+- **Progress.** The image's frame shows `65% · 13 / 20 steps` with the time
+  left; an upscale counts its tiles. Stop is where Send was. Batches of up to
+  four images run one after another.
+- **Library.** Chats, projects, pins and images live in
+  `~/Library/Application Support/Iris` (`Library.json` and the images). A
+  `History` folder from Iris 0.1 is imported once into a chat named
+  “Earlier images”.
+- **Restoration comes with upscaling.** The upscaler repairs blur, noise and
+  compression while it enlarges four times; inputs above 512 pixels on the
+  short side or 1024 on the long side are reduced first, so a 1024 × 1024
+  image becomes 2048 × 2048. Same-size restoration is not offered: tested at
+  1×, the model redraws fine structure.
 
-| | 768 × 768 | 1024 × 1024 |
-|---|---|---|
-| Text encoding, once per prompt | 4.5 s (peak 1.5 GiB) | 4.1 s (peak 1.5 GiB) |
-| Model load, once per process | 7.9 s (6.5 GiB) | 8.4 s (6.5 GiB) |
-| One sampling step (batch of 2 for guidance) | 2.3 s | 4.0 s |
-| 100 steps, warm | 231–233 s | 390–414 s |
-| Peak memory while sampling | 8.8 GiB | 10.0 GiB |
-
-One process each, a cold request and two warm ones, with 1–10% background
-GPU load from other applications. 6.5 GiB of the peak are the weights.
+The app's icon, an iris flower, was drawn by Iris-3B itself at 100 steps
+(`apps/macos/icon`).
 
 ## How it works
 
 Iris-3B is a 24-block transformer over 16 × 16 pixel patches (8 dual-stream
 blocks, then 16 single-stream blocks; grouped-query attention, gated attention,
 sandwich RMSNorm) followed by four pixel-transformer blocks that decode every
-patch back to pixels, conditioned on Qwen3-VL-4B text states. Every sampling
-step evaluates the whole network on a batch of two (classifier-free
-guidance): a 1024 × 1024 image at 100 steps is about 4.6 PFLOP.
+patch back to pixels, conditioned on twelve hidden layers of Qwen3-VL-4B. A
+1024 × 1024 image at 100 steps is about 4.6 PFLOP. `src/iris_metal` evaluates
+the upstream modules' weights with its own forward pass:
 
-`src/iris_metal` evaluates the upstream modules' weights with its own forward
-pass. What it changes, and what it does not:
+- **Matrix multiplies and attention stay in PyTorch's MPS kernels.** At the
+  trunk's shapes they run at 13.7–15.5 TFLOPS in FP16 or BF16 on the M5,
+  84–95% of what a compute-only Metal 4 `matmul2d` kernel reached on the same
+  GPU. Custom GEMMs, epilogue fusion and packing the Q/K/V/gate and SwiGLU
+  projections into wider GEMMs were measured and rejected (no gain beyond
+  thermal drift). Attention uses PyTorch's fused, memory-efficient SDPA.
+- **Everything between the matrix multiplies is fused into custom Metal
+  kernels**: query/key RMSNorm + RoPE + head layout; each branch's input norm
+  and adaLN modulation; the sandwich post-norm, gate and residual add, in
+  place on an FP32 residual stream; and the per-pixel half of every pixel
+  block.
+- **Precision is chosen per part.** The transformer trunk's linear layers and
+  attention take FP16 inputs, which carry three more mantissa bits than BF16;
+  BF16 hurts most in the late single-stream blocks, whose QK-norm gains reach
+  27 and amplify the rounding of queries and keys. Norms, adaLN modulation and
+  the residual stream stay FP32. The pixel stage and the text adapter keep
+  BF16: the pixel stream reaches about 1.4 × 10⁴, and neither is sensitive to
+  BF16 rounding. The largest FP16 trunk value over the benchmark prompts is
+  2520, and every result is checked for overflow.
+- **The text encoder is streamed.** Qwen3-VL-4B runs one decoder layer at a
+  time from its checkpoint files, for the real prompt tokens only, so it peaks
+  at about 1.5 GiB instead of loading 8 GB; the next layer's transfer overlaps
+  the current one's compute.
+- **Work that does not change is done once.** The diffusion model stays
+  resident between requests; prompt encodings and the adapted conditioning of
+  recent prompts (the empty negative prompt included) are cached; the shared
+  adaLN projections are computed once per step.
 
-- **Matrix multiplies stay in PyTorch's MPS kernels.** At the trunk's shapes
-  they run at 13.7–15.5 TFLOPS in FP16 or BF16 on the M5, 84–95% of the
-  16.4 TFLOPS a compute-only Metal 4 `matmul2d` kernel reached on the same
-  GPU, so custom GEMMs and fusing epilogues into them were tried and
-  rejected, as was packing the Q/K/V/gate and SwiGLU projections into wider
-  GEMMs (no measurable gain).
-- **Everything between the matrix multiplies is fused into Metal kernels**:
-  query/key RMSNorm + RoPE + head layout; each branch's input norm and adaLN
-  modulation; the sandwich post-norm, gate and residual add, in place on an
-  FP32 residual stream; and the per-pixel half of every pixel block.
-- **Work that does not change between steps is done once**: the text adapter
-  (four transformer blocks) per prompt, the shared adaLN projections per step.
-- **The transformer trunk runs in FP16, not BF16.** Its linear layers and
-  attention take FP16 inputs, which carry three more bits of precision than
-  BF16; norms, adaLN modulation and the residual stream stay FP32. BF16 hurts
-  most in the late single-stream blocks, whose QK-norm gains reach 27 and
-  amplify the rounding of queries and keys. The largest FP16 value over the
-  benchmark prompts is 2520, under 4% of the FP16 range, and every result is
-  checked for overflow. The pixel stage and the text adapter keep BF16: the
-  pixel stream reaches about 1.4 × 10⁴, and neither part is sensitive to
-  BF16 rounding (see [Image quality](#image-quality)).
-- **The text encoder is streamed.** Iris reads 12 hidden layers of
-  Qwen3-VL-4B (every third from 2 to 35) for the real prompt tokens only; the engine runs those layers one
-  at a time from the checkpoint files instead of loading the 8 GB model.
-
-In a single-stream block at 1024 × 1024 (16 of the 24 blocks), 66% of the GPU
-time is matrix multiplies, 22% attention (PyTorch's fused SDPA) and 12%
-everything else.
+In a single-stream block at 1024 × 1024, 66% of the GPU time is matrix
+multiplies, 22% attention and 12% everything else.
 
 ## Image quality
 
 The engine is checked three ways: unit tests against the upstream PyTorch
-model on a randomly initialized copy of the released architecture; per-step
-velocity error against an FP32 forward of the real checkpoint; and complete
-100-step generations of a 12-prompt development set (portraits, hands, full
-bodies, textures, architecture, typography, small objects, repetitive
-structure, animals, illustration, food) at native aspect ratios, with a
-separate 12-prompt held-out set. `scripts/evaluate.py` and
-`scripts/compare_runs.py` produce and compare the prompt sets;
-`scripts/precision_study.py` runs the comparisons with the FP32 upstream code.
-The 1024 × 1024 fox and the iris3b-mlx-optimized rows come from that
-project's own fixture and harness, run on the same Mac.
+model on a randomly initialized copy of the architecture; per-step velocity
+error against an FP32 forward of the real checkpoint; and complete 100-step
+generations of a 12-prompt development set and a separate 12-prompt held-out
+set (portraits, hands, full bodies, textures, architecture, typography, small
+objects, repetitive structure, animals, illustration, food) at native aspect
+ratios. `scripts/evaluate.py`, `scripts/compare_runs.py` and
+`scripts/precision_study.py` reproduce them.
 
-**Precision.** Prompt encodings and initial noise are saved to files, so
-every implementation denoises exactly the same inputs with the upstream
-sampler (100 steps, guidance 3), and each result is compared with the
-upstream PyTorch code run in full FP32. Over eight prompts at 512 × 512 (six
-development, two held-out):
+**Against the upstream model in FP32.** Prompt encodings and initial noise
+are saved, so every implementation denoises exactly the same inputs with the
+same sampler. Over eight prompts at 512 × 512 and 100 steps (six development,
+two held-out):
 
 | Against upstream FP32 | Mean NRMSE | Median NRMSE | Mean LPIPS |
-|---|---|---|---|
+|---|---:|---:|---:|
 | Upstream code, BF16 autocast (its inference recipe) | 25.4% | 21.7% | 0.162 |
-| This engine | 8.8% | 5.7% | 0.025 |
-| This engine with BF16 instead of FP16 weights | 9.2% | 7.7% | 0.030 |
+| **This engine** | **8.8%** | **5.7%** | **0.025** |
+| This engine with BF16 instead of FP16 trunk weights | 9.2% | 7.7% | 0.030 |
 
-A diffusion trajectory amplifies small differences, so single images vary
-widely: lettering diverges most (the chalkboard menu: 42% for the BF16
-recipe, 30% for the engine), a portrait least for the engine (1.9%, against
-12.5% for the recipe). FP16 weights
-were closer than BF16 weights on six of the nine images compared. The
-1024 × 1024 fox below is one of the other three: the engine is at 7.2% after
-100 steps (3.5% after 10), BF16 weights at 4.6%, and the BF16 recipe at
-12.7% (5.9%).
+NRMSE measures numerical distance from FP32 and LPIPS perceptual distance; a
+diffusion trajectory amplifies small differences, so single images vary
+widely (lettering diverges most, portraits least). Per sampling step, the
+engine's velocity differs from an FP32 forward by 0.85–1.4% (relative L2 at
+three noise levels), against 8–15% for the BF16 autocast recipe; FP32
+attention would lower that to 0.65–1.1% at 1.65× the time.
 
 <p align="center"><img src="assets/metal/precision-difference.jpg" width="720"
 alt="Left, the FP32 result: a red fox asleep in snow. Middle and right, the absolute pixel difference from it, amplified 8 times, for the upstream BF16 recipe and for this engine; the engine's difference is darker almost everywhere"></p>
 <p align="center"><sub>1024 × 1024, 100 steps. Mean absolute difference from FP32: 3.2/255 for the upstream BF16 recipe, 1.4/255 for this engine.</sub></p>
 
-The remaining difference comes from 16-bit activations. Per sampling step,
-the velocity the engine predicts differs from an FP32
-forward by 0.85–1.4% (relative L2 at three noise levels, 512 × 512), against
-8–15% for the BF16 autocast recipe. FP32 attention would lower the per-step
-error to 0.65–1.1% at 1.65× the time (`--attention float32` in the scripts).
-
-**Depth and restoration.** The fine-tunes run on the same engine. On the
-upstream demo inputs and two generated images, its depth maps differ from the
-upstream code in FP32 by 0.2–0.5% (relative L2; the BF16 recipe 0.8–2.8%) and
-its 4× restorations match it at 54 dB PSNR (the BF16 recipe 47–51 dB), while
-running 1.7–5× faster than the FP32 code on the same GPU.
-
-The restorer was trained for 4× only. To see whether it also repairs an image
-at its own size, `scripts/restore_study.py` blurred (σ 2), compressed (JPEG
-quality 15), blurred and compressed (σ 1.2, quality 30), or halved and
-re-enlarged six held-out images and
-restored them three ways. Against the clean image, one pass at 1× improved
-LPIPS only for strong blur (0.296 → 0.216, on four of six images) and made the
-others worse (JPEG 0.186 → 0.206, the softened images 0.080 → 0.194), with
-PSNR 2–10 dB lower on average: it sharpens by redrawing, turning chalk
-strokes into solid paint and dropping thin window mullions. Reducing 2× and
-restoring at 4× did better (blur 0.178, JPEG 0.172) but improved only one of
-the six softened images and costs six times as much. The app and API therefore
-offer restoration only as part of upscaling.
+**Depth and restoration.** On the upstream demo inputs and two generated
+images, the engine's depth maps differ from the upstream code in FP32 by
+0.2–0.5% (relative L2; the BF16 recipe 0.8–2.8%) and its 4× restorations
+match it at 54 dB PSNR (the BF16 recipe 47–51 dB). `scripts/restore_study.py`
+shows why restoration is only offered with upscaling: one pass at 1× improved
+LPIPS only for strong blur and made JPEG and softened images worse, redrawing
+thin structure.
 
 **Patch seams.** Iris-3B predicts pixels in 16 × 16 patches. At 768 × 768 and
-1024 × 1024 the engine's outputs show no visible seams at 3× magnification,
-and the attention precision does not change the measured patch-grid
-statistics. An image-space deblocking filter was tried and rejected: it
-suppressed real detail along the grid.
-
-**Fewer steps.** 50 steps keep the composition of the 100-step image but
-change fine structure (mean LPIPS 0.26 against 100 steps on the development
-set; hands are visibly less coherent), and 30 steps more so (0.36). They are
-available as `--steps`, not as a faster equivalent of the default.
+1024 × 1024 the outputs show no visible seams at 3× magnification; an
+image-space deblocking filter was tried and rejected because it suppressed
+real detail.
 
 ## Limitations
 
-- Apple Silicon GPUs only; there is no CPU or CUDA path in the engine (the
-  upstream code in `src/iris3b` still trains and runs on CUDA).
-- Batches larger than one image are supported but untested at 1024 × 1024 on
-  24 GB.
-- 100 steps take minutes per image. Fewer steps are faster but change fine
-  structure such as hands (see [Image quality](#image-quality)).
-- Depth and upscaling download a separate 12 GB checkpoint each.
-- Restoration is only offered with 4× upscaling; it does not repair an image
-  at its own size (see [Image quality](#image-quality)).
-- Keep images near one megapixel. Well below that, for example at 512 × 512,
-  the model's output shows its 16-pixel patch grid, in the upstream FP32 code
-  as well. The development and held-out sets cover 1280 × 768 to 768 × 1280;
-  2048 × 512 and 512 × 2048 were only smoke-tested.
-- What the images get wrong is the model's: on the held-out prompt of hands
-  on a piano, the upstream FP32 code draws extra hands just as the engine does.
+- Apple Silicon GPUs only; the engine has no CPU or CUDA path (the upstream
+  code in `src/iris3b` still trains and runs on CUDA). Tested on one Mac.
+- 100 steps take about 7.6 minutes per 1024 × 1024 image; 10 and 20
+  steps change fine structure.
+- Keep images near one megapixel. Well below that, for example at
+  512 × 512, the model's output shows its 16-pixel patch grid, in the upstream
+  FP32 code as well. 2048 × 512 and 512 × 2048 were only smoke-tested.
+- Batches larger than one image per call are supported by the Python API but
+  untested at 1024 × 1024 on 24 GB; the app and the server generate one image
+  at a time.
+- What the images get wrong is the model's: on the held-out prompt of hands on
+  a piano, the upstream FP32 code draws extra hands just as the engine does.
+- The macOS app is built from source; there is no signed or notarized
+  binary.
 
 ## Development
 
 ```bash
-pip install -e ".[dev,eval]"
-pytest tests/test_metal_*.py
-python scripts/benchmark.py --size 1024x1024                    # latency and memory per phase
-python scripts/evaluate.py --split dev --out runs/reference       # benchmark prompt set
-python scripts/compare_runs.py runs/reference runs/candidate --sheet sheet.png
-python scripts/denoise_fixture.py fixture.npz                     # time a saved fixture
+pip install -e ".[dev]"            # ".[train,dev]" for the upstream training tests
+pytest                             # tiny random models; no checkpoint or network needed
+python apps/macos/fake_engine.py   # the HTTP API over CPU stand-ins, for app work
 ```
 
-The app's unit tests (`xcodebuild -scheme Iris test` in `apps/macos`) never
-touch the real library. `python apps/macos/fake_engine.py` serves the real
-HTTP API over CPU stand-ins with synthetic images, for working on the app
-without a GPU or model downloads; the app attaches to it on port 8765, and
-`TEST_RUNNER_IRIS_ENGINE_TEST=1 xcodebuild -scheme Iris test` adds an
-end-to-end test against it. To keep a development build away from your own
-chats, launch it with `--args -libraryRoot /tmp/iris-dev -enginePort 8790`. The
-Xcode project is generated from `apps/macos/project.yml` with XcodeGen.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the checks CI runs, how to work on
+the app without a GPU, and what evidence engine changes need. The upstream
+training code is retained under `src/iris3b/`; `UPSTREAM_README.md` is
+upstream's README as it was (read `pip install -e .` there as
+`pip install -e ".[train]"`). Only load trusted training `.pth` files: the
+upstream resume, sampling and export commands use pickle; the Metal engine
+loads safetensors only.
 
-The upstream training code is retained under `src/iris3b/`, with a fix keeping
-corrupt-sample retries within the same shape bucket. It needs
-`pip install -e ".[train]"` and CUDA; the full test suite needs
-`".[train,dev]"`, and the upstream Gradio demo `".[train,ui]"`.
-`UPSTREAM_README.md` is upstream's README as it was, so where it says
-`pip install -e .`, read `pip install -e ".[train]"`.
-Only load trusted training `.pth` files: the upstream resume, sampling and
-export commands deserialize pickle. The Metal engine loads safetensors exports.
+## License and credits
 
-`apps/macos/icon/iris_icon.py` draws app icon candidates with Iris itself
-through a running `iris-metal serve`, masks them into the macOS icon shape and
-lays them out for review (see its docstring).
+Apache License 2.0, as is upstream. **Iris-3B, its research, training code and
+weights are by [Speridlabs](https://speridlabs.com)** (Hanqiu Li Cai and Chema
+Garabito): [paper](https://arxiv.org/abs/2610.09450),
+[code](https://github.com/speridlabs/iris-3b),
+[weights](https://huggingface.co/speridlabs/iris-3b). This is an independent
+project, not an official Speridlabs release. The text encoder,
+[Qwen3-VL-4B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct)
+(Alibaba Cloud, Apache 2.0), is downloaded at runtime. No weights are included
+in this repository or its releases. [NOTICE](NOTICE) lists what this
+distribution adds and changes.
 
-## License and attribution
-
-Apache License 2.0. Iris-3B, its code and its weights are by
-[Speridlabs](https://speridlabs.com); this is an independent project, not an
-official Speridlabs release. Qwen3-VL-4B-Instruct (Alibaba Cloud, Apache 2.0)
-is downloaded at runtime. See [NOTICE](NOTICE) for what this distribution adds
-and changes.
+If you use Iris-3B, cite the paper:
 
 ```bibtex
 @article{licai2026iris,
