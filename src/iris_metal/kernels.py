@@ -351,6 +351,7 @@ def qk_norm_rope(
     projections land in one attention input without a concatenation. The
     result has ``out_dtype`` (default: the input dtype).
     """
+    _require(heads > 0 and col_offset >= 0 and offset >= 0, "heads must be positive and offsets nonnegative")
     batch, tokens, width = x.shape
     if out is None:
         out = x.new_empty(batch, heads, tokens, HEAD_DIM, dtype=out_dtype or x.dtype)

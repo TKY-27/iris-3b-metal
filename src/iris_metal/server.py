@@ -42,6 +42,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from PIL import Image
 
+from iris_metal import __version__
 from iris_metal.pipeline import IrisPipeline, release_memory
 from iris_metal.tasks import check_upscale_input
 
@@ -384,7 +385,15 @@ def make_handler(runner: JobRunner):
 
         def _get(self, url) -> None:
             if url.path == "/v1/health":
-                self._send(200, {"resident": models.resident, "queued": runner.queued})
+                self._send(
+                    200,
+                    {
+                        "resident": models.resident,
+                        "queued": runner.queued,
+                        "engine_version": __version__,
+                        "api_version": 1,
+                    },
+                )
                 return
             image = url.path.endswith("/image")
             job = self._job(url.path, image)

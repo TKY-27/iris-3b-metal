@@ -3,9 +3,9 @@
 Usage:
     python scripts/denoise_fixture.py fixture.npz --steps 10 --repeats 3 --out result.npz
 
-``fixture.npz`` holds ``y`` (``[2, 300, 12, 2560]`` raw Qwen3-VL states,
-unconditional row first), ``mask`` (``[2, 300]``) and ``noise``
-(``[1, 3, H, W]``). This is how two implementations are compared on identical
+``fixture.npz`` holds ``y`` (``[2*n, 300, 12, 2560]`` raw Qwen3-VL states,
+unconditional rows first), ``mask`` (``[2*n, 300]``) and ``noise``
+(``[n, 3, H, W]``). This is how two implementations are compared on identical
 inputs: the text encoder and the random number generator are out of the
 loop. Each repeat is timed from synchronized start to the finished FP32 state,
 without per-step synchronization; text-adapter preparation is included.
@@ -43,6 +43,8 @@ def main() -> None:
     parser.add_argument("--reference", choices=("fp32", "autocast"), help="run the upstream model instead")
     parser.add_argument("--out", type=Path, help="write the final FP32 state and timings")
     args = parser.parse_args()
+    if args.steps < 1 or args.repeats < 1:
+        parser.error("steps and repeats must be positive")
     args.checkpoint = resolve_checkpoint(args.checkpoint, None)
 
     fixture = np.load(args.fixture)
@@ -50,6 +52,9 @@ def main() -> None:
     cfg = load_config(args.checkpoint)
     states, mask = torch.from_numpy(fixture["y"]), torch.from_numpy(fixture["mask"])
     noise = torch.from_numpy(fixture["noise"]).to(device)
+    batch = noise.shape[0]
+    if states.shape[0] != 2 * batch or mask.shape[0] != 2 * batch:
+        parser.error("fixture conditioning must have 2*n rows in [unconditional, conditional] order")
     sample = cfg.sample
     start = time.perf_counter()
     if args.reference:
@@ -61,7 +66,7 @@ def main() -> None:
             with torch.autocast("mps", dtype=torch.bfloat16, enabled=args.reference == "autocast"):
                 return model(x, t, states[rows], y_mask=mask[rows]).x.float()
 
-        denoiser, prepare = velocity, lambda: torch.arange(2, device=device)
+        denoiser, prepare = velocity, lambda: torch.arange(2 * batch, device=device)
     else:
         engine = MetalIris(
             load_dit(args.checkpoint, cfg, device), attention_dtype=getattr(torch, args.attention)
@@ -80,7 +85,7 @@ def main() -> None:
             prediction=cfg.flow.prediction,
         )
         return solver.sample(
-            noise, text[1:], text[:1], steps=args.steps, order=sample.order, shift=cfg.flow.shift
+            noise, text[batch:], text[:batch], steps=args.steps, order=sample.order, shift=cfg.flow.shift
         )
 
     times = []

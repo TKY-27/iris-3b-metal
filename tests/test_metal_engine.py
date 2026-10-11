@@ -243,3 +243,15 @@ def test_require_finite_rejects_overflow():
     for bad in (float("inf"), float("nan")):
         with pytest.raises(FloatingPointError):
             require_finite(torch.tensor([0.0, bad]))
+
+
+@pytest.mark.parametrize("options", [{"col_offset": -1}, {"offset": -1}, {"heads": 0}])
+@pytest.mark.parametrize("device", ["cpu", pytest.param("mps", marks=requires_mps)])
+def test_qk_norm_rope_rejects_invalid_pointer_offsets(options, device):
+    x = torch.ones(1, 2, 128, device=device)
+    weight = torch.ones(128, device=device)
+    cos = torch.ones(2, 64, device=device)
+    sin = torch.zeros_like(cos)
+    kwargs = {"heads": 1, **options}
+    with pytest.raises(ValueError, match="positive.*nonnegative"):
+        qk_norm_rope(x, weight, cos, sin, 1e-6, **kwargs)

@@ -118,6 +118,7 @@ def main() -> None:
     parser.add_argument("--uncached-prompt", default="A ceramic teapot on a wooden table, morning light")
     parser.add_argument("--attention", choices=("float16", "bfloat16", "float32"), default="float16")
     parser.add_argument("--profile", action="store_true", help="add a completion-callback diagnostic request")
+    parser.add_argument("--profile-prompt", help="separate diagnostic prompt, e.g. an uncached warm prompt")
     parser.add_argument("--image", help="optional path for the last generated image")
     parser.add_argument("--out", help="optional JSON report path")
     args = parser.parse_args()
@@ -156,10 +157,15 @@ def main() -> None:
     timings["model_load_s"] = time.perf_counter() - start
     peaks["model_load"] = peak_footprint_gib(_INTERVAL_MAX_FOOTPRINT)
 
-    def generate(on_step=None):
+    def generate(on_step=None, prompt=None):
         start = time.perf_counter()
         image = pipe(
-            [args.prompt], height=height, width=width, steps=args.steps, seed=args.seed, on_step=on_step
+            [args.prompt if prompt is None else prompt],
+            height=height,
+            width=width,
+            steps=args.steps,
+            seed=args.seed,
+            on_step=on_step,
         )[0]  # returns a CPU image, so the GPU work has finished
         return image, time.perf_counter() - start
 
@@ -200,6 +206,7 @@ def main() -> None:
 
         step_times: list[float] = []
         forwards = []
+        adapter_events = []
         phase_times = {}
         first_submission = None
         request_begin = torch.mps.Event(enable_timing=True)
@@ -207,6 +214,13 @@ def main() -> None:
         original_engine = pipe.engine
         original_reporter = pipeline_module.StepReporter
         original_to_images = pipeline_module.to_images
+        original_encode = pipe.encode
+
+        def profile_encode(texts):
+            start = time.perf_counter()
+            result = original_encode(texts)
+            phase_times["raw_encoding_call_s"] = time.perf_counter() - start
+            return result
 
         class ProfileReporter(original_reporter):
             def __init__(self, *inputs):
@@ -231,6 +245,15 @@ def main() -> None:
             def __getattr__(self, name):
                 return getattr(original_engine, name)
 
+            def encode_text(self, *inputs):
+                begin = torch.mps.Event(enable_timing=True)
+                end = torch.mps.Event(enable_timing=True)
+                begin.record()
+                result = original_engine.encode_text(*inputs)
+                end.record()
+                adapter_events.append((begin, end))
+                return result
+
             def __call__(self, *inputs):
                 nonlocal first_submission
                 begin = torch.mps.Event(enable_timing=True)
@@ -253,12 +276,14 @@ def main() -> None:
         request_begin.record()
         request_start = last = time.perf_counter()
         pipe._engine = ProfileEngine()
+        pipe.encode = profile_encode
         pipeline_module.StepReporter = ProfileReporter
         pipeline_module.to_images = profile_images
         try:
-            generate(on_step)
+            generate(on_step, prompt=args.profile_prompt)
         finally:
             pipe._engine = original_engine
+            pipe.encode = original_encode
             pipeline_module.StepReporter = original_reporter
             pipeline_module.to_images = original_to_images
         event_seconds = []
@@ -287,6 +312,14 @@ def main() -> None:
                 "second_half_median": statistics.median(step_times[len(step_times) // 2 :]),
             },
         }
+        adapter_seconds = []
+        for begin, end in adapter_events:
+            try:
+                adapter_seconds.append(begin.elapsed_time(end) / 1000)
+            except RuntimeError:
+                adapter_seconds.append(None)
+        report["profile"]["adapter_coarse_mps_event_s"] = adapter_seconds
+        report["profile"]["prompt"] = args.prompt if args.profile_prompt is None else args.profile_prompt
         report["profile"]["note"] = (
             "StepReporter completion callback intervals include bounded lookahead; "
             "MPS event intervals are coarse command-completion times, not hardware kernel timestamps. "

@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from iris_metal import __version__
 from iris_metal.server import JobRunner, LocalServer, Models, host_name, make_handler, validate
 
 DEFAULTS = SimpleNamespace(steps=100, cfg_scale=3.0, negative_prompt="")
@@ -100,6 +101,18 @@ def test_validate_rejects_bad_sizes_and_prompts():
     for seed in (-1, 2**63):
         with pytest.raises(ValueError, match="seed"):
             validate({"prompt": "x", "seed": seed}, DEFAULTS)
+
+
+def test_health_reports_engine_and_api_versions(server):
+    _, base = server
+    status, body = request(f"{base}/v1/health")
+    assert status == 200
+    assert json.loads(body) == {
+        "resident": "text-to-image",
+        "queued": 0,
+        "engine_version": __version__,
+        "api_version": 1,
+    }
 
 
 @pytest.mark.parametrize(

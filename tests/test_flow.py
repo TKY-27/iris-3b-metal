@@ -137,3 +137,30 @@ def test_training_loss_reduction_none_matches_mean():
     mean = rf.training_loss(Zero(), x0, y, timestep_idx=idx, noise=noise).loss
     assert per.shape == (4,)
     torch.testing.assert_close(per.mean(), mean)
+
+
+def test_released_cfg_intervals_preserve_n2_branch_order_and_nfe():
+    for steps, upper, full_calls in (
+        (10, 1.0, 10),
+        (20, 1.0, 20),
+        (10, 0.95, 8),
+        (20, 0.95, 16),
+        (10, 0.9, 6),
+        (20, 0.9, 13),
+    ):
+        calls = []
+        cond = torch.tensor([[10.0], [20.0]])
+        uncond = torch.tensor([[-10.0], [-20.0]])
+
+        def velocity(x, t, text, calls=calls, cond=cond, uncond=uncond):
+            calls.append(x.shape[0])
+            expected = torch.cat([uncond, cond]) if x.shape[0] == 4 else cond
+            assert torch.equal(text, expected)
+            return torch.zeros_like(x)
+
+        solver = FlowDPMSolver(velocity, cfg_scale=3, cfg_interval=(0, upper))
+        assert solver.time_grid(steps, 4)[0] < 1
+        solver.sample(torch.ones(2, 3, 2, 2), cond, uncond, steps=steps, order=2, shift=4)
+        assert len(calls) == steps
+        assert calls.count(4) == full_calls
+        assert calls.count(2) == steps - full_calls
