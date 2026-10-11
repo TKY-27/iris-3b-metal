@@ -24,8 +24,9 @@ cd apps/macos && xcodebuild test -scheme Iris -destination platform=macOS
 ```
 
 The tests use tiny randomly initialized models and need neither the
-checkpoints nor a network connection. Tests marked "needs an Apple GPU" skip
-without one.
+checkpoints nor a network connection. The tests that run kernels on the GPU
+need an Apple Silicon GPU; CI skips them with `IRIS_SKIP_GPU_TESTS=1`, because
+GitHub's macOS runners only have a virtual GPU, so run them locally.
 
 For the macOS app, `python apps/macos/fake_engine.py` serves the real HTTP API
 over CPU stand-ins, so the app can be worked on without a GPU or model

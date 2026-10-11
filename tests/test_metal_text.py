@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -114,7 +115,10 @@ def test_streaming_encoder_matches_padded_transformers_forward(tmp_path, tokeniz
     torch.testing.assert_close(actual.embeddings, expected, rtol=1e-4, atol=1e-5)
 
 
-@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an Apple GPU")
+@pytest.mark.skipif(
+    not torch.backends.mps.is_available() or bool(os.environ.get("IRIS_SKIP_GPU_TESTS")),
+    reason="needs an Apple Silicon GPU",
+)
 def test_streaming_error_waits_and_releases_shard_storage(tmp_path, tokenizer_dir, monkeypatch):
     _tiny_text_model(tmp_path, tokenizer_dir)
     cfg = TextEncoderConfig(pretrained=str(tmp_path), dim=64, max_length=24, hidden_layers=[1, 3, 4])

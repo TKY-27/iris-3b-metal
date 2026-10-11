@@ -16,6 +16,8 @@ concurrency:
 env:
   # Tests use tiny random models; nothing may be downloaded from the Hub.
   HF_HUB_OFFLINE: "1"
+  # The runners' virtual GPU is not an Apple Silicon GPU; GPU tests run locally.
+  IRIS_SKIP_GPU_TESTS: "1"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 jobs:

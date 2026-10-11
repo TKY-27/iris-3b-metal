@@ -1,3 +1,5 @@
+import os
+
 import pytest
 import torch
 from safetensors.torch import save_file
@@ -15,7 +17,12 @@ from iris_metal.kernels import (
 from iris_metal.loading import linear_dtypes, load_dit
 from iris_metal.model import MetalIris, require_finite
 
-requires_mps = pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an Apple GPU")
+# GitHub's macOS runners have a virtual GPU on which some MPS kernels neither compile nor
+# match an Apple Silicon GPU; CI sets IRIS_SKIP_GPU_TESTS.
+requires_mps = pytest.mark.skipif(
+    not torch.backends.mps.is_available() or bool(os.environ.get("IRIS_SKIP_GPU_TESTS")),
+    reason="needs an Apple Silicon GPU",
+)
 
 # the released Iris-3B topology at toy width; heads stay 128 wide like the release
 RELEASED_TOPOLOGY = ModelConfig(
