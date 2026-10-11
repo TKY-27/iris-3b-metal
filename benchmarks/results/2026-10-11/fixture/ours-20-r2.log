@@ -1,0 +1,19 @@
+load 6.7s; denoising 20 steps: first 92.74s, median of repeats 91.16s (92.74, 91.16)
+      191.86 real         1.52 user         2.86 sys
+           983793664  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             -637463  page reclaims
+              740916  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                3411  voluntary context switches
+               48571  involuntary context switches
+         47721980642  instructions retired
+         18393155497  cycles elapsed
+         10898556728  peak memory footprint

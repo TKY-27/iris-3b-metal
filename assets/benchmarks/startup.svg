@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="364" viewBox="0 0 860 364" role="img" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<title>Phases of a request</title><desc>Stacked bar chart. 10 steps (Fast), first image: 55 s; 10 steps (Fast), new prompt: 48 s; 10 steps (Fast), same prompt: 45 s; 20 steps (Standard), first image: 100 s; 20 steps (Standard), new prompt: 95 s; 20 steps (Standard), same prompt: 91 s. MacBook Pro, Apple M5 (10-core GPU), 24 GB, macOS 27.0.1. Warm file cache; prompt to PNG-ready image.</desc>
+<style>
+  .surface { fill: #ffffff; } .ink { fill: #0b0b0b; } .ink2 { fill: #52514e; } .ink3 { fill: #6f6e69; }
+  .grid { stroke: #e4e3df; } .axis { stroke: #b5b4ae; } .accent { fill: #2a78d6; } .muted { fill: #a3a29d; }
+  .whisker { stroke: #0b0b0b; } .s1 { fill: #2a78d6; } .s2 { fill: #eb6834; } .s3 { fill: #1baf7a; }
+  .s4 { fill: #4a3aa7; }
+  @media (prefers-color-scheme: dark) {
+    .surface { fill: #0d1117; } .ink { fill: #f0f6fc; } .ink2 { fill: #c3c2b7; } .ink3 { fill: #9d9c95; }
+    .grid { stroke: #2b2f36; } .axis { stroke: #4a4f57; } .accent { fill: #3987e5; } .muted { fill: #6e6d68; }
+    .whisker { stroke: #f0f6fc; } .s1 { fill: #3987e5; } .s2 { fill: #d95926; } .s3 { fill: #199e70; }
+    .s4 { fill: #9085e9; }
+  }
+</style>
+<rect class="surface" width="860" height="364" rx="8"/>
+<text x="24.0" y="34.0" class="ink" font-size="17" text-anchor="start" font-weight="600">From launch to image with Iris-3B Metal</text>
+<text x="24.0" y="54.0" class="ink2" font-size="12.5" text-anchor="start" font-weight="400">Median seconds per phase, 1024 × 1024, fresh process each run.</text>
+<rect class="s1" x="24" y="70" width="12" height="12" rx="2"/>
+<text x="42.0" y="80.5" class="ink2" font-size="12" text-anchor="start" font-weight="400">Startup</text>
+<rect class="s2" x="127" y="70" width="12" height="12" rx="2"/>
+<text x="145.0" y="80.5" class="ink2" font-size="12" text-anchor="start" font-weight="400">Text encoding</text>
+<rect class="s3" x="272" y="70" width="12" height="12" rx="2"/>
+<text x="290.0" y="80.5" class="ink2" font-size="12" text-anchor="start" font-weight="400">Model load</text>
+<rect class="s4" x="396" y="70" width="12" height="12" rx="2"/>
+<text x="414.0" y="80.5" class="ink2" font-size="12" text-anchor="start" font-weight="400">Denoising</text>
+<line class="grid" x1="274.0" y1="104" x2="274.0" y2="294"/>
+<text x="274.0" y="309.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">0</text>
+<line class="grid" x1="446.0" y1="104" x2="446.0" y2="294"/>
+<text x="446.0" y="309.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">50</text>
+<line class="grid" x1="618.0" y1="104" x2="618.0" y2="294"/>
+<text x="618.0" y="309.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">100</text>
+<line class="grid" x1="790.0" y1="104" x2="790.0" y2="294"/>
+<text x="790.0" y="309.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">150</text>
+<text x="532.0" y="325.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">seconds</text>
+<text x="24.0" y="123.5" class="ink2" font-size="12.5" text-anchor="start" font-weight="400">10 steps (Fast), first image</text>
+<rect class="s1" x="274.0" y="111.0" width="5.2" height="16" rx="2"/>
+<rect class="s2" x="281.2" y="111.0" width="5.1" height="16" rx="2"/>
+<rect class="s3" x="288.2" y="111.0" width="18.8" height="16" rx="2"/>
+<rect class="s4" x="309.1" y="111.0" width="153.7" height="16" rx="2"/>
+<text x="470.7" y="123.5" class="ink" font-size="12.5" text-anchor="start" font-weight="600">55</text>
+<text x="24.0" y="153.5" class="ink2" font-size="12.5" text-anchor="start" font-weight="400">10 steps (Fast), new prompt</text>
+<rect class="s2" x="274.0" y="141.0" width="10.0" height="16" rx="2"/>
+<rect class="s4" x="286.0" y="141.0" width="152.5" height="16" rx="2"/>
+<text x="446.5" y="153.5" class="ink" font-size="12.5" text-anchor="start" font-weight="600">48</text>
+<text x="24.0" y="183.5" class="ink2" font-size="12.5" text-anchor="start" font-weight="400">10 steps (Fast), same prompt</text>
+<rect class="s4" x="274.0" y="171.0" width="152.5" height="16" rx="2"/>
+<text x="434.5" y="183.5" class="ink" font-size="12.5" text-anchor="start" font-weight="600">45</text>
+<text x="24.0" y="223.5" class="ink2" font-size="12.5" text-anchor="start" font-weight="400">20 steps (Standard), first image</text>
+<rect class="s1" x="274.0" y="211.0" width="5.2" height="16" rx="2"/>
+<rect class="s2" x="281.2" y="211.0" width="5.1" height="16" rx="2"/>
+<rect class="s3" x="288.3" y="211.0" width="19.1" height="16" rx="2"/>
+<rect class="s4" x="309.4" y="211.0" width="307.1" height="16" rx="2"/>
+<text x="624.4" y="223.5" class="ink" font-size="12.5" text-anchor="start" font-weight="600">100</text>
+<text x="24.0" y="253.5" class="ink2" font-size="12.5" text-anchor="start" font-weight="400">20 steps (Standard), new prompt</text>
+<rect class="s2" x="274.0" y="241.0" width="13.0" height="16" rx="2"/>
+<rect class="s4" x="289.0" y="241.0" width="309.5" height="16" rx="2"/>
+<text x="606.4" y="253.5" class="ink" font-size="12.5" text-anchor="start" font-weight="600">95</text>
+<text x="24.0" y="283.5" class="ink2" font-size="12.5" text-anchor="start" font-weight="400">20 steps (Standard), same prompt</text>
+<rect class="s4" x="274.0" y="271.0" width="309.5" height="16" rx="2"/>
+<text x="591.5" y="283.5" class="ink" font-size="12.5" text-anchor="start" font-weight="600">91</text>
+<line class="axis" x1="274" y1="104" x2="274" y2="294"/>
+<text x="24.0" y="346.0" class="ink3" font-size="11" text-anchor="start" font-weight="400">MacBook Pro, Apple M5 (10-core GPU), 24 GB, macOS 27.0.1. Warm file cache; prompt to PNG-ready image.</text>
+</svg>

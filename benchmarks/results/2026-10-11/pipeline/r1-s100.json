@@ -1,0 +1,65 @@
+{
+  "config": {
+    "checkpoint": "iris-3b",
+    "prompt": "A red fox sleeping in fresh snow, golden hour",
+    "size": [
+      1024,
+      1024
+    ],
+    "steps": 100,
+    "repeats": 2,
+    "seed": 0,
+    "uncached_prompt": "A ceramic teapot on a wooden table, morning light",
+    "attention": "float16",
+    "profile": false,
+    "image": ".scratch/release-bench/pipeline100/r1-s100.png",
+    "out": ".scratch/release-bench/pipeline100/r1-s100.json"
+  },
+  "timings": {
+    "imports_s": 0.7177791660069488,
+    "checkpoint_resolution_s": 0.00010362500324845314,
+    "pipeline_config_init_s": 0.026037875039037317,
+    "text_encoder_tokenizer_init_s": 1.366192499990575,
+    "text_encoding_s": 2.0463189579895698,
+    "model_load_s": 6.28930175001733,
+    "first_image_s": 454.41114695800934,
+    "first_request_including_preparation_s": 464.1405241250177,
+    "imports_and_first_request_s": 464.85830329102464,
+    "warm_s": [
+      457.4711655410356
+    ],
+    "warm_median_s": 457.4711655410356,
+    "warm_request_average_per_step_s": 4.574711655410356,
+    "warm_engine_uncached_request_s": 463.37628233397845
+  },
+  "peak_footprint_gib": {
+    "text_encoding": 1.5270246118307114,
+    "model_load": 6.53256793320179,
+    "sampling": 10.028932251036167,
+    "process": 10.028932251036167
+  },
+  "system": {
+    "background_gpu_utilization_pct": 33.3,
+    "file_cache": "unpurged OS cache; filesystem coldness not established",
+    "memory_pressure": "The system has 25769803776 (1572864 pages with a page size of 16384).\n\nStats: \nPages free: 296900 \nPages purgeable: 2736 \nPages purged: 118339368 \n\nSwap I/O:\nSwapins: 148199561 \nSwapouts: 183956603 \n\nPage Q counts:\nPages active: 193195 \nPages inactive: 214458 \nPages speculative: 21301 \nPages throttled: 0 \nPages wired down: 772183 \n\nCompressor Stats:\nPages used by compressor: 25607 \nPages decompressed: 1446281057 \nPages compressed: 1860708619 \n\nFile I/O:\nPageins: 587889052 \nPageouts: 416538 \n\nSystem-wide memory free percentage: 46%",
+    "mps_current_bytes": 6105174784,
+    "mps_driver_bytes": 9801203712,
+    "mps_recommended_bytes": 19069665280,
+    "process_current_footprint_gib": 10.007295288145542,
+    "swap_growth_mb": 292.30999999999995,
+    "pageouts_during_run": 69,
+    "swapouts_during_run": 45332
+  },
+  "environment": {
+    "chip": "Apple M5",
+    "memory_gb": 25.769803776,
+    "macos": "27.0.1",
+    "python": "3.14.8",
+    "torch": "2.14.1",
+    "transformers": "5.19.0",
+    "mps_environment": {},
+    "power": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=36175971)\t95%; AC attached; not charging present: true",
+    "power_modes": "Battery Power:\n Sleep On Power Button 1\n lowpowermode         0\n standby              1\n ttyskeepawake        1\n hibernatemode        3\n powernap             1\n hibernatefile        /var/vm/sleepimage\n displaysleep         0\n womp                 1\n networkoversleep     0\n sleep                1\n lessbright           1\n tcpkeepalive         1\n disksleep            0\nAC Power:\n Sleep On Power Button 1\n lowpowermode         0\n standby              1\n ttyskeepawake        1\n hibernatemode        3\n powernap             1\n hibernatefile        /var/vm/sleepimage\n displaysleep         60\n womp                 1\n networkoversleep     0\n sleep                0\n tcpkeepalive         1\n disksleep            0",
+    "commit": "f4e83f2"
+  }
+}

@@ -1,0 +1,25 @@
+{"stage": "loaded", "load_s": 1.3465382080175914, "memory": {"physical_footprint_bytes": 9152371720, "lifetime_peak_footprint_bytes": 9152371720, "mlx_active_bytes": 8822289924, "mlx_cache_bytes": 73728000, "mlx_peak_live_bytes": 8896017920}}
+{"stage": "sampling", "step": 10, "steps": 10, "elapsed_s": 84.5624530420173}
+{"repeat": 0, "prepare_s": 0.2878095839987509, "inference_s": 84.28102783398936, "request_s": 84.56883887498407, "steps_per_s": 0.11824686412902916, "memory": {"physical_footprint_bytes": 10990427456, "lifetime_peak_footprint_bytes": 12220046656, "mlx_active_bytes": 8841017232, "mlx_cache_bytes": 279035904, "mlx_peak_live_bytes": 11397626792}, "post_save_memory": {"physical_footprint_bytes": 9598606752, "lifetime_peak_footprint_bytes": 12220046656, "mlx_active_bytes": 8841017232, "mlx_cache_bytes": 279035904, "mlx_peak_live_bytes": 11397626792}, "timing_valid": true, "gpu_state_capture": false, "step_samples_s": [8.340530042012688, 8.339734832989052, 8.379372874973342, 8.371055333991535, 8.300840291019995, 8.287022292031907, 8.365044791949913, 8.407188083045185, 8.444678957981523], "first_execution": true}
+{"stage": "sampling", "step": 10, "steps": 10, "elapsed_s": 83.8568218749715}
+{"repeat": 1, "prepare_s": 0.2634237500024028, "inference_s": 83.59479875001125, "request_s": 83.85822416702285, "steps_per_s": 0.11924888821974945, "memory": {"physical_footprint_bytes": 11309899120, "lifetime_peak_footprint_bytes": 12220046656, "mlx_active_bytes": 8841017232, "mlx_cache_bytes": 279035904, "mlx_peak_live_bytes": 11410209704}, "post_save_memory": {"physical_footprint_bytes": 10106166664, "lifetime_peak_footprint_bytes": 12220046656, "mlx_active_bytes": 8841017232, "mlx_cache_bytes": 279035904, "mlx_peak_live_bytes": 11410209704}, "timing_valid": true, "gpu_state_capture": false, "step_samples_s": [8.317649125005119, 8.363820499973372, 8.379864374990575, 8.34484233299736, 8.32735150004737, 8.320383374986704, 8.409430416999385, 8.401804207998794, 8.395121500012465], "first_execution": false}
+{"stage": "sampling", "step": 10, "steps": 10, "elapsed_s": 83.57545191695681}
+{"repeat": 2, "prepare_s": 0.2598651250009425, "inference_s": 83.31706462497823, "request_s": 83.57693091698457, "steps_per_s": 0.11965024188233014, "memory": {"physical_footprint_bytes": 10911636848, "lifetime_peak_footprint_bytes": 12220046656, "mlx_active_bytes": 8841017232, "mlx_cache_bytes": 279035904, "mlx_peak_live_bytes": 11410209704}, "post_save_memory": {"physical_footprint_bytes": 10106363296, "lifetime_peak_footprint_bytes": 12220046656, "mlx_active_bytes": 8841017232, "mlx_cache_bytes": 279035904, "mlx_peak_live_bytes": 11410209704}, "timing_valid": true, "gpu_state_capture": false, "step_samples_s": [8.261185500014108, 8.340958332992159, 8.41901145898737, 8.36148270801641, 8.267406667000614, 8.29513191600563, 8.357757291989401, 8.320759291993454, 8.291147250041831], "first_execution": false}
+      254.08 real         2.24 user        37.14 sys
+          8528412672  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              584661  page reclaims
+                4481  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                2248  voluntary context switches
+              120952  involuntary context switches
+        372252808298  instructions retired
+        163189760343  cycles elapsed
+         12220046656  peak memory footprint

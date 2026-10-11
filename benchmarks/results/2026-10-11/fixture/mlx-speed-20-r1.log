@@ -1,0 +1,25 @@
+{"stage": "loaded", "load_s": 1.3076164590311237, "memory": {"physical_footprint_bytes": 9152519200, "lifetime_peak_footprint_bytes": 9152519200, "mlx_active_bytes": 8822289924, "mlx_cache_bytes": 73728000, "mlx_peak_live_bytes": 8896017920}}
+{"stage": "sampling", "step": 10, "steps": 20, "elapsed_s": 85.01101537497016}
+{"stage": "sampling", "step": 20, "steps": 20, "elapsed_s": 169.69040970801143}
+{"repeat": 0, "prepare_s": 0.29636808298528194, "inference_s": 169.40045624994673, "request_s": 169.69682558299974, "steps_per_s": 0.11785724294658582, "memory": {"physical_footprint_bytes": 11124858224, "lifetime_peak_footprint_bytes": 12197469552, "mlx_active_bytes": 8841017232, "mlx_cache_bytes": 279035904, "mlx_peak_live_bytes": 11397626792}, "post_save_memory": {"physical_footprint_bytes": 9598705080, "lifetime_peak_footprint_bytes": 12197469552, "mlx_active_bytes": 8841017232, "mlx_cache_bytes": 279035904, "mlx_peak_live_bytes": 11397626792}, "timing_valid": true, "gpu_state_capture": false, "step_samples_s": [8.35471291700378, 8.402077750011813, 8.41811783297453, 8.430376458039973, 8.44210220896639, 8.346560999983922, 8.427539500000421, 8.419234250031877, 8.430443457968067, 8.454083583026659, 8.44917187502142, 8.410493584000506, 8.499713749974035, 8.467895124980714, 8.4827481660177, 8.47782729199389, 8.469341707997955, 8.449911084026098, 8.518216374970507], "first_execution": true}
+{"stage": "sampling", "step": 10, "steps": 20, "elapsed_s": 85.21702583302977}
+{"stage": "sampling", "step": 20, "steps": 20, "elapsed_s": 170.42499050003244}
+{"repeat": 1, "prepare_s": 0.2570983330369927, "inference_s": 170.1684166250052, "request_s": 170.42551612498937, "steps_per_s": 0.1173533192373147, "memory": {"physical_footprint_bytes": 11464957368, "lifetime_peak_footprint_bytes": 12283829688, "mlx_active_bytes": 8841017232, "mlx_cache_bytes": 260046864, "mlx_peak_live_bytes": 11410209704}, "post_save_memory": {"physical_footprint_bytes": 10043121104, "lifetime_peak_footprint_bytes": 12283829688, "mlx_active_bytes": 8841017232, "mlx_cache_bytes": 260046864, "mlx_peak_live_bytes": 11410209704}, "timing_valid": true, "gpu_state_capture": false, "step_samples_s": [8.508006750023924, 8.497706750000361, 8.470480708987452, 8.487528458004817, 8.501551207969896, 8.503482875006739, 8.5199345840374, 8.526073332992382, 8.492975166998804, 8.486447000002954, 8.500557707971893, 8.54282204201445, 8.53268833301263, 8.54850804200396, 8.47854333295254, 8.46643650002079, 8.456028458022047, 8.564532041957136, 8.631401874998119], "first_execution": false}
+      342.02 real         2.62 user        47.50 sys
+          9109733376  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              580705  page reclaims
+                4652  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                2010  voluntary context switches
+              139722  involuntary context switches
+        472965061973  instructions retired
+        207503005146  cycles elapsed
+         12283829688  peak memory footprint

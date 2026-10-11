@@ -139,7 +139,7 @@ def nice_ticks(maximum: float, count: int = 4) -> list[float]:
     return [step * i for i in range(int(maximum / step) + 2) if step * i <= maximum * 1.0001 + step]
 
 
-def bar_panel(x0, y0, width, rows, unit, label_width, title, axis_max):
+def bar_panel(x0, y0, width, rows, unit, label_width, title, axis_max, decimals=0):
     """Horizontal bars with min-max whiskers; ``rows`` are (label, summary, highlighted)."""
     body = [text(x0, y0, title, "ink", 14, weight=600)]
     plot_x, plot_w = x0 + label_width, width - label_width - 70
@@ -169,7 +169,9 @@ def bar_panel(x0, y0, width, rows, unit, label_width, title, axis_max):
         value_x = plot_x + max(summary["median"], summary["max"]) * scale + 8
         weight = 600 if highlighted else 400
         body.append(
-            text(value_x, y + thick / 2 + 4.5, f"{summary['median']:.0f}", "ink", 12.5, weight=weight)
+            text(
+                value_x, y + thick / 2 + 4.5, f"{summary['median']:.{decimals}f}", "ink", 12.5, weight=weight
+            )
         )
     return body, bottom + 40
 
@@ -215,15 +217,15 @@ def memory_chart(summary: dict, footer: str) -> str:
         for key, label in IMPLEMENTATIONS.items()
         if key in entries
     ]
-    panel, y = bar_panel(24, 88, width - 24, rows, "GiB", label_width, "", 24)
+    panel, y = bar_panel(24, 70, width - 24, rows, "GiB", label_width, "", 24, decimals=1)
     body += panel
-    body.append(text(24, y + 4, footer, "ink3", 11))
+    body.append(text(24, y + 14, footer, "ink3", 11))
     rows_text = "; ".join(
         f"{label}: {entries[key]['peak_gib_summary']['median']:.1f} GiB"
         for key, label in IMPLEMENTATIONS.items()
         if key in entries
     )
-    return svg(width, int(y + 22), body, "Peak memory, 1024 × 1024", f"Bar chart. {rows_text}. {footer}")
+    return svg(width, int(y + 32), body, "Peak memory, 1024 × 1024", f"Bar chart. {rows_text}. {footer}")
 
 
 def startup_chart(summary: dict, footer: str) -> str:

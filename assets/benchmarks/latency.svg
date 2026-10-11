@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="530" viewBox="0 0 860 530" role="img" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<title>Denoising time, 1024 × 1024</title><desc>Bar chart. Iris-3B Metal (this project): 42 s at 10 steps; iris3b-mlx-optimized, speed preset: 84 s at 10 steps; iris3b-mlx-optimized, memory preset: 84 s at 10 steps; Upstream PyTorch, BF16 autocast: 69 s at 10 steps; Iris-3B Metal (this project): 93 s at 20 steps; iris3b-mlx-optimized, speed preset: 169 s at 20 steps; iris3b-mlx-optimized, memory preset: 169 s at 20 steps; Upstream PyTorch, BF16 autocast: 135 s at 20 steps. MacBook Pro, Apple M5 (10-core GPU), 24 GB, macOS 27.0.1. Same text states and noise for every implementation; CFG 3, DPM-Solver++ (2nd order).</desc>
+<style>
+  .surface { fill: #ffffff; } .ink { fill: #0b0b0b; } .ink2 { fill: #52514e; } .ink3 { fill: #6f6e69; }
+  .grid { stroke: #e4e3df; } .axis { stroke: #b5b4ae; } .accent { fill: #2a78d6; } .muted { fill: #a3a29d; }
+  .whisker { stroke: #0b0b0b; } .s1 { fill: #2a78d6; } .s2 { fill: #eb6834; } .s3 { fill: #1baf7a; }
+  .s4 { fill: #4a3aa7; }
+  @media (prefers-color-scheme: dark) {
+    .surface { fill: #0d1117; } .ink { fill: #f0f6fc; } .ink2 { fill: #c3c2b7; } .ink3 { fill: #9d9c95; }
+    .grid { stroke: #2b2f36; } .axis { stroke: #4a4f57; } .accent { fill: #3987e5; } .muted { fill: #6e6d68; }
+    .whisker { stroke: #f0f6fc; } .s1 { fill: #3987e5; } .s2 { fill: #d95926; } .s3 { fill: #199e70; }
+    .s4 { fill: #9085e9; }
+  }
+</style>
+<rect class="surface" width="860" height="530" rx="8"/>
+<text x="24.0" y="34.0" class="ink" font-size="17" text-anchor="start" font-weight="600">Time to denoise one 1024 × 1024 image</text>
+<text x="24.0" y="54.0" class="ink2" font-size="12.5" text-anchor="start" font-weight="400">Median of warm runs in seconds; whiskers span the fastest and slowest run.</text>
+<text x="24.0" y="88.0" class="ink" font-size="14" text-anchor="start" font-weight="600">10 steps (Fast)</text>
+<line class="grid" x1="274.0" y1="106.0" x2="274.0" y2="242.0"/>
+<text x="274.0" y="257.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">0</text>
+<line class="grid" x1="403.0" y1="106.0" x2="403.0" y2="242.0"/>
+<text x="403.0" y="257.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">50</text>
+<line class="grid" x1="532.0" y1="106.0" x2="532.0" y2="242.0"/>
+<text x="532.0" y="257.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">100</text>
+<line class="grid" x1="661.0" y1="106.0" x2="661.0" y2="242.0"/>
+<text x="661.0" y="257.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">150</text>
+<line class="grid" x1="790.0" y1="106.0" x2="790.0" y2="242.0"/>
+<text x="790.0" y="257.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">200</text>
+<line class="axis" x1="274" y1="106" x2="274" y2="242"/>
+<text x="532.0" y="273.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">seconds</text>
+<text x="24.0" y="127.5" class="ink" font-size="12.5" text-anchor="start" font-weight="400">Iris-3B Metal (this project)</text>
+<path class="accent" d="M274.0,114.0 h104.6 a4.0,4.0 0 0 1 4.0,4.0 v10.0 a4.0,4.0 0 0 1 -4.0,4.0 h-104.6 z"/>
+<line class="whisker" x1="373.5" y1="123.0" x2="390.7" y2="123.0" stroke-width="1.2"/>
+<line class="whisker" x1="373.5" y1="119.0" x2="373.5" y2="127.0" stroke-width="1.2"/>
+<line class="whisker" x1="390.7" y1="119.0" x2="390.7" y2="127.0" stroke-width="1.2"/>
+<text x="398.7" y="127.5" class="ink" font-size="12.5" text-anchor="start" font-weight="600">42</text>
+<text x="24.0" y="161.5" class="ink2" font-size="12.5" text-anchor="start" font-weight="400">iris3b-mlx-optimized, speed preset</text>
+<path class="muted" d="M274.0,148.0 h211.8 a4.0,4.0 0 0 1 4.0,4.0 v10.0 a4.0,4.0 0 0 1 -4.0,4.0 h-211.8 z"/>
+<line class="whisker" x1="489.6" y1="157.0" x2="490.4" y2="157.0" stroke-width="1.2"/>
+<line class="whisker" x1="489.6" y1="153.0" x2="489.6" y2="161.0" stroke-width="1.2"/>
+<line class="whisker" x1="490.4" y1="153.0" x2="490.4" y2="161.0" stroke-width="1.2"/>
+<text x="498.4" y="161.5" class="ink" font-size="12.5" text-anchor="start" font-weight="400">84</text>
+<text x="24.0" y="195.5" class="ink2" font-size="12.5" text-anchor="start" font-weight="400">iris3b-mlx-optimized, memory preset</text>
+<path class="muted" d="M274.0,182.0 h212.6 a4.0,4.0 0 0 1 4.0,4.0 v10.0 a4.0,4.0 0 0 1 -4.0,4.0 h-212.6 z"/>
+<line class="whisker" x1="489.6" y1="191.0" x2="491.6" y2="191.0" stroke-width="1.2"/>
+<line class="whisker" x1="489.6" y1="187.0" x2="489.6" y2="195.0" stroke-width="1.2"/>
+<line class="whisker" x1="491.6" y1="187.0" x2="491.6" y2="195.0" stroke-width="1.2"/>
+<text x="499.6" y="195.5" class="ink" font-size="12.5" text-anchor="start" font-weight="400">84</text>
+<text x="24.0" y="229.5" class="ink2" font-size="12.5" text-anchor="start" font-weight="400">Upstream PyTorch, BF16 autocast</text>
+<path class="muted" d="M274.0,216.0 h174.5 a4.0,4.0 0 0 1 4.0,4.0 v10.0 a4.0,4.0 0 0 1 -4.0,4.0 h-174.5 z"/>
+<line class="whisker" x1="445.2" y1="225.0" x2="459.7" y2="225.0" stroke-width="1.2"/>
+<line class="whisker" x1="445.2" y1="221.0" x2="445.2" y2="229.0" stroke-width="1.2"/>
+<line class="whisker" x1="459.7" y1="221.0" x2="459.7" y2="229.0" stroke-width="1.2"/>
+<text x="467.7" y="229.5" class="ink" font-size="12.5" text-anchor="start" font-weight="400">69</text>
+<text x="24.0" y="300.0" class="ink" font-size="14" text-anchor="start" font-weight="600">20 steps (Standard)</text>
+<line class="grid" x1="274.0" y1="318.0" x2="274.0" y2="454.0"/>
+<text x="274.0" y="469.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">0</text>
+<line class="grid" x1="403.0" y1="318.0" x2="403.0" y2="454.0"/>
+<text x="403.0" y="469.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">50</text>
+<line class="grid" x1="532.0" y1="318.0" x2="532.0" y2="454.0"/>
+<text x="532.0" y="469.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">100</text>
+<line class="grid" x1="661.0" y1="318.0" x2="661.0" y2="454.0"/>
+<text x="661.0" y="469.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">150</text>
+<line class="grid" x1="790.0" y1="318.0" x2="790.0" y2="454.0"/>
+<text x="790.0" y="469.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">200</text>
+<line class="axis" x1="274" y1="318" x2="274" y2="454"/>
+<text x="532.0" y="485.0" class="ink3" font-size="11" text-anchor="middle" font-weight="400">seconds</text>
+<text x="24.0" y="339.5" class="ink" font-size="12.5" text-anchor="start" font-weight="400">Iris-3B Metal (this project)</text>
+<path class="accent" d="M274.0,326.0 h235.3 a4.0,4.0 0 0 1 4.0,4.0 v10.0 a4.0,4.0 0 0 1 -4.0,4.0 h-235.3 z"/>
+<line class="whisker" x1="509.2" y1="335.0" x2="517.5" y2="335.0" stroke-width="1.2"/>
+<line class="whisker" x1="509.2" y1="331.0" x2="509.2" y2="339.0" stroke-width="1.2"/>
+<line class="whisker" x1="517.5" y1="331.0" x2="517.5" y2="339.0" stroke-width="1.2"/>
+<text x="525.5" y="339.5" class="ink" font-size="12.5" text-anchor="start" font-weight="600">93</text>
+<text x="24.0" y="373.5" class="ink2" font-size="12.5" text-anchor="start" font-weight="400">iris3b-mlx-optimized, speed preset</text>
+<path class="muted" d="M274.0,360.0 h431.8 a4.0,4.0 0 0 1 4.0,4.0 v10.0 a4.0,4.0 0 0 1 -4.0,4.0 h-431.8 z"/>
+<line class="whisker" x1="705.8" y1="369.0" x2="713.7" y2="369.0" stroke-width="1.2"/>
+<line class="whisker" x1="705.8" y1="365.0" x2="705.8" y2="373.0" stroke-width="1.2"/>
+<line class="whisker" x1="713.7" y1="365.0" x2="713.7" y2="373.0" stroke-width="1.2"/>
+<text x="721.7" y="373.5" class="ink" font-size="12.5" text-anchor="start" font-weight="400">169</text>
+<text x="24.0" y="407.5" class="ink2" font-size="12.5" text-anchor="start" font-weight="400">iris3b-mlx-optimized, memory preset</text>
+<path class="muted" d="M274.0,394.0 h431.0 a4.0,4.0 0 0 1 4.0,4.0 v10.0 a4.0,4.0 0 0 1 -4.0,4.0 h-431.0 z"/>
+<line class="whisker" x1="708.2" y1="403.0" x2="709.8" y2="403.0" stroke-width="1.2"/>
+<line class="whisker" x1="708.2" y1="399.0" x2="708.2" y2="407.0" stroke-width="1.2"/>
+<line class="whisker" x1="709.8" y1="399.0" x2="709.8" y2="407.0" stroke-width="1.2"/>
+<text x="717.8" y="407.5" class="ink" font-size="12.5" text-anchor="start" font-weight="400">169</text>
+<text x="24.0" y="441.5" class="ink2" font-size="12.5" text-anchor="start" font-weight="400">Upstream PyTorch, BF16 autocast</text>
+<path class="muted" d="M274.0,428.0 h344.8 a4.0,4.0 0 0 1 4.0,4.0 v10.0 a4.0,4.0 0 0 1 -4.0,4.0 h-344.8 z"/>
+<line class="whisker" x1="622.5" y1="437.0" x2="623.2" y2="437.0" stroke-width="1.2"/>
+<line class="whisker" x1="622.5" y1="433.0" x2="622.5" y2="441.0" stroke-width="1.2"/>
+<line class="whisker" x1="623.2" y1="433.0" x2="623.2" y2="441.0" stroke-width="1.2"/>
+<text x="631.2" y="441.5" class="ink" font-size="12.5" text-anchor="start" font-weight="400">135</text>
+<text x="24.0" y="512.0" class="ink3" font-size="11" text-anchor="start" font-weight="400">MacBook Pro, Apple M5 (10-core GPU), 24 GB, macOS 27.0.1. Same text states and noise for every implementation; CFG 3, DPM-Solver++ (2nd order).</text>
+</svg>

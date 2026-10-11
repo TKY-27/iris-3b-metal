@@ -1,0 +1,105 @@
+{
+  "config": {
+    "checkpoint": "iris-3b",
+    "prompt": "A red fox sleeping in fresh snow, golden hour",
+    "size": [
+      1024,
+      1024
+    ],
+    "steps": 10,
+    "repeats": 3,
+    "seed": 0,
+    "uncached_prompt": "A ceramic teapot on a wooden table, morning light",
+    "attention": "float16",
+    "profile": true,
+    "image": ".scratch/release-bench/pipeline2/r1-s10.png",
+    "out": ".scratch/release-bench/pipeline2/r1-s10.json"
+  },
+  "timings": {
+    "imports_s": 0.7415225000004284,
+    "checkpoint_resolution_s": 0.00012162496568635106,
+    "pipeline_config_init_s": 0.024232666997704655,
+    "text_encoder_tokenizer_init_s": 1.597934500023257,
+    "text_encoding_s": 2.7450860000099055,
+    "model_load_s": 6.0925780000397936,
+    "first_image_s": 43.00641520903446,
+    "first_request_including_preparation_s": 53.46770966699114,
+    "imports_and_first_request_s": 54.20923216699157,
+    "warm_s": [
+      42.6831957079703,
+      43.4716697090189
+    ],
+    "warm_median_s": 43.0774327084946,
+    "warm_request_average_per_step_s": 4.30774327084946,
+    "warm_engine_uncached_request_s": 47.286140332988
+  },
+  "peak_footprint_gib": {
+    "text_encoding": 1.527070365846157,
+    "model_load": 6.533178307116032,
+    "sampling": 10.027970969676971,
+    "process": 10.027970969676971
+  },
+  "system": {
+    "background_gpu_utilization_pct": 30.7,
+    "file_cache": "unpurged OS cache; filesystem coldness not established",
+    "memory_pressure": "The system has 25769803776 (1572864 pages with a page size of 16384).\n\nStats: \nPages free: 347688 \nPages purgeable: 1699 \nPages purged: 117914360 \n\nSwap I/O:\nSwapins: 148096105 \nSwapouts: 183728105 \n\nPage Q counts:\nPages active: 181305 \nPages inactive: 187050 \nPages speculative: 2369 \nPages throttled: 0 \nPages wired down: 779649 \n\nCompressor Stats:\nPages used by compressor: 25583 \nPages decompressed: 1442108946 \nPages compressed: 1852039903 \n\nFile I/O:\nPageins: 579070419 \nPageouts: 416182 \n\nSystem-wide memory free percentage: 45%",
+    "mps_current_bytes": 6105174784,
+    "mps_driver_bytes": 9801203712,
+    "mps_recommended_bytes": 19069665280,
+    "process_current_footprint_gib": 10.010728538036346,
+    "swap_growth_mb": 121.94000000000005,
+    "pageouts_during_run": 59,
+    "swapouts_during_run": 28816
+  },
+  "environment": {
+    "chip": "Apple M5",
+    "memory_gb": 25.769803776,
+    "macos": "27.0.1",
+    "python": "3.14.8",
+    "torch": "2.14.1",
+    "transformers": "5.19.0",
+    "mps_environment": {},
+    "power": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=36175971)\t95%; AC attached; not charging present: true",
+    "power_modes": "Battery Power:\n Sleep On Power Button 1\n lowpowermode         0\n standby              1\n ttyskeepawake        1\n hibernatemode        3\n powernap             1\n hibernatefile        /var/vm/sleepimage\n displaysleep         0\n womp                 1\n networkoversleep     0\n sleep                1\n lessbright           1\n tcpkeepalive         1\n disksleep            0\nAC Power:\n Sleep On Power Button 1\n lowpowermode         0\n standby              1\n ttyskeepawake        1\n hibernatemode        3\n powernap             1\n hibernatefile        /var/vm/sleepimage\n displaysleep         60\n womp                 1\n networkoversleep     0\n sleep                0\n tcpkeepalive         1\n disksleep            0",
+    "commit": "c649d8a"
+  },
+  "profile": {
+    "completed_forward_steps_s": 46.186499540985096,
+    "total_denoising_s": 46.18935204099398,
+    "image_conversion_s": 0.004052708973176777,
+    "first_model_host_submission_from_request_s": 0.20204562501749024,
+    "first_model_coarse_completion_from_request_s": 4.711717875,
+    "forward_coarse_mps_event_s": [
+      4.509025541,
+      4.559349959,
+      4.538788584,
+      4.587982041,
+      4.762642333,
+      4.645393667,
+      4.5932122920000005,
+      4.593953,
+      4.559545125,
+      4.69886025
+    ],
+    "forward_host_submission_s": [
+      0.0072561249835416675,
+      0.007525791006628424,
+      0.007162124966271222,
+      0.007314374961424619,
+      0.006764916004613042,
+      0.007059833034873009,
+      0.0074552089790813625,
+      0.007059625000692904,
+      0.0073286660481244326,
+      0.0075489169685170054
+    ],
+    "completion_callback_intervals_s": {
+      "first": 4.711823416000698,
+      "median": 4.597003396018408,
+      "first_half_median": 4.591432958026417,
+      "second_half_median": 4.597499000024982
+    },
+    "note": "StepReporter completion callback intervals include bounded lookahead; MPS event intervals are coarse command-completion times, not hardware kernel timestamps. Events are read after the request; unavailable intervals are null. No global per-step synchronization. Diagnostics are excluded from acceptance timings. Total denoising includes noise preparation, final solver work and the finite-value check; completed_forward_steps ends at StepReporter.finish. The residual includes solver/CFG, submission and completion waits; it is not an isolated GPU solver kernel measurement. The diagnostic engine wrapper invalidates adapted conditioning, so this request has adapter misses.",
+    "nonforward_denoising_residual_s": 0.14059924899397913
+  }
+}
