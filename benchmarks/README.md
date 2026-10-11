@@ -1,8 +1,9 @@
 # Benchmarks
 
-Release measurements of Iris-3B Metal 0.3.0, taken on 2026-10-11. The engine
-code is the same in every run (commits `c649d8a` and `f4e83f2`, which differ
-only in tests and CI). The raw reports and logs are in
+Release measurements of Python engine 0.3.0, taken on 2026-10-11. The
+repository and macOS app release tag is `v0.4.0`; the engine remained
+separately versioned. The engine code is the same in every comparison run
+(commits `c649d8a` and `f4e83f2`, which differ only in tests and CI). The raw reports and logs are in
 [`results/2026-10-11/`](results/2026-10-11/); `scripts/plot_benchmarks.py`
 turns them into `summary.json` and the charts in the README, and
 `results/2026-10-11/commands.sh` records the commands.
@@ -103,13 +104,15 @@ runs the transformer trunk in FP16 and is closer to FP32 than the upstream
 BF16 recipe. These are distances from one reference trajectory, not image
 quality, and a diffusion trajectory amplifies them differently per prompt;
 the README's [Image quality](../README.md#image-quality) section compares
-complete 100-step generations over eight prompts. Every result above was
-bitwise identical across rounds.
+complete 100-step generations over eight prompts. Repeated fixture runs
+produced bitwise-identical denoised outputs.
 
 **Upstream in FP32**, the default when the upstream code runs on a Mac, was
-not rerun: at 1024 × 1024 it needs about 20 GiB and swaps heavily on a 24 GB
-Mac. Measured once each on 2026-10-10 with the same fixture, it took 346 s
-for 10 steps and 2940 s for 100.
+not rerun in this campaign: at 1024 × 1024 it needs about 20 GiB and swaps
+heavily on a 24 GB Mac. Separate single measurements on 2026-10-10 with the
+same fixture took 346 s for 10 steps and 2940 s for 100. They are not a
+controlled or representative speedup baseline; memory pressure and swapping
+contributed to the long times.
 
 **Published numbers.** iris3b-mlx-optimized reports 38.4 s (speed preset)
 and 38.8 s (memory preset) for 10 steps on an M5 Pro with 48 GB. That is a

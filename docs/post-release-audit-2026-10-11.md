@@ -6,6 +6,11 @@ report, and untracked shadow diagnostic were saved before edits in
 `.scratch/post-release-audit/`. No release, push, remote setting change,
 checkpoint download, or inference optimization was performed.
 
+This report captures the audit before publication. The source-only `v0.4.0`
+release was published afterward from commit `579182d`; see
+[`macOS releases and updates`](macos-updates.md) for the current distribution
+boundary.
+
 ## Findings and changes
 
 - `qk_norm_rope` accepted negative offsets before Metal pointer arithmetic.

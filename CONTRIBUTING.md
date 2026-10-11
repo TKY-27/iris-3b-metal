@@ -9,18 +9,33 @@ you spend time on it.
 ```bash
 git clone https://github.com/TKY-27/iris-3b-metal && cd iris-3b-metal
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"          # add ",train" for the upstream training tests
+pip install -e ".[dev]"          # use ".[train,dev]" for upstream training tests
 ```
 
 ## Checks
 
-CI runs these on every pull request; run them before you push:
+CI runs Ruff, Python tests and macOS app checks on every pull request. With the
+`dev` extra, run Ruff and the engine and interface suite:
 
 ```bash
 ruff check . && ruff format --check .
-pytest tests/test_metal_*.py                     # engine, CLI, HTTP API (".[dev]")
-pytest                                           # everything (".[train,dev]")
-cd apps/macos && xcodebuild test -scheme Iris -destination platform=macOS
+pytest tests/test_metal_*.py tests/test_compare_runs.py
+```
+
+The full Python suite includes the upstream training tests and needs the
+`train` extra:
+
+```bash
+pip install -e ".[train,dev]"
+pytest
+```
+
+The app checks used in CI are:
+
+```bash
+cd apps/macos
+xcodebuild test -project Iris.xcodeproj -scheme Iris -destination platform=macOS CODE_SIGNING_ALLOWED=NO
+xcodebuild build -project Iris.xcodeproj -scheme Iris -configuration Release CODE_SIGNING_ALLOWED=NO
 ```
 
 The tests use tiny randomly initialized models and need neither the
@@ -33,8 +48,9 @@ over CPU stand-ins, so the app can be worked on without a GPU or model
 downloads. Launch development builds with
 `--args -libraryRoot /tmp/iris-dev -enginePort 8790` to keep them away from
 your own library. The Xcode project is generated from `apps/macos/project.yml`
-with [XcodeGen](https://github.com/yonaskolb/XcodeGen); edit both, or
-regenerate.
+with [XcodeGen](https://github.com/yonaskolb/XcodeGen) and is checked into the
+repository. If project settings change, update both files or regenerate the
+project.
 
 ## Changes to the engine
 
