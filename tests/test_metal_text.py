@@ -8,6 +8,7 @@ from safetensors.torch import save_file
 
 from iris3b.config import TextEncoderConfig
 from iris3b.text.qwen3_vl import _PROMPT_PREFIX, _PROMPT_SUFFIX
+from iris_metal import text as text_module
 from iris_metal.text import StreamingQwen3VLEncoder
 
 transformers = pytest.importorskip("transformers")
@@ -56,6 +57,35 @@ def _tiny_text_model(tmp_path, tokenizer_dir):
     return model
 
 
+@pytest.mark.parametrize("local", [True, False])
+@pytest.mark.parametrize(
+    "shard", ["../other.safetensors", "/other.safetensors", "..\\other.safetensors", ".", ".."]
+)
+def test_streaming_rejects_shard_traversal_before_opening_weights(tmp_path, monkeypatch, local, shard):
+    config = {
+        "hidden_size": 64,
+        "num_hidden_layers": 5,
+        "num_attention_heads": 4,
+        "num_key_value_heads": 2,
+        "head_dim": 16,
+        "rms_norm_eps": 1e-6,
+        "rope_theta": 5e6,
+    }
+    (tmp_path / "config.json").write_text(json.dumps({"text_config": config}))
+    (tmp_path / "model.safetensors.index.json").write_text(
+        json.dumps({"weight_map": {"model.language_model.embed_tokens.weight": shard}})
+    )
+    if not local:
+        monkeypatch.setattr(text_module, "cached_snapshot", lambda *args, **kwargs: None)
+        monkeypatch.setattr(text_module, "snapshot_download", lambda *args, **kwargs: str(tmp_path))
+    monkeypatch.setattr(text_module, "safe_open", lambda *args, **kwargs: pytest.fail("opened weight"))
+    cfg = TextEncoderConfig(
+        pretrained=str(tmp_path) if local else QWEN, dim=64, max_length=24, hidden_layers=[1]
+    )
+    with pytest.raises(ValueError, match="flat shard files"):
+        StreamingQwen3VLEncoder(cfg, torch.device("cpu"))
+
+
 def test_streaming_encoder_matches_padded_transformers_forward(tmp_path, tokenizer_dir):
     model = _tiny_text_model(tmp_path, tokenizer_dir)
     cfg = TextEncoderConfig(pretrained=str(tmp_path), dim=64, max_length=24, hidden_layers=[1, 3, 4])
@@ -82,3 +112,24 @@ def test_streaming_encoder_matches_padded_transformers_forward(tmp_path, tokeniz
 
     assert torch.equal(actual.mask, mask)
     torch.testing.assert_close(actual.embeddings, expected, rtol=1e-4, atol=1e-5)
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an Apple GPU")
+def test_streaming_error_waits_and_releases_shard_storage(tmp_path, tokenizer_dir, monkeypatch):
+    _tiny_text_model(tmp_path, tokenizer_dir)
+    cfg = TextEncoderConfig(pretrained=str(tmp_path), dim=64, max_length=24, hidden_layers=[1, 3, 4])
+    encoder = StreamingQwen3VLEncoder(cfg, torch.device("mps"))
+
+    def fail(*args):
+        assert encoder._sources and encoder._readers
+        raise RuntimeError("interrupted layer")
+
+    original = encoder._layer
+    monkeypatch.setattr(encoder, "_layer", fail)
+    with pytest.raises(RuntimeError, match="interrupted layer"):
+        encoder.encode(["a fox"])
+    assert not encoder._sources and not encoder._readers
+    monkeypatch.setattr(encoder, "_layer", original)
+    result = encoder.encode(["a fox"])
+    assert torch.isfinite(result.embeddings).all()
+    assert not encoder._sources and not encoder._readers

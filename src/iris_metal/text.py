@@ -27,6 +27,7 @@ from safetensors import safe_open
 from iris3b.config import TextEncoderConfig
 from iris3b.text.base import TextEncoding
 from iris3b.text.qwen3_vl import _PROMPT_PREFIX, _PROMPT_SUFFIX
+from iris_metal.cache import cached_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,9 @@ class StreamingQwen3VLEncoder:
         root = Path(cfg.pretrained)
         if not root.is_dir():
             revision = VALIDATED_REVISIONS.get(cfg.pretrained)
-            root = Path(snapshot_download(cfg.pretrained, revision=revision, allow_patterns=_FILES))
+            root = cached_snapshot(cfg.pretrained, revision, language=True)
+            if root is None:
+                root = Path(snapshot_download(cfg.pretrained, revision=revision, allow_patterns=_FILES))
         config = json.loads((root / "config.json").read_text())["text_config"]
         if config["hidden_size"] != cfg.dim:
             raise ValueError(f"text encoder width {config['hidden_size']} != text_encoder.dim {cfg.dim}")
@@ -77,8 +80,22 @@ class StreamingQwen3VLEncoder:
         self.inv_freq = 1.0 / theta ** (torch.arange(0, self.head_dim, 2).float() / self.head_dim)
 
         weight_map = json.loads((root / "model.safetensors.index.json").read_text())["weight_map"]
+        if (
+            not isinstance(weight_map, dict)
+            or not weight_map
+            or any(
+                not isinstance(shard, str)
+                or not shard
+                or shard in (".", "..")
+                or shard != Path(shard).name
+                or "\\" in shard
+                for shard in weight_map.values()
+            )
+        ):
+            raise ValueError("text encoder index must name flat shard files within its snapshot")
         self._weight_map = {key: root / shard for key, shard in weight_map.items()}
         self._readers: dict[Path, safe_open] = {}
+        self._sources: list[torch.Tensor] = []
 
         self.tokenizer = AutoTokenizer.from_pretrained(root)
         self._prefix = self.tokenizer.encode(_PROMPT_PREFIX, add_special_tokens=False)
@@ -94,7 +111,10 @@ class StreamingQwen3VLEncoder:
         return self._readers[path]
 
     def _tensor(self, name: str) -> torch.Tensor:
-        return self._reader(name).get_tensor(_PREFIX + name).to(self.device, self.dtype)
+        source = self._reader(name).get_tensor(_PREFIX + name)
+        if self.device.type == "mps":
+            self._sources.append(source)
+        return source.to(self.device, self.dtype, non_blocking=self.device.type == "mps")
 
     def _token_ids(self, texts: list[str]) -> list[list[int]]:
         captions = self.tokenizer(texts, add_special_tokens=False)["input_ids"]
@@ -138,7 +158,13 @@ class StreamingQwen3VLEncoder:
         try:
             return self._encode(texts)
         finally:
-            self._readers.clear()  # closes the shard files (8 GB mapped) between requests
+            try:
+                if self._sources:
+                    # Also covers exceptions before the layer's completion event.
+                    torch.mps.synchronize()
+            finally:
+                self._sources.clear()
+                self._readers.clear()  # closes the shard files (8 GB mapped) between requests
 
     @torch.no_grad()
     def _encode(self, texts: list[str]) -> TextEncoding:
@@ -158,6 +184,13 @@ class StreamingQwen3VLEncoder:
                 states[i] = self._layer(states[i], cos, sin, weights)
                 if index + 1 in self.hidden_layers:
                     captured[i].append(states[i][0, len(self._prefix) :])
+            if self.device.type == "mps":
+                # One complete layer in flight, including all its CPU backing
+                # storage. No wait after each individual weight transfer.
+                completed = torch.mps.Event()
+                completed.record()
+                completed.synchronize()
+                self._sources.clear()
             del weights
 
         length = self.cfg.max_length

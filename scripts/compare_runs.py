@@ -63,8 +63,12 @@ def grid_score(rgb: torch.Tensor) -> float:
     scores = []
     for steps in ((y[:, 1:] - y[:, :-1]).abs(), (y[1:] - y[:-1]).abs().T):
         crossing = torch.arange(1, steps.shape[1] + 1) % PATCH == 0
-        scores.append((steps[:, crossing].mean() / steps[:, ~crossing].mean()).item())
-    return sum(scores) / 2
+        if not crossing.any():
+            continue
+        boundary = steps[:, crossing].mean().item()
+        interior = steps[:, ~crossing].mean().item()
+        scores.append(boundary / max(interior, 1e-8) if boundary else (0.0 if interior else 1.0))
+    return sum(scores) / len(scores) if scores else 1.0
 
 
 def load(path: Path) -> torch.Tensor:

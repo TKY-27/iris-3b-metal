@@ -1,11 +1,4 @@
-"""Monocular depth and image restoration/upscaling on the Apple GPU engine.
-
-Both fine-tunes run the full Iris-3B network in a single forward pass with the
-empty prompt (see ``iris3b.downstream``). The upstream predictor classes own
-the image handling (resizing, 1024-pixel tiling, colour fix, depth
-resampling); these subclasses keep all of it and replace only how weights are
-loaded and how the network is evaluated.
-"""
+"""GPU fine-tunes using upstream image preprocessing."""
 
 from collections.abc import Callable
 from pathlib import Path
@@ -18,7 +11,7 @@ from safetensors.torch import load_file
 
 from iris3b.config import inference_config
 from iris3b.downstream.depth import DepthPredictor, IrisDepth
-from iris3b.downstream.restoration import Restorer
+from iris3b.downstream.restoration import Restorer, tile_positions
 from iris3b.models.dit import IrisDiT
 from iris_metal.loading import load_weights
 from iris_metal.model import MetalIris, require_finite
@@ -98,8 +91,8 @@ class MetalDepth(DepthPredictor):
 class MetalRestorer(Restorer):
     """One-step restoration and 4x upscaling; see ``Restorer.__call__``.
 
-    ``on_tile``, when set, runs before every tile; raising from it stops the
-    image between tiles (the server uses it for cancellation).
+    ``on_tile``, when set, runs before every tile; the server reports progress
+    from it, and raising from it stops the image between tiles (cancellation).
     """
 
     on_tile: Callable[[], None] | None = None
@@ -118,6 +111,19 @@ class MetalRestorer(Restorer):
         self.tile = settings["tile"]
         self.sigma = settings["sigma"]
         self.time = settings["sigma"] * cfg.flow.num_train_timesteps
+
+    def tile_count(self, size: tuple[int, int]) -> int:
+        """How many tiles ``__call__`` runs at 4x for an input of ``size`` (width, height),
+        for reporting progress; it repeats the upstream work-area arithmetic."""
+        out = [side * 4 for side in reversed(size)]
+        if min(out) <= self.tile:
+            ratio = self.tile / min(out)
+            out = [max(self.tile, round(side * ratio)) for side in out]
+        height, width = (side + -side % self.patch for side in out)
+        if height <= self.tile and width <= self.tile:
+            return 1
+        stride = self.tile // 2
+        return len(tile_positions(height, self.tile, stride)) * len(tile_positions(width, self.tile, stride))
 
     @torch.no_grad()
     def restore_tile(self, x: torch.Tensor) -> torch.Tensor:

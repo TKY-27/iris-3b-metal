@@ -42,10 +42,27 @@ class FakeDepth:
         return np.linspace(-1, 1, image.width * image.height).reshape(image.height, image.width)
 
 
+class FakeRestorer:
+    """Three tiles, calling on_tile before each like the real restorer."""
+
+    on_tile = None
+    tiles_run = 0
+
+    def tile_count(self, size):
+        return 3
+
+    def __call__(self, image, color_fix=True):
+        for _ in range(3):
+            self.on_tile()
+            self.tiles_run += 1
+        return image.resize((image.width * 4, image.height * 4))
+
+
 @pytest.fixture
 def server():
     pipe = FakePipeline()
-    models = Models(pipe, load_task=lambda task: FakeDepth())
+    pipe.restorer = FakeRestorer()
+    models = Models(pipe, load_task=lambda task: FakeDepth() if task == "depth" else pipe.restorer)
     pipe.runner = JobRunner(models, max_queued=2)
     httpd = LocalServer(("127.0.0.1", 0), make_handler(pipe.runner))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -279,3 +296,81 @@ def test_cross_site_browser_requests_are_refused(server):
     host = base.removeprefix("http://")
     assert raw(base, "GET", "/v1/jobs/1/image", {"Host": host, "Sec-Fetch-Site": "cross-site"})[0] == 403
     assert raw(base, "GET", "/v1/health", {"Host": host, "Sec-Fetch-Site": "none"})[0] == 200
+
+
+def test_upscale_reports_its_progress_in_tiles(server):
+    pipe, base = server
+    buffer = io.BytesIO()
+    Image.new("RGB", (16, 16)).save(buffer, format="PNG")
+    req = urllib.request.Request(f"{base}/v1/upscale", data=buffer.getvalue(), method="POST")
+    with urllib.request.urlopen(req) as response:
+        job = json.loads(response.read())["id"]
+    done = wait_for(base, job, "done")
+    assert pipe.restorer.tiles_run == 3
+    assert (done["step"], done["steps"]) == (3, 3)
+    assert pipe.restorer.on_tile is None
+
+
+def test_cancel_during_single_pass_discards_the_result(server):
+    pipe, base = server
+    started, finish = threading.Event(), threading.Event()
+
+    def single_pass(job):
+        started.set()
+        assert finish.wait(5)
+        return b"result"
+
+    job = pipe.runner.submit("depth", {}, single_pass)
+    assert started.wait(5)
+    try:
+        assert request(f"{base}/v1/jobs/{job.id}", "DELETE")[0] == 200
+    finally:
+        finish.set()
+    wait_for(base, job.id, "cancelled")
+    assert job.png is None and job.work is None
+    assert request(f"{base}/v1/jobs/{job.id}/image")[0] == 409
+
+
+def test_cancelled_queue_entries_do_not_accumulate(server):
+    pipe, base = server
+    pipe.gate.clear()
+    body = {"prompt": "fox", "width": 16, "height": 16, "steps": 1}
+    first = json.loads(request(f"{base}/v1/images", "POST", body)[1])["id"]
+    wait_for(base, first, "running")
+    try:
+        for _ in range(50):
+            job = pipe.runner.submit("image", {}, lambda job: b"unused")
+            pipe.runner.cancel(job)
+        assert not pipe.runner._pending
+        assert pipe.runner.queued == 0
+        assert len(pipe.runner.jobs) <= 34
+    finally:
+        pipe.gate.set()
+
+
+def test_upload_intake_is_bounded_without_blocking_polling(server, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    import iris_metal.server as api
+
+    _, base = server
+    entered, release = threading.Barrier(3), threading.Event()
+    decode = api.decode_upload
+
+    def blocked_decode(data):
+        entered.wait(timeout=5)
+        assert release.wait(5)
+        return decode(data)
+
+    monkeypatch.setattr(api, "decode_upload", blocked_decode)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(upload, base, "/v1/depth", (16, 16)) for _ in range(2)]
+        try:
+            entered.wait(timeout=5)
+            assert upload(base, "/v1/depth", (16, 16)) == 429
+            assert request(f"{base}/v1/health")[0] == 200
+        finally:
+            release.set()
+        assert [future.result() for future in futures] == [202, 202]
+    monkeypatch.setattr(api, "decode_upload", decode)
+    assert upload(base, "/v1/depth", (16, 16)) == 202

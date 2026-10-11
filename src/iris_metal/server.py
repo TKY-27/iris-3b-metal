@@ -7,7 +7,7 @@ Endpoints (JSON unless noted):
     POST   /v1/depth?max_side=1024 image file as the body -> 202 {"id"}
     POST   /v1/upscale?budget=1&color_fix=1
                                    image file as the body -> 202 {"id"}
-    GET    /v1/jobs/<id>           status, progress, timing, error
+    GET    /v1/jobs/<id>           status, progress (steps; tiles of an upscale), timing, error
     GET    /v1/jobs/<id>/image     the result PNG (depth: 16-bit, near = bright)
     DELETE /v1/jobs/<id>           cancel a queued job, a generation at its next step or
                                    an upscale at its next tile (depth runs in one pass)
@@ -34,6 +34,7 @@ import socket
 import socketserver
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -228,16 +229,20 @@ class JobRunner:
         self.models = models
         self.max_queued = max_queued
         self.jobs: dict[str, Job] = {}
-        self.queued = 0  # jobs waiting and not cancelled; guarded by lock
-        self._pending: queue.SimpleQueue[Job] = queue.SimpleQueue()
-        self.lock = threading.Lock()
+        self._pending: deque[Job] = deque()
+        self.lock = threading.Condition()
+        self.intake = threading.BoundedSemaphore(2)
         self._ids = itertools.count(1)
         threading.Thread(target=self._work, name="iris-worker", daemon=True).start()
 
     @property
-    def full(self) -> bool:
+    def queued(self) -> int:
         with self.lock:
-            return self.queued >= self.max_queued
+            return len(self._pending)
+
+    @property
+    def full(self) -> bool:
+        return self.queued >= self.max_queued
 
     def submit(self, kind: str, params: dict, work: Callable[[Job], bytes]) -> Job:
         """Queues a job; raises queue.Full when ``max_queued`` jobs are already waiting."""
@@ -245,12 +250,12 @@ class JobRunner:
         with self.lock:
             if self.queued >= self.max_queued:
                 raise queue.Full
-            self.queued += 1
             self.jobs[job.id] = job
             finished = [j for j in self.jobs.values() if j.status in ("done", "failed", "cancelled")]
             for old in sorted(finished, key=lambda j: j.created)[:-KEEP_FINISHED]:
                 del self.jobs[old.id]
-        self._pending.put(job)
+            self._pending.append(job)
+            self.lock.notify()
         return job
 
     def cancel(self, job: Job) -> None:
@@ -259,27 +264,29 @@ class JobRunner:
             if job.status == "queued":
                 job.status = "cancelled"
                 job.work = None
-                self.queued -= 1
+                self._pending.remove(job)
 
     def _work(self) -> None:
         while True:
-            job = self._pending.get()
             with self.lock:
-                if job.status == "cancelled":
-                    continue
-                self.queued -= 1
+                self.lock.wait_for(lambda: self._pending)
+                job = self._pending.popleft()
                 job.status = "running"
             start = time.perf_counter()
+            result = None
             try:
-                job.png, status = job.work(job), "done"
+                job.raise_if_cancelled()
+                result, status = job.work(job), "done"
             except Cancelled:
                 status = "cancelled"
             except Exception as exc:  # reported to the client; the worker keeps serving
                 status, job.error = "failed", f"{type(exc).__name__}: {exc}"
             finally:
                 job.work = None
-            job.seconds = time.perf_counter() - start
-            job.status = status  # last, so a finished job always has its time and result
+            with self.lock:
+                job.seconds = time.perf_counter() - start
+                job.png = None if job.cancel.is_set() else result
+                job.status = "cancelled" if job.cancel.is_set() else status
 
 
 def text_to_image_job(models: Models, params: dict) -> Callable[[Job], bytes]:
@@ -305,11 +312,16 @@ def upscale_job(models: Models, image: Image.Image, budget: bool, color_fix: boo
         from iris3b.downstream.restoration import fit_budget
 
         restorer = models.task("restoration")
-        restorer.on_tile = job.raise_if_cancelled  # a cancelled upscale stops between tiles
+        source = fit_budget(image) if budget else image
+        tiles, total = itertools.count(), restorer.tile_count(source.size)
+        # progress in finished tiles, reported before each; a cancelled upscale stops there
+        restorer.on_tile = lambda: job.on_step(next(tiles), total)
         try:
-            return png(restorer(fit_budget(image) if budget else image, color_fix=color_fix))
+            result = restorer(source, color_fix=color_fix)
         finally:
             restorer.on_tile = None
+        job.step = total
+        return png(result)
 
     return work
 
@@ -403,6 +415,15 @@ def make_handler(runner: JobRunner):
             if runner.full:  # before reading and decoding a large upload
                 self._send(429, {"error": "queue is full"})
                 return
+            if not runner.intake.acquire(blocking=False):
+                self._send(429, {"error": "request intake is busy"})
+                return
+            try:
+                self._submit(url, length)
+            finally:
+                runner.intake.release()
+
+        def _submit(self, url, length: int) -> None:
             query = {key: values[-1] for key, values in parse_qs(url.query).items()}
             try:
                 body = self.rfile.read(length)

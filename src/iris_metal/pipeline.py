@@ -80,6 +80,7 @@ class IrisPipeline:
     """
 
     ENCODING_CACHE_SIZE = 16
+    ADAPTED_CACHE_SIZE = 4
 
     def __init__(
         self, checkpoint: str | Path, device: str = "mps", attention_dtype: torch.dtype = torch.float16
@@ -91,6 +92,9 @@ class IrisPipeline:
         self._text_encoder: StreamingQwen3VLEncoder | None = None
         self._engine: MetalIris | None = None
         self._encodings: dict[str, Encoding] = {}
+        self._adapted: dict[tuple[str, ...], tuple[tuple, torch.Tensor]] = {}
+        self._conditioning_identity: tuple | None = None
+        self._cache_budget: int | None = None
 
     @property
     def loaded(self) -> bool:
@@ -98,6 +102,8 @@ class IrisPipeline:
 
     def unload(self) -> None:
         """Release the diffusion model; the next generation loads it again."""
+        self._adapted.clear()
+        self._conditioning_identity = None
         if self._engine is not None:
             self._engine = None
             release_memory()
@@ -126,8 +132,92 @@ class IrisPipeline:
                     encoding.mask[i : i + 1].clone(),
                 )
         result = [self._encodings[text] for text in texts]
+        if result and self._cache_budget is None:
+            self._cache_budget = self.ENCODING_CACHE_SIZE * self._encoding_bytes(result[0])
         while len(self._encodings) > self.ENCODING_CACHE_SIZE:
-            self._encodings.pop(next(iter(self._encodings)))
+            evicted = next(iter(self._encodings))
+            self._encodings.pop(evicted)
+            self._drop_adapted(evicted)
+        self._trim_cache()
+        return result
+
+    @staticmethod
+    def _encoding_bytes(tensors) -> int:
+        return sum(t.numel() * t.element_size() for t in tensors)
+
+    def _drop_adapted(self, text: str) -> None:
+        for batch in list(self._adapted):
+            if text in batch:
+                self._adapted.pop(batch)
+
+    def _trim_cache(self) -> None:
+        # Keep adapted residency small: saving adapter work should not displace
+        # several expensive raw Qwen encodings from the shared byte budget.
+        while len(self._adapted) > self.ADAPTED_CACHE_SIZE:
+            self._adapted.pop(next(iter(self._adapted)))
+        if self._cache_budget is None:
+            return
+
+        def used():
+            return sum(self._encoding_bytes(e) for e in self._encodings.values()) + sum(
+                self._encoding_bytes((e[1],)) for e in self._adapted.values()
+            )
+
+        while used() > self._cache_budget:
+            if self._encodings:
+                evicted = next(iter(self._encodings))
+                self._encodings.pop(evicted)
+                self._drop_adapted(evicted)
+            elif self._adapted:
+                self._adapted.pop(next(iter(self._adapted)))
+            else:
+                break
+
+    def _conditioning(self, texts: list[str], encodings: list[Encoding], engine: MetalIris) -> torch.Tensor:
+        adapter = getattr(engine.dit, "y_embedder", None)
+        position = getattr(engine.dit, "y_pos_embedding", None)
+        try:
+            adapter_versions = (
+                tuple((id(t), t._version) for t in (*adapter.parameters(), *adapter.buffers()))
+                if adapter is not None
+                else ()
+            )
+            position_version = (id(position), position._version) if position is not None else None
+        except RuntimeError:
+            # Inference-mode parameters have no mutation counter.
+            states, mask = (torch.cat(parts) for parts in zip(*encodings, strict=True))
+            return engine.encode_text(states, mask)
+        identity = (
+            id(engine),
+            id(engine.dit),
+            str(self.checkpoint),
+            repr(self.cfg),
+            engine.dtype,
+            engine.text_dtype,
+            engine.attention_dtype,
+            adapter_versions,
+            position_version,
+        )
+        if identity != self._conditioning_identity:
+            self._adapted.clear()
+            self._conditioning_identity = identity
+        # Inference-mode tensors have no version counter. Do not cache those:
+        # their callers can mutate them inside inference_mode without a version.
+        try:
+            versions = [(id(s), s._version, id(m), m._version) for s, m in encodings]
+        except RuntimeError:
+            states, mask = (torch.cat(parts) for parts in zip(*encodings, strict=True))
+            return engine.encode_text(states, mask)
+        # A hit must retain the original batch shape, order and duplicate rows:
+        # partial reuse could change GEMM rounding even before bucketing.
+        batch, signature = tuple(texts), tuple(versions)
+        if batch not in self._adapted or self._adapted[batch][0] != signature:
+            states, mask = (torch.cat(parts) for parts in zip(*encodings, strict=True))
+            tokens = engine.encode_text(states, mask)
+            self._adapted[batch] = (signature, tokens.detach().clone())
+        result = torch.cat([self._adapted[batch][1]])
+        self._adapted[batch] = self._adapted.pop(batch)
+        self._trim_cache()
         return result
 
     @torch.no_grad()
@@ -150,9 +240,10 @@ class IrisPipeline:
         guided = cfg_scale != 1.0
         encodings = self.encode([*prompts, negative_prompt] if guided else prompts)
         engine = self.engine
-        states, mask = (torch.cat(parts) for parts in zip(*encodings[: len(prompts)], strict=True))
-        cond = engine.encode_text(states, mask)
-        uncond = engine.encode_text(*encodings[-1]).expand_as(cond) if guided else None
+        cond = self._conditioning(prompts, encodings[: len(prompts)], engine)
+        uncond = (
+            self._conditioning([negative_prompt], [encodings[-1]], engine).expand_as(cond) if guided else None
+        )
 
         reporter = StepReporter(steps, on_step, self.device)
 

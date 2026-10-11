@@ -90,14 +90,16 @@ validated checkpoint and returns its directory.
 holds no model code of its own. It works like a chat app:
 
 - **A new chat** opens on one question and a composer, over a faint glow
-  that the pointer stirs like liquid. Type a prompt, or add or drop an image to upscale
-  it or estimate its depth: the composer switches to what can be done with an
-  image, because Iris-3B does not edit images from instructions.
+  that the pointer stirs like liquid. Type a prompt, or add or drop an image to
+  restore and upscale it or estimate its depth: the composer switches to what can
+  be done with an image, with the size the result will have, because Iris-3B does
+  not edit images from instructions.
 - **Each request is generated on its own.** Iris-3B does not see earlier
   prompts or images in the chat, and the app does not pretend otherwise.
 - **While an image is made**, the frame it will fill shows the iris at work
   and what the engine reports: preparing, then `65% · 13 / 20 steps` with the
-  time left, then finishing. Stop is where Send was.
+  time left, then finishing; an upscale counts its 1024-pixel tiles
+  (`tile 5 of 9`). Stop is where Send was.
 - **Settings stay out of the way.** The composer shows the shape (`16:9`
   and so on, from the model's native sizes) and two words for quality and
   prompt adherence; a popover holds the preset sliders, with `>` beside each
@@ -107,7 +109,18 @@ holds no model code of its own. It works like a chat app:
   each with its own seed, and the later ones wait as “Queued”. Stop ends the
   rest of the batch. The count is back to one at every launch.
 - **Results** open in Quick Look, and can be copied, saved, varied with a new
-  seed, reused as settings, or upscaled and depth-estimated in the same chat.
+  seed, reused as settings, or restored and upscaled and depth-estimated in the
+  same chat (also from All Images). A depth map or upscale opens next to its
+  original in a comparison window: drag the divider, zoom with a pinch or ⌘+/⌘−,
+  ⌘0 for actual pixels, ⌘9 to fit.
+- **Restoration comes with upscaling.** The upscaler fine-tune repairs blur,
+  noise and compression while it enlarges four times; like `iris-metal serve`,
+  the app first reduces an input above 512 pixels on the short side or 1024 on
+  the long side, so a 1024 × 1024 image becomes 2048 × 2048. There is no
+  same-size restoration: tested at 1×, the model redraws fine structure (see
+  [Image quality](#image-quality)). For the same reason the app does not offer
+  it for an image that would come out smaller, such as a 12-megapixel photo
+  (4032 × 3024 → 2732 × 2048).
 - **The sidebar** has search, New Chat, every result under All Images,
   pinned chats, projects with their chats, and recent chats by date, each with
   its latest image.
@@ -116,8 +129,9 @@ holds no model code of its own. It works like a chat app:
   drag chats onto it in the sidebar. Pin a chat from its context menu (or swipe) to
   keep it at the top.
 
-Quality presets are Draft, Fast, Standard, High and Maximum: 10, 15, 20, 30
-and 50 steps. The app starts at Standard (20 steps) so that trying prompts
+Quality presets are Draft, Fast, Standard, High and Maximum: 4, 10, 20, 30
+and 50 steps. Draft shows little more than the composition. The app starts at
+Standard (20 steps) so that trying prompts
 takes about a minute and a half at 1024 × 1024; that is a preview, not the
 model's evaluated setting. Iris-3B was evaluated at 100 steps (the default of
 the command line and the API), and fewer steps change fine detail such as
@@ -154,9 +168,12 @@ curl -s localhost:8765/v1/jobs/1/image -o cat.png
 curl -s localhost:8765/v1/depth --data-binary @photo.jpg                        # also /v1/upscale
 ```
 
-Jobs run in order with a bounded queue. Cancelling stops a generation at its
-next step and an upscale at its next tile; a depth estimate runs in one pass of
-a few seconds.
+Jobs run in order with a bounded queue. A job's `step` and `steps` count
+sampling steps, or for an upscale its finished and total tiles. Cancelling stops
+a generation at its next step and an upscale at its next tile; a depth estimate
+runs in one pass of a few seconds, then discards its result if cancelled.
+At most two requests can read or decode uploads concurrently; additional
+submissions receive 429 while health checks and cancellation remain available.
 Only one network is resident at a time; switching between text-to-image,
 depth and upscaling releases the previous model. `--checkpoint` and
 `--weights` take local directories for offline use. The server has no
@@ -300,6 +317,19 @@ upstream code in FP32 by 0.2–0.5% (relative L2; the BF16 recipe 0.8–2.8%) an
 its 4× restorations match it at 54 dB PSNR (the BF16 recipe 47–51 dB), while
 running 1.7–5× faster than the FP32 code on the same GPU.
 
+The restorer was trained for 4× only. To see whether it also repairs an image
+at its own size, `scripts/restore_study.py` blurred (σ 2), compressed (JPEG
+quality 15), blurred and compressed (σ 1.2, quality 30), or halved and
+re-enlarged six held-out images and
+restored them three ways. Against the clean image, one pass at 1× improved
+LPIPS only for strong blur (0.296 → 0.216, on four of six images) and made the
+others worse (JPEG 0.186 → 0.206, the softened images 0.080 → 0.194), with
+PSNR 2–10 dB lower on average: it sharpens by redrawing, turning chalk
+strokes into solid paint and dropping thin window mullions. Reducing 2× and
+restoring at 4× did better (blur 0.178, JPEG 0.172) but improved only one of
+the six softened images and costs six times as much. The app and API therefore
+offer restoration only as part of upscaling.
+
 **Patch seams.** Iris-3B predicts pixels in 16 × 16 patches. At 768 × 768 and
 1024 × 1024 the engine's outputs show no visible seams at 3× magnification,
 and the attention precision does not change the measured patch-grid
@@ -320,6 +350,8 @@ available as `--steps`, not as a faster equivalent of the default.
 - 100 steps take minutes per image. Fewer steps are faster but change fine
   structure such as hands (see [Image quality](#image-quality)).
 - Depth and upscaling download a separate 12 GB checkpoint each.
+- Restoration is only offered with 4× upscaling; it does not repair an image
+  at its own size (see [Image quality](#image-quality)).
 - Keep images near one megapixel. Well below that, for example at 512 × 512,
   the model's output shows its 16-pixel patch grid, in the upstream FP32 code
   as well. The development and held-out sets cover 1280 × 768 to 768 × 1280;
@@ -347,11 +379,14 @@ end-to-end test against it. To keep a development build away from your own
 chats, launch it with `--args -libraryRoot /tmp/iris-dev -enginePort 8790`. The
 Xcode project is generated from `apps/macos/project.yml` with XcodeGen.
 
-The upstream training code is kept unchanged under `src/iris3b/` and needs
+The upstream training code is retained under `src/iris3b/`, with a fix keeping
+corrupt-sample retries within the same shape bucket. It needs
 `pip install -e ".[train]"` and CUDA; the full test suite needs
 `".[train,dev]"`, and the upstream Gradio demo `".[train,ui]"`.
 `UPSTREAM_README.md` is upstream's README as it was, so where it says
 `pip install -e .`, read `pip install -e ".[train]"`.
+Only load trusted training `.pth` files: the upstream resume, sampling and
+export commands deserialize pickle. The Metal engine loads safetensors exports.
 
 `apps/macos/icon/iris_icon.py` draws app icon candidates with Iris itself
 through a running `iris-metal serve`, masks them into the macOS icon shape and

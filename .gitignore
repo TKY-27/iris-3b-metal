@@ -13,6 +13,10 @@ uv.lock
 
 # run outputs, weights and data (root-level dirs only; src/iris3b/data is code)
 /output/
+/depth/
+/upscaled/
+/iris.png
+/iris-[0-9]*.png
 /exported/
 /checkpoints/
 /data/

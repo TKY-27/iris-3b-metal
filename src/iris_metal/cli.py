@@ -34,6 +34,12 @@ def resolve_checkpoint(name: str, revision: str | None) -> Path:
         revision = REVISION
     from huggingface_hub import snapshot_download
 
+    from iris_metal.cache import cached_snapshot
+
+    cached = cached_snapshot(name, revision)
+    if cached is not None:
+        return cached
+
     # the repo also hosts the depth and upscaler fine-tunes (12 GB each)
     return Path(
         snapshot_download(name, revision=revision, allow_patterns=["config.yaml", "model.safetensors"])

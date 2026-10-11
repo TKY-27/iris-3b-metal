@@ -141,10 +141,6 @@ class PixelDataset(_TarImageDataset):
     so every record needs both fields.
     """
 
-    def __init__(self, cfg: DataConfig, patch_size: int = 16):
-        super().__init__(cfg, patch_size)
-        self._key_index: dict[str, set[int]] = {}
-
     def key_of(self, idx: int) -> str:
         """Grouping key from the sample's metadata; the image is not decoded."""
         if self.policy.uniform:
@@ -154,13 +150,17 @@ class PixelDataset(_TarImageDataset):
 
     def _retry_index(self, idx: int) -> int:
         """Substitute a sample of the SAME key, so a batch stays homogeneous."""
-        try:
-            pool = self._key_index.get(self.key_of(idx))
-            if pool:
-                return random.choice(tuple(pool))
-        except Exception:  # noqa: BLE001 - metadata unreadable, fall through
-            pass
-        return (idx + 1) % len(self)
+        if self.policy.uniform:
+            return (idx + 1) % len(self)
+        key = self.key_of(idx)
+        for offset in range(1, len(self)):
+            candidate = (idx + offset) % len(self)
+            try:
+                if self.key_of(candidate) == key:
+                    return candidate
+            except (KeyError, TypeError, ValueError):
+                continue
+        raise RuntimeError(f"no replacement sample for shape {key} near index {idx}")
 
     def _get(self, idx: int) -> dict:
         sample = self.reader[idx]
@@ -179,7 +179,6 @@ class PixelDataset(_TarImageDataset):
                 target.height,
                 target.width,
             )
-        self._key_index.setdefault(target.key, set()).add(idx)
         return {
             "image": _to_tensor(img),
             "caption": caption,

@@ -72,6 +72,16 @@ def test_restorer_calls_on_tile_and_stops_when_it_raises(tmp_path):
         restorer(image)
 
 
+def test_tile_count_matches_the_tiles_run(tmp_path):
+    _export(tmp_path, IrisDiT(RELEASED_TOPOLOGY).eval(), {"name": "restoration", "tile": 32, "sigma": 0.5})
+    restorer = MetalRestorer(tmp_path, device="cpu")
+    for size in ((8, 8), (16, 12), (12, 16), (20, 9), (33, 17), (40, 40), (64, 16)):
+        tiles = []
+        restorer.restore_tile = lambda x, tiles=tiles: tiles.append(1) or x  # only the tiling is under test
+        restorer(Image.new("RGB", size), color_fix=False)
+        assert len(tiles) == restorer.tile_count(size), size
+
+
 def test_upscale_inputs_beyond_four_to_one_are_rejected():
     check_upscale_input(Image.new("RGB", (1024, 256)))
     for size in ((1, 1024), (1025, 256)):
