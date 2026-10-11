@@ -186,6 +186,11 @@ It refuses requests from web pages (an `Origin` header or a cross-site
 The app is a SwiftUI client of `iris-metal serve` and holds no model code.
 It is not distributed as a signed binary; build it with Xcode 27:
 
+The current source release is macOS app v0.4.0; the separately versioned
+Python engine remains v0.3.0. The app can check for compatible releases and
+open their release pages, but automatic app installation is not supported.
+The GitHub release contains source only, with no app binary or model weights.
+
 ```bash
 cd apps/macos
 xcodebuild -scheme Iris -configuration Release -derivedDataPath build build

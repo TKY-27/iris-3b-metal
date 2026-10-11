@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 — 2026-10-11 (macOS app; Python engine 0.3.0)
+
+- Validate Metal kernel offsets before launch, and report Python engine and HTTP API versions so the app can flag unsupported combinations.
+- Make legacy History import and read-only library handling safer; prevent duplicate imports and avoid starting work that cannot be saved.
+- Improve cancellation and result saving by checking cancellation around uploads and writes and waiting for the job task to finish.
+- Tighten app job and engine lifecycle handling.
+- Check GitHub for compatible stable macOS releases and show their release notes. Updates still require manual installation; automatic installation is not supported.
+- This is a source-only release with no application binaries or model checkpoints. The Python engine remains independently versioned at 0.3.0.
+
 ## 0.3.0 — 2026-10-11
 
 First public release. Earlier versions were never published; the app's

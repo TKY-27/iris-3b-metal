@@ -2,7 +2,7 @@
 
 ## Current distribution boundary (2026-10-11)
 
-GitHub `v0.3.0` has no uploaded assets: it is a source release. The app is currently built with ad-hoc signing, Hardened Runtime enabled, arm64, macOS 15.0 minimum, marketing version `0.3.0`, and build `1`. The inspected local Keychain offers Apple Development identities, but no Developer ID Application identity. An Apple Development certificate does not satisfy public Developer ID distribution.
+GitHub `v0.4.0` has no uploaded assets: it is a source release. The app is currently built with ad-hoc signing, Hardened Runtime enabled, arm64, macOS 15.0 minimum, marketing version `0.4.0`, and build `1`. The inspected local Keychain offers Apple Development identities, but no Developer ID Application identity. An Apple Development certificate does not satisfy public Developer ID distribution.
 
 The app checks at startup and then at most once per day, without a startup wait or recurring dialogs. Settings can disable automatic checks. Successful results and ETags are cached for up to seven days, with a timestamp shown; network failures back off automatic checks for an hour, and GitHub rate limits also delay manual checks. A manual check can retry other failures immediately.
 
@@ -14,7 +14,7 @@ Future releases must include this compatibility marker in their GitHub release b
 <!-- iris-macos: {"minimumSystemVersion":"15.0","architectures":["arm64"]} -->
 ```
 
-Use the actual minimum OS and supported architectures for each release. A future release without valid compatibility metadata is not automatically announced as compatible. The current `0.3.0` baseline is known; this does not imply that future releases share its requirements. Drafts and prereleases are excluded. An unavailable network or malformed response must preserve the installed app and saved data.
+Use the actual minimum OS and supported architectures for each release. A future release without valid compatibility metadata is not automatically announced as compatible. The current app `0.4.0` baseline is known; this does not imply that future releases share its requirements. Drafts and prereleases are excluded. An unavailable network or malformed response must preserve the installed app and saved data.
 
 ## Python engine
 
@@ -22,7 +22,7 @@ The app supports engine `0.3.x` with HTTP protocol `api_version: 1`. The current
 
 In Settings, record the current engine executable path before changing it. For pipx installations, the usual launcher is `~/.local/bin/iris-metal`; use `pipx list` to identify its managed environment, since its location can vary. A virtual-environment installation instead uses that environment's `bin/iris-metal`; use its own `bin/python -m pip`, rather than an unrelated global `pip`. Keep the existing environment, its install source/version, and the executable setting available for recovery.
 
-For a bounded manual change, finish or cancel generation, quit Iris, and stop any separately started server through the terminal/session that owns it. Create a **new** candidate virtual environment from an approved, pinned official release; retain the old pipx or virtual environment. These example commands target the existing `v0.3.0` baseline and require Python 3.11 or newer, not an unreviewed future release. They download package dependencies, but do not download model weights:
+For a bounded manual change, finish or cancel generation, quit Iris, and stop any separately started server through the terminal/session that owns it. Create a **new** candidate virtual environment from an approved, pinned official release; retain the old pipx or virtual environment. These example commands target the existing Python engine `v0.3.0` baseline and require Python 3.11 or newer, not an unreviewed future release. They download package dependencies, but do not download model weights:
 
 ```sh
 iris_candidate="$HOME/.local/share/iris-engine-candidate-v0.3.0"
@@ -44,7 +44,7 @@ Set these environment values to your real release settings locally; do not commi
 
 | Variable | Required value |
 | --- | --- |
-| `IRIS_RELEASE_VERSION` | Three numeric components, e.g. current `0.3.0` |
+| `IRIS_RELEASE_VERSION` | Three numeric components, e.g. current app version `0.4.0` |
 | `IRIS_RELEASE_BUILD` | Integer 1–9999, greater than all previously published builds |
 | `IRIS_DEVELOPER_ID` | Full existing `Developer ID Application: … (TEAMID)` identity name |
 | `IRIS_TEAM_ID` | Actual 10-character team identifier |
