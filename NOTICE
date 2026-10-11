@@ -19,9 +19,11 @@ An Apple Silicon inference engine built on the Iris-3B repository
 official Speridlabs release.
 
 Added: src/iris_metal/, apps/macos/, benchmarks/, assets/metal/,
-scripts/benchmark.py, scripts/compare_runs.py, scripts/denoise_fixture.py,
-scripts/evaluate.py, scripts/precision_study.py, scripts/restore_study.py,
-tests/test_metal_*.py, tests/test_compare_runs.py, tests/test_data_retries.py.
+assets/benchmarks/, scripts/benchmark.py, scripts/compare_runs.py,
+scripts/denoise_fixture.py, scripts/evaluate.py, scripts/plot_benchmarks.py,
+scripts/precision_study.py, scripts/restore_study.py, tests/test_metal_*.py,
+tests/test_compare_runs.py, tests/test_data_retries.py, .github/, and the
+CHANGELOG, CONTRIBUTING and SECURITY documents.
 Modified upstream files: README.md (now about this engine; the upstream README
 is kept unchanged as UPSTREAM_README.md), pyproject.toml (package name,
 inference-only default dependencies, a "train" extra for the upstream training

@@ -1,6 +1,6 @@
 # Iris Metal startup / inference validation — 2026-10-11
 
-This is the optimization session's record, before the subsequent independent audit.
+This is the optimization session's record, before the subsequent independent audit. It is kept as the evidence for the text-encoder and conditioning-cache changes; the release measurements are in [README.md](README.md). Files it cites under `.scratch/` were local working data and are not published.
 
 This report records local implementation and measurements, not a release. No commit, push, PR, checkpoint conversion, additional checkpoint, or optional task checkpoint was retained.
 

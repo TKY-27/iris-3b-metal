@@ -1,0 +1,10 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.webp binary
+*.npy binary
+*.icns binary
+
+# upstream demo data is not this project's source
+demo/examples/** linguist-documentation

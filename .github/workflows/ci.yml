@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Tests use tiny random models; nothing may be downloaded from the Hub.
+  HF_HUB_OFFLINE: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  python:
+    name: Python ${{ matrix.python }} (${{ matrix.suite }})
+    runs-on: macos-26
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # the full suite, upstream training code included, on the tested Python
+          - python: "3.14"
+            suite: full
+            extras: train,dev
+            tests: tests
+          # the engine and its interfaces on the oldest supported Python
+          - python: "3.11"
+            suite: engine
+            extras: dev
+            tests: tests/test_metal_*.py tests/test_compare_runs.py
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[${{ matrix.extras }}]"
+      - if: matrix.suite == 'full'
+        run: |
+          ruff check .
+          ruff format --check .
+      - run: python -m pytest -q ${{ matrix.tests }}
+      - name: Build and smoke-test the wheel
+        if: matrix.suite == 'full'
+        run: |
+          pip install build
+          python -m build
+          python -m venv /tmp/wheel-env
+          /tmp/wheel-env/bin/pip install --quiet dist/*.whl
+          /tmp/wheel-env/bin/iris-metal --help > /dev/null
+          /tmp/wheel-env/bin/iris-metal serve --help > /dev/null
+
+  app:
+    name: macOS app
+    runs-on: xcode-27
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/macos
+    steps:
+      - uses: actions/checkout@v7
+      - run: xcodebuild -version
+      - name: Test
+        run: >-
+          xcodebuild test -project Iris.xcodeproj -scheme Iris -destination platform=macOS
+          -derivedDataPath ${{ runner.temp }}/dd CODE_SIGNING_ALLOWED=NO
+      - name: Release build
+        run: >-
+          xcodebuild build -project Iris.xcodeproj -scheme Iris -configuration Release
+          -derivedDataPath ${{ runner.temp }}/dd CODE_SIGNING_ALLOWED=NO
