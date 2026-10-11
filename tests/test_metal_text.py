@@ -116,7 +116,7 @@ def test_streaming_encoder_matches_padded_transformers_forward(tmp_path, tokeniz
 
 
 @pytest.mark.skipif(
-    not torch.backends.mps.is_available() or bool(os.environ.get("IRIS_SKIP_GPU_TESTS")),
+    not torch.backends.mps.is_available() or os.environ.get("IRIS_SKIP_GPU_TESTS") == "1",
     reason="needs an Apple Silicon GPU",
 )
 def test_streaming_error_waits_and_releases_shard_storage(tmp_path, tokenizer_dir, monkeypatch):

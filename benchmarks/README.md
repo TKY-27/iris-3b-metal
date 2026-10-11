@@ -84,7 +84,7 @@ number of warm requests:
 | This engine | this repository | `scripts/denoise_fixture.py FIXTURE --steps N` |
 | [iris3b-mlx-optimized](https://github.com/octaviusp/iris3b-mlx-optimized), speed preset | `b06bbe4` | `bin/iris-mlx --action sample --backend mlx-optimized --dtype bfloat16 --precision-policy mlp --execution fused --eval-every 4 --attention-dtype reference --tf32`: BF16 MLP weights, everything else FP32 |
 | iris3b-mlx-optimized, memory preset | `b06bbe4` | the same with `--quantization q8-bf16-fit`: 8-bit MLP weights |
-| [Upstream PyTorch](https://github.com/speridlabs/iris-3b), BF16 autocast | `a8d1523` | `scripts/denoise_fixture.py FIXTURE --reference autocast`: FP32 weights under the BF16 autocast of upstream's `scripts/sample.py` |
+| [Upstream PyTorch](https://github.com/speridlabs/iris-3b), BF16 autocast | `a8d1523` | `scripts/denoise_fixture.py FIXTURE --reference autocast`: FP32 weights under BF16 autocast, the recipe upstream's `scripts/sample.py` uses on CUDA (on a Mac that script runs in FP32, see below) |
 
 **Distance from FP32.** After 10 steps, against the upstream code run in
 FP32 on the same fixture (relative RMS error and PSNR of the final pixels,

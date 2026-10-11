@@ -37,7 +37,9 @@ def main() -> None:
     parser.add_argument("--checkpoint", default=REPO_ID, help="local directory or Hugging Face repo")
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--repeats", type=int, default=3)
-    parser.add_argument("--attention", choices=("float16", "bfloat16", "float32"), default="float16")
+    parser.add_argument(
+        "--attention", choices=("float16", "bfloat16", "float32"), default="float16", help="the engine only"
+    )
     parser.add_argument("--reference", choices=("fp32", "autocast"), help="run the upstream model instead")
     parser.add_argument("--out", type=Path, help="write the final FP32 state and timings")
     args = parser.parse_args()

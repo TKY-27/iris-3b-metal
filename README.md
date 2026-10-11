@@ -45,7 +45,7 @@ Times run from the prompt to the finished image, measured with
 `scripts/benchmark.py` in fresh processes: medians of three processes per step
 count, and one process at 100 steps. A new prompt adds about 4 s of text
 encoding; a repeated one is cached. Each sampling step evaluates the model
-twice (classifier-free guidance), about 4.5 s per step. The chart times the
+twice (classifier-free guidance), about 4.6 s per step. The chart times the
 denoising of a saved fixture (text states and noise) by each implementation;
 whiskers span the fastest and slowest run.
 

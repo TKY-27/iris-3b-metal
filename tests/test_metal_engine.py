@@ -20,7 +20,7 @@ from iris_metal.model import MetalIris, require_finite
 # GitHub's macOS runners have a virtual GPU on which some MPS kernels neither compile nor
 # match an Apple Silicon GPU; CI sets IRIS_SKIP_GPU_TESTS.
 requires_mps = pytest.mark.skipif(
-    not torch.backends.mps.is_available() or bool(os.environ.get("IRIS_SKIP_GPU_TESTS")),
+    not torch.backends.mps.is_available() or os.environ.get("IRIS_SKIP_GPU_TESTS") == "1",
     reason="needs an Apple Silicon GPU",
 )
 
