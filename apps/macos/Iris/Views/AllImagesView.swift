@@ -6,6 +6,9 @@ import SwiftUI
 struct AllImagesView: View {
     @Environment(Library.self) private var library
     @Environment(Workspace.self) private var workspace
+    @Environment(Generator.self) private var generator
+    @Environment(EngineController.self) private var engine
+    @Environment(\.openWindow) private var openWindow
     @State private var previewURL: URL?
     @State private var selected: UUID?
     @FocusState private var gridFocused: Bool
@@ -79,6 +82,36 @@ struct AllImagesView: View {
                 Button("Quick Look") { previewURL = url }
                 Button("Copy Image") { ImageActions.copy(url) }
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                if entry.request == nil, FileManager.default.fileExists(atPath: library.inputURL(entry.id).path) {
+                    Button("Compare with Original") { openWindow(id: ComparisonWindow.id, value: entry.id) }
+                }
+                if entry.workflow != .depth {
+                    Divider()
+                    if canUpscale(entry) {
+                        Button(Workflow.upscale.title) { process(.upscale, entry, in: conversation) }
+                            .disabled(!canStart)
+                    }
+                    Button("Estimate Depth") { process(.depth, entry, in: conversation) }
+                        .disabled(!canStart)
+                }
             }
+    }
+
+    private var canStart: Bool { !generator.isBusy && engine.state == .ready && !library.isReadOnly }
+
+    /// As in the chat: only when the result would come out larger.
+    private func canUpscale(_ entry: Entry) -> Bool {
+        let size = entry.request.map { CGSize(width: $0.width, height: $0.height) }
+            ?? ImageFiles.pixelSize(of: library.imageURL(entry.id))
+        return size.map { Upscaling.refusal(for: $0) == nil } ?? false
+    }
+
+    /// Runs on the result as a new entry of its chat, and shows it there.
+    private func process(_ workflow: Workflow, _ entry: Entry, in conversation: UUID) {
+        let started = generator.process(
+            workflow, image: library.imageURL(entry.id), named: entry.fileName,
+            in: conversation, library: library, engine: engine
+        )
+        if let started { workspace.show(started) }
     }
 }

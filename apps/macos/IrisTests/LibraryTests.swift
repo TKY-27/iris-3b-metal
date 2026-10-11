@@ -115,6 +115,17 @@ final class LibraryTests: XCTestCase {
         XCTAssertFalse(first.isReadOnly)
     }
 
+    func testASecondInstanceKeepsRunningEntriesVisible() throws {
+        let first = Library(store: LibraryStore(root: root))
+        let entry = Entry(workflow: .create, request: request("fox"))
+        let conversation = first.append(entry, to: nil)
+        first.flush()
+
+        let second = Library(store: LibraryStore(root: root))
+        XCTAssertTrue(second.isReadOnly)
+        XCTAssertEqual(second.conversation(conversation)?.entries.first?.outcome, .running)
+    }
+
     func testALibraryFromANewerVersionIsLeftAlone() throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let index = root.appending(path: "Library.json")

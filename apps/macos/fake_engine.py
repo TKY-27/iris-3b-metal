@@ -45,9 +45,17 @@ def fake_depth(image, max_side):
 class FakeRestorer:
     on_tile = None
 
+    def __init__(self, tile_seconds: float):
+        self.tile_seconds = tile_seconds
+
+    def tile_count(self, size):
+        return max(1, (size[0] // 256) * (size[1] // 256))
+
     def __call__(self, image, color_fix=True):
-        if self.on_tile is not None:
-            self.on_tile()
+        for _ in range(self.tile_count(image.size)):
+            if self.on_tile is not None:
+                self.on_tile()
+            time.sleep(self.tile_seconds)
         return image.convert("RGB").resize((image.width * 4, image.height * 4), Image.Resampling.LANCZOS)
 
 
@@ -59,7 +67,7 @@ def main() -> None:
     args = parser.parse_args()
     models = Models(
         FakePipeline(args.step_seconds, args.load_seconds),
-        lambda task: fake_depth if task == "depth" else FakeRestorer(),
+        lambda task: fake_depth if task == "depth" else FakeRestorer(args.step_seconds * 10),
     )
     server = LocalServer(("127.0.0.1", args.port), make_handler(JobRunner(models, 8)))
     print(f"fake engine on http://127.0.0.1:{args.port}", flush=True)

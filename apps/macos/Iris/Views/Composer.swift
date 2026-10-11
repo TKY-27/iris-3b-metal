@@ -22,7 +22,7 @@ struct Composer: View {
                     Button(action: chooseImage) {
                         Label("Add Image…", systemImage: "photo.badge.plus")
                     }
-                    .help("Upscale an image or estimate its depth (or drop one here)")
+                    .help("Restore and upscale an image, or estimate its depth (or drop one here)")
                     if workspace.attachment == nil {
                         AspectMenu()
                         Button {
@@ -135,14 +135,20 @@ struct Composer: View {
         switch workspace.workflow {
         case .create: workspace.imageCount == 1 ? "Generate" : "Generate \(workspace.imageCount) Images"
         case .depth: "Estimate Depth"
-        case .upscale: "Upscale"
+        case .upscale: "Restore and Upscale"
         }
     }
 
     private var sendHelp: String {
         if engine.state != .ready { return "The engine is not ready" }
         if generator.isBusy { return "Wait for the current request to finish" }
-        if !workspace.canSubmit { return workspace.workflow == .create ? "Describe an image first" : "Add an image first" }
+        if !workspace.canSubmit {
+            switch workspace.workflow {
+            case .create: return "Describe an image first"
+            case .upscale where workspace.attachment != nil: return "This image cannot be upscaled"
+            default: return "Add an image first"
+            }
+        }
         return workspace.workflow == .create ? "\(sendTitle) (↩ or ⌘↩)" : "\(sendTitle) (⌘↩)"
     }
 
@@ -193,14 +199,22 @@ private struct AttachmentRow: View {
                 .fixedSize()
             }
             Spacer(minLength: 8)
-            Text(workspace.imageWorkflow == .depth
-                 ? "Relative depth: near is bright, not in meters."
-                 : "Four times the size, repairing blur and compression.")
+            Text(explanation)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .accessibilityLabel(explanation.spokenSizes)
                 .multilineTextAlignment(.trailing)
-                .frame(maxWidth: 200, alignment: .trailing)
+                .frame(maxWidth: 230, alignment: .trailing)
+                .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// What the chosen action will make of this image, with the sizes when known.
+    private var explanation: String {
+        if workspace.imageWorkflow == .depth { return "Relative depth: near is bright, not in meters." }
+        guard let size = attachment.pixelSize else { return "Repairs blur, noise and compression while enlarging." }
+        if let refusal = Upscaling.refusal(for: size) { return refusal }
+        return "Repairs blur, noise and compression while enlarging: \(size.pixelLabel) → \(Upscaling.output(for: size).pixelLabel)."
     }
 }
 

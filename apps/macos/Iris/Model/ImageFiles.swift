@@ -32,7 +32,7 @@ enum ImageFiles {
         return image
     }
 
-    /// Pixel size without decoding the image.
+    /// Pixel size as shown, after any EXIF rotation, without decoding the image.
     static func pixelSize(of url: URL) -> CGSize? {
         guard
             let source = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -40,7 +40,9 @@ enum ImageFiles {
             let width = properties[kCGImagePropertyPixelWidth] as? Int,
             let height = properties[kCGImagePropertyPixelHeight] as? Int
         else { return nil }
-        return CGSize(width: width, height: height)
+        // orientations 5 to 8 turn the image a quarter
+        let turned = (properties[kCGImagePropertyOrientation] as? Int).map { (5...8).contains($0) } ?? false
+        return turned ? CGSize(width: height, height: width) : CGSize(width: width, height: height)
     }
 
     /// Any image ImageIO reads (HEIC, RAW, TIFF, ...) as an upright PNG, which the engine accepts.

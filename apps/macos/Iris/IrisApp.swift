@@ -26,6 +26,16 @@ struct IrisApp: App {
             }
         }
 
+        WindowGroup("Compare", id: ComparisonWindow.id, for: UUID.self) { $entry in
+            if let entry {
+                ComparisonWindow(entryID: entry)
+                    .environment(delegate.library)
+            }
+        }
+        .defaultSize(width: 1100, height: 800)
+        .commandsRemoved()  // opened from a result, never from File > New
+        .restorationBehavior(.disabled)
+
         Settings {
             SettingsView()
                 .environment(delegate.engine)

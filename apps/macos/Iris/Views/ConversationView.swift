@@ -119,7 +119,9 @@ private struct WelcomeView: View {
             Spacer(minLength: 32)
             VStack(alignment: .leading, spacing: 20) {
                 HStack(spacing: 12) {
-                    Image(nsImage: NSApp.applicationIconImage)
+                    // the bundled icon file: the system's copy can be a placeholder on the first
+                    // launch after an install, until its icon cache catches up
+                    Image(nsImage: Bundle.main.image(forResource: "AppIcon") ?? NSApp.applicationIconImage)
                         .resizable()
                         .interpolation(.high)
                         .frame(width: 40, height: 40)
@@ -134,7 +136,7 @@ private struct WelcomeView: View {
             .frame(maxWidth: Theme.readableWidth)
             .padding(.horizontal, 32)
             Spacer(minLength: 32)
-            Text("Each request starts fresh: Iris-3B does not see earlier prompts or images. Drop a photo to upscale it or estimate its depth.")
+            Text("Each request starts fresh: Iris-3B does not see earlier prompts or images. Drop a photo to restore and upscale it, or to estimate its depth.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -176,7 +178,7 @@ private struct ImageDrop: ViewModifier {
                     RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
                         .strokeBorder(Color.accentColor, lineWidth: 2)
                         .overlay {
-                            Text("Drop to upscale or estimate depth")
+                            Text("Drop to restore and upscale, or to estimate depth")
                                 .font(.headline)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)

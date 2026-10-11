@@ -64,7 +64,7 @@ struct Entry: Codable, Identifiable, Hashable, Sendable {
     /// The settings of a created image.
     let request: GenerationRequest?
     /// The file name of a depth or upscaling input; the input itself is kept
-    /// as `Inputs/<id>.png` (not for entries imported from Iris 0.1).
+    /// as `Inputs/<id>.png` (not for entries imported from Iris 0.1), for Run Again and Compare.
     let inputName: String?
     var outcome: Outcome
 
@@ -84,12 +84,23 @@ struct Entry: Codable, Identifiable, Hashable, Sendable {
         switch workflow {
         case .create: request?.prompt ?? ""
         case .depth: "Depth of \(inputName ?? "an image")"
-        case .upscale: "\(inputName ?? "Image") ×4"
+        case .upscale: "\(inputName ?? "Image"), restored and upscaled"
         }
     }
 
     var isDone: Bool {
         if case .done = outcome { true } else { false }
+    }
+
+    /// A file name for the result: the start of its prompt, or its input's name, then what was
+    /// done to it, once: "a-red-fox.png", "a-red-fox-upscaled.png", "a-red-fox-depth.png".
+    var fileName: String {
+        let source = request?.prompt ?? inputName.map { ($0 as NSString).deletingPathExtension } ?? ""
+        var words = source.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        // an input made by Iris already ends in what was done to it
+        while request == nil, let last = words.last, last == "upscaled" || last == "depth" { words.removeLast() }
+        let stem = words.isEmpty ? "iris" : words.prefix(6).joined(separator: "-")
+        return stem + (workflow == .depth ? "-depth" : workflow == .upscale ? "-upscaled" : "") + ".png"
     }
 }
 

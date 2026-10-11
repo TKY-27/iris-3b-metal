@@ -17,6 +17,8 @@ final class Workspace {
     struct Attachment: Equatable {
         let url: URL
         let name: String
+        /// Upright, as it is sent; nil when the file cannot be read.
+        var pixelSize: CGSize?
     }
 
     /// Optional only because a sidebar list may clear it; nil shows a new chat.
@@ -91,7 +93,8 @@ final class Workspace {
     var workflow: Workflow { attachment == nil ? .create : imageWorkflow }
 
     func attach(_ url: URL) {
-        attachment = Attachment(url: url, name: url.lastPathComponent)
+        // reads only the file's header
+        attachment = Attachment(url: url, name: url.lastPathComponent, pixelSize: ImageFiles.pixelSize(of: url))
     }
 
     /// Puts a request's prompt and settings back into the composer.
@@ -128,7 +131,8 @@ final class Workspace {
     var canSubmit: Bool {
         switch workflow {
         case .create: !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        case .depth, .upscale: attachment != nil
+        case .depth: attachment != nil
+        case .upscale: attachment.map { $0.pixelSize.map { Upscaling.refusal(for: $0) == nil } ?? true } ?? false
         }
     }
 

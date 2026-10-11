@@ -7,12 +7,14 @@ struct EntryView: View {
     @Environment(EngineController.self) private var engine
     @Environment(Workspace.self) private var workspace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.openWindow) private var openWindow
     let entry: Entry
     let conversation: UUID
     /// The newest entry keeps its actions visible; older ones show them on hover.
     var isLatest = true
     let preview: (URL) -> Void
     @State private var hovering = false
+    @State private var sizes = EntrySizes()
     @FocusState private var actionFocus: String?
 
     var body: some View {
@@ -24,6 +26,11 @@ struct EntryView: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.45), value: entry.outcome)
         .onHover { hovering = $0 }
+        // the input is written just after a depth or upscaling entry appears, the result when it is done
+        .task(id: SizeKey(outcome: entry.outcome, storedInput: generator.storedInput == entry.id)) {
+            let loaded = await EntrySizes.load(entry, library: library)
+            if !Task.isCancelled { sizes = loaded }  // not a slower read for an earlier state
+        }
         .onChange(of: entry.outcome) { old, _ in
             guard old == .running else { return }
             AccessibilityNotification.Announcement(entry.isDone ? "Image ready" : "The request ended").post()
@@ -33,11 +40,14 @@ struct EntryView: View {
     @ViewBuilder private var result: some View {
         switch entry.outcome {
         case .running:
-            GenerationCanvas(entry: entry)
+            GenerationCanvas(entry: entry, aspectRatio: aspectRatio)
         case let .done(seconds):
             VStack(alignment: .leading, spacing: 8) {
-                ResultImage(entry: entry, url: library.imageURL(entry.id), open: { preview(library.imageURL(entry.id)) })
-                    .contextMenu { menu }
+                ResultImage(
+                    entry: entry, url: library.imageURL(entry.id), aspectRatio: aspectRatio,
+                    open: { preview(library.imageURL(entry.id)) }
+                )
+                .contextMenu { menu }
                 HStack(spacing: 2) {
                     Text(caption(seconds: seconds))
                         .font(.caption)
@@ -46,11 +56,12 @@ struct EntryView: View {
                         .lineLimit(1)
                         .help(exactSettings)
                         .textSelection(.enabled)
+                        .accessibilityLabel(caption(seconds: seconds).spokenSizes)
                     Spacer(minLength: 12)
                     actionBar
                         .opacity(isLatest || hovering || actionFocus != nil ? 1 : 0)  // shown on hover or keyboard focus
                 }
-                .frame(maxWidth: ResultImage.width(for: entry))
+                .frame(maxWidth: ResultImage.width(aspectRatio: aspectRatio))
             }
         case .failed, .cancelled, .interrupted:
             HStack(spacing: 12) {
@@ -87,7 +98,14 @@ struct EntryView: View {
     private func caption(seconds: Double) -> String {
         let time = Duration.seconds(seconds).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated))
         guard let r = entry.request else {
-            return "\(entry.workflow == .depth ? "Relative depth, near is bright" : "Restored at 4×") · \(time)"
+            switch entry.workflow {
+            case .depth:
+                return "Relative depth, near is bright · \(time)"
+            default:
+                // the request above names the action; the sizes say what it did
+                guard let input = sizes.input, let output = sizes.output else { return time }
+                return "\(input.pixelLabel) → \(output.pixelLabel) · \(time)"
+            }
         }
         let quality = QualityPreset(steps: r.steps)?.title ?? "\(r.steps) steps"
         let adherence = AdherencePreset(cfgScale: r.cfgScale)?.title ?? "guidance \(r.cfgScale.formatted())"
@@ -95,7 +113,12 @@ struct EntryView: View {
     }
 
     private var exactSettings: String {
-        guard let r = entry.request else { return "" }
+        guard let r = entry.request else {
+            if entry.workflow == .depth { return "A 16-bit grayscale PNG; compare it with the original to check edges" }
+            guard let input = sizes.input else { return "Restored at 4×" }
+            let working = Upscaling.workingSize(for: input)
+            return working == input ? "Restored at 4×" : "Reduced to \(working.pixelLabel), then restored at 4×"
+        }
         return "\(r.width) × \(r.height) · \(r.steps) steps · guidance \(r.cfgScale.formatted()) · seed \(r.seed)"
     }
 
@@ -104,11 +127,39 @@ struct EntryView: View {
     private var canStart: Bool { !generator.isBusy && engine.state == .ready && !library.isReadOnly }
 
     private var canRunAgain: Bool {
-        entry.request != nil || FileManager.default.fileExists(atPath: library.inputURL(entry.id).path)
+        entry.request != nil || sizes.input != nil
+    }
+
+    /// A depth map or upscale next to the image it was made from.
+    private var canCompare: Bool { entry.isDone && sizes.input != nil }
+
+    /// A created image's shape is known before its file is read, so its frame never jumps.
+    private var aspectRatio: CGFloat? {
+        entry.request.map { CGFloat($0.width) / CGFloat($0.height) } ?? sizes.aspectRatio
+    }
+
+    /// Whether the restorer would make this result larger; an upscale of an upscale usually would not.
+    private var canUpscale: Bool {
+        let request = entry.request.map { CGSize(width: $0.width, height: $0.height) }
+        guard entry.workflow != .depth, let size = request ?? sizes.output else { return false }
+        return Upscaling.refusal(for: size) == nil
     }
 
     private var actionBar: some View {
         HStack(spacing: 2) {
+            if canCompare {
+                // the point of a depth map or upscale, so it is named, not only drawn
+                Button(action: compare) {
+                    Label("Compare", systemImage: "square.split.2x1")
+                        .labelStyle(.titleAndIcon)
+                        .padding(.horizontal, 4)
+                        .frame(height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .help("Compare with Original")
+                .focused($actionFocus, equals: "compare")
+            }
             IconButton("Copy Image", systemImage: "doc.on.doc") { ImageActions.copy(library.imageURL(entry.id)) }
                 .focused($actionFocus, equals: "copy")
             IconButton("Save As…", systemImage: "square.and.arrow.down") {
@@ -120,10 +171,12 @@ struct EntryView: View {
                     .disabled(!canStart)
                     .focused($actionFocus, equals: "vary")
             }
-            if entry.workflow != .depth {
-                IconButton("Upscale ×4", systemImage: Workflow.upscale.symbol) { process(.upscale) }
+            if canUpscale {
+                IconButton(Workflow.upscale.title, systemImage: Workflow.upscale.symbol) { process(.upscale) }
                     .disabled(!canStart)
                     .focused($actionFocus, equals: "upscale")
+            }
+            if entry.workflow != .depth {
                 IconButton("Estimate Depth", systemImage: Workflow.depth.symbol) { process(.depth) }
                     .disabled(!canStart)
                     .focused($actionFocus, equals: "depth")
@@ -149,6 +202,9 @@ struct EntryView: View {
             Button("Copy Image") { ImageActions.copy(library.imageURL(entry.id)) }
             Button("Save As…") { ImageActions.saveAs(library.imageURL(entry.id), suggestedName: suggestedName) }
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([library.imageURL(entry.id)]) }
+            if canCompare {
+                Button("Compare with Original") { compare() }
+            }
             Divider()
         }
         if let request = entry.request {
@@ -159,7 +215,9 @@ struct EntryView: View {
         }
         if entry.isDone, entry.workflow != .depth {
             Divider()
-            Button("Upscale ×4") { process(.upscale) }.disabled(!canStart)
+            if canUpscale {
+                Button(Workflow.upscale.title) { process(.upscale) }.disabled(!canStart)
+            }
             Button("Estimate Depth") { process(.depth) }.disabled(!canStart)
         }
         Divider()
@@ -167,10 +225,10 @@ struct EntryView: View {
             .disabled(entry.outcome == .running)
     }
 
-    private var suggestedName: String {
-        let words = entry.title.lowercased().split { !$0.isLetter && !$0.isNumber }.prefix(6)
-        let stem = words.isEmpty ? "iris" : words.joined(separator: "-")
-        return stem + (entry.workflow == .depth ? "-depth" : entry.workflow == .upscale ? "-x4" : "") + ".png"
+    private var suggestedName: String { entry.fileName }
+
+    private func compare() {
+        openWindow(id: ComparisonWindow.id, value: entry.id)
     }
 
     private func runAgain(newSeed: Bool) {
@@ -266,12 +324,13 @@ private struct RequestBubble: View {
 private struct ResultImage: View {
     let entry: Entry
     let url: URL
+    let aspectRatio: CGFloat?
     let open: () -> Void
 
     var body: some View {
         Button(action: open) {
             StoredImage(url: url, maxPixels: 1600, aspectRatio: aspectRatio)
-                .frame(maxWidth: Self.width(for: entry), maxHeight: Self.maxHeight, alignment: .leading)
+                .frame(maxWidth: Self.width(aspectRatio: aspectRatio), maxHeight: Self.maxHeight, alignment: .leading)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -285,25 +344,48 @@ private struct ResultImage: View {
     static let maxHeight: CGFloat = 520
 
     /// The width a result is shown at when its aspect ratio is known, so its caption lines up with it.
-    static func width(for entry: Entry) -> CGFloat {
-        guard let request = entry.request else { return maxWidth }
-        return min(maxWidth, maxHeight * CGFloat(request.width) / CGFloat(request.height))
-    }
-
-    private var aspectRatio: CGFloat? {
-        entry.request.map { CGFloat($0.width) / CGFloat($0.height) }
+    static func width(aspectRatio: CGFloat?) -> CGFloat {
+        guard let aspectRatio else { return maxWidth }
+        return min(maxWidth, maxHeight * aspectRatio)
     }
 }
+
+/// Pixel sizes of an entry's input and result, read from the files' headers.
+struct EntrySizes: Equatable {
+    var input: CGSize?
+    var output: CGSize?
+
+    /// The result's shape, or the input's while the result is being made.
+    var aspectRatio: CGFloat? {
+        (output ?? input).map { $0.width / $0.height }
+    }
+
+    @MainActor static func load(_ entry: Entry, library: Library) async -> EntrySizes {
+        guard entry.request == nil else { return EntrySizes() }  // its request has the size
+        let (input, output) = (library.inputURL(entry.id), library.imageURL(entry.id))
+        let done = entry.isDone
+        return await Task.detached(priority: .utility) {
+            EntrySizes(input: ImageFiles.pixelSize(of: input), output: done ? ImageFiles.pixelSize(of: output) : nil)
+        }.value
+    }
+}
+
+private struct SizeKey: Equatable {
+    let outcome: Entry.Outcome
+    let storedInput: Bool
+}
+
 
 /// The running request: the iris at work in the frame its image will fill, with what the
 /// engine reports. Stop is in the composer.
 private struct GenerationCanvas: View {
     @Environment(Generator.self) private var generator
     let entry: Entry
+    let aspectRatio: CGFloat?
 
     var body: some View {
         let progress = generator.active?.entry == entry.id ? generator.progress : Generator.Progress()
-        let ratio = entry.request.map { CGFloat($0.width) / CGFloat($0.height) } ?? 1
+        let ratio = aspectRatio ?? 1
         let queued = generator.isQueued(entry.id)
         IrisCanvas(energy: queued ? 0.25 : 1, progress: progress.fraction, opaque: true) {
             Color.clear
@@ -323,7 +405,7 @@ private struct GenerationCanvas: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
-        .frame(maxWidth: ResultImage.width(for: entry), maxHeight: ResultImage.maxHeight, alignment: .leading)
+        .frame(maxWidth: ResultImage.width(aspectRatio: aspectRatio), maxHeight: ResultImage.maxHeight, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entry.workflow == .create ? "Generating" : entry.workflow.title)
         .accessibilityValue(accessibilityValue(progress))
@@ -331,6 +413,8 @@ private struct GenerationCanvas: View {
 
     private func accessibilityValue(_ progress: Generator.Progress) -> String {
         switch progress.phase {
+        case .sampling where entry.workflow == .upscale, .finishing where entry.workflow == .upscale:
+            "\(progress.percent ?? 0) percent, tile \(min(progress.step + 1, progress.steps)) of \(progress.steps)"
         case .sampling, .finishing: "\(progress.percent ?? 0) percent, step \(progress.step) of \(progress.steps)"
         case .preparing: "Preparing"
         case .waiting where generator.isQueued(entry.id): "Queued"
@@ -378,15 +462,23 @@ private struct ProgressReadout: View {
             Text("Waiting for the engine").font(.title3.weight(.medium))
         case .preparing:
             Text("Preparing").font(.title3.weight(.medium))
-            Text("Loading the model and reading the prompt").font(.callout).opacity(0.7)
+            Text(workflow == .create ? "Loading the model and reading the prompt" : "Loading the model")
+                .font(.callout)
+                .opacity(0.7)
         case .working:
-            Text(workflow == .depth ? "Estimating depth" : "Upscaling ×4").font(.title3.weight(.medium))
+            Text("Estimating depth").font(.title3.weight(.medium))
         }
     }
 
+    /// "4 / 20 steps", or for an upscale the tile under way, "tile 5 of 9".
     private var detail: String {
-        if progress.phase == .finishing { return "\(progress.steps) / \(progress.steps) steps · finishing the image" }
-        let steps = "\(progress.step) / \(progress.steps) steps"
+        if progress.phase == .finishing {
+            let unit = workflow == .upscale ? "tiles" : "steps"
+            return "\(progress.steps) / \(progress.steps) \(unit) · finishing the image"
+        }
+        let steps = workflow == .upscale
+            ? "tile \(progress.step + 1) of \(progress.steps)"
+            : "\(progress.step) / \(progress.steps) steps"
         guard let seconds = progress.secondsLeft else { return steps }
         let left = Duration.seconds(seconds).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated, maximumUnitCount: 1))
         return "\(steps) · about \(left) left"

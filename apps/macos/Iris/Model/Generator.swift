@@ -10,12 +10,13 @@ final class Generator {
         enum Phase: Equatable {
             /// Queued behind another request, or not yet submitted.
             case waiting
-            /// Running before the first step: loading the model if needed and reading the prompt.
+            /// Running before the first step or tile: loading the model if needed and reading the prompt.
             case preparing
+            /// Steps of an image, or tiles of an upscale, under way.
             case sampling
             /// The last step is done; the image is being decoded and sent.
             case finishing
-            /// Depth and upscaling report no steps.
+            /// Depth runs in one pass and reports nothing until it is done.
             case working
         }
 
@@ -37,10 +38,13 @@ final class Generator {
             switch status {
             case .queued, .done, .failed, .cancelled:
                 phase = .waiting
-            case .running where workflow != .create || steps == 0:
-                phase = workflow == .create ? .preparing : .working
+            case .running where workflow == .depth:
+                phase = .working
+            case .running where steps == 0, .running where workflow == .create && step == 0:
+                phase = .preparing
             case .running:
-                phase = step == 0 ? .preparing : step < steps ? .sampling : .finishing
+                // an upscale reports finished tiles before each one, so 0 of 9 is under way
+                phase = step < steps ? .sampling : .finishing
             }
         }
 
@@ -128,8 +132,12 @@ final class Generator {
         guard let task else { return }
         cancel(engine: engine)
         let deadline = ContinuousClock.now + .seconds(2)
-        while isBusy, ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(50))
+        while isBusy, !Task.isCancelled, ContinuousClock.now < deadline {
+            do {
+                try await Task.sleep(for: .milliseconds(50))
+            } catch {
+                break
+            }
         }
         if isBusy { task.cancel() }
     }
@@ -187,7 +195,7 @@ final class Generator {
                 return .failed(status.error ?? "The engine could not finish this request.")
             }
         } catch is CancellationError {
-            return .interrupted
+            return cancelRequested ? .cancelled : .interrupted
         } catch EngineError.unreachable {
             engine.connectionLost()
             return .failed(EngineError.unreachable.localizedDescription)

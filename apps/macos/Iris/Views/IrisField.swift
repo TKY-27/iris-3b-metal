@@ -39,6 +39,8 @@ struct IrisCanvas<Content: View>: View {
                 )
                 .accessibilityHidden(true)
             }
+            // the readout over an opaque field is white: keep it legible before the first frame
+            .background(opaque ? Color.black : Color.clear)
             .onGeometryChange(for: CGSize.self, of: \.size) { pointer.size = $0 }
             .onContinuousHover { phase in
                 switch phase {

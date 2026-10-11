@@ -17,6 +17,7 @@
 		2C3D28ECE1AAA42263E1F9B5 /* ImageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE79B7408A9F0FD62DC48860 /* ImageViews.swift */; };
 		41EB15D6EE60504569F825EE /* EntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7FAC02D85175121EBA7B059 /* EntryView.swift */; };
 		5F129A45A90F958E246210A6 /* RecentGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4F387D4E008A7B2B5CBED7 /* RecentGroups.swift */; };
+		605169681715D9A2573004CA /* ComparisonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 676640BD8BF9A7B8F01632AE /* ComparisonView.swift */; };
 		65417B31ADDB6795B064E649 /* ChatReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05DD488E16ABA5CC753E266 /* ChatReference.swift */; };
 		75A48F68C1D6C9BB19829935 /* Workflow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 229AA906893F406BE138C93D /* Workflow.swift */; };
 		75B1409E24A1F099E20E0647 /* ImageFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 028CBCFB30524265C3747C92 /* ImageFiles.swift */; };
@@ -39,6 +40,7 @@
 		E423436B3876EAB7791317AA /* LibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86BC20A1AD5DFA2E4DA9C08B /* LibraryTests.swift */; };
 		EC90E1E92324D29E473942A2 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3052215FC813F2DED84C3EEF /* Theme.swift */; };
 		ED9A55AE6027F04596E4EEA8 /* IrisField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE9AB2B83FAB425FAD2B5798 /* IrisField.swift */; };
+		F787430C2D46251B91A1EC31 /* ComparisonWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF9BBC82FD8A23BABE986B5 /* ComparisonWindow.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -65,7 +67,9 @@
 		553E0AFFE0B2EB105BB5FB5F /* IrisApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IrisApp.swift; sourceTree = "<group>"; };
 		62BF855623CC51F09C44C79A /* ComposerModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerModelTests.swift; sourceTree = "<group>"; };
 		62C5A227C7DEC0797EE3D9E5 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
+		676640BD8BF9A7B8F01632AE /* ComparisonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComparisonView.swift; sourceTree = "<group>"; };
 		6C925AC3629ADE5F36235D56 /* Sidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar.swift; sourceTree = "<group>"; };
+		6DF9BBC82FD8A23BABE986B5 /* ComparisonWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComparisonWindow.swift; sourceTree = "<group>"; };
 		819BB89CC395336DDE21D4DB /* EngineViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineViews.swift; sourceTree = "<group>"; };
 		8646A4D90EA5D7F897967343 /* IrisTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = IrisTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		86BC20A1AD5DFA2E4DA9C08B /* LibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryTests.swift; sourceTree = "<group>"; };
@@ -94,6 +98,8 @@
 			isa = PBXGroup;
 			children = (
 				EF739398F0E9A4EE8D8BBDAF /* AllImagesView.swift */,
+				676640BD8BF9A7B8F01632AE /* ComparisonView.swift */,
+				6DF9BBC82FD8A23BABE986B5 /* ComparisonWindow.swift */,
 				E815011BD23B5A1ACB0E1C0F /* Composer.swift */,
 				A13535A43E9F1A02F60B5EC4 /* ContentView.swift */,
 				4C47749D10258959E9C218C8 /* ConversationView.swift */,
@@ -285,6 +291,8 @@
 			files = (
 				18C56C393CB447395951B17E /* AllImagesView.swift in Sources */,
 				65417B31ADDB6795B064E649 /* ChatReference.swift in Sources */,
+				605169681715D9A2573004CA /* ComparisonView.swift in Sources */,
+				F787430C2D46251B91A1EC31 /* ComparisonWindow.swift in Sources */,
 				A79D2E439D7043EBD606CB7E /* Composer.swift in Sources */,
 				94F162C4890CDEB6EF47A44C /* ContentView.swift in Sources */,
 				0FFE3664F334ABC419054AD5 /* ConversationView.swift in Sources */,

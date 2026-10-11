@@ -59,10 +59,12 @@ struct LibraryStore: Sendable {
     func load(readOnly: Bool = false) -> Loaded {
         var loaded = readIndex(readOnly: readOnly)
         loaded.readOnly = loaded.readOnly || readOnly
-        for c in loaded.snapshot.conversations.indices {
-            for e in loaded.snapshot.conversations[c].entries.indices
-            where loaded.snapshot.conversations[c].entries[e].outcome == .running {
-                loaded.snapshot.conversations[c].entries[e].outcome = .interrupted
+        if !loaded.readOnly {
+            for c in loaded.snapshot.conversations.indices {
+                for e in loaded.snapshot.conversations[c].entries.indices
+                where loaded.snapshot.conversations[c].entries[e].outcome == .running {
+                    loaded.snapshot.conversations[c].entries[e].outcome = .interrupted
+                }
             }
         }
         guard !loaded.readOnly else { return loaded }

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// What a conversation entry asks the engine to do.
@@ -10,7 +11,7 @@ enum Workflow: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .create: "Create Image"
         case .depth: "Estimate Depth"
-        case .upscale: "Upscale ×4"
+        case .upscale: "Restore and Upscale"
         }
     }
 
@@ -18,15 +19,71 @@ enum Workflow: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .create: "photo"
         case .depth: "square.3.layers.3d.down.right"
-        case .upscale: "plus.magnifyingglass"
+        case .upscale: "wand.and.rays"
         }
     }
 
     /// Depth and upscaling take an image instead of a prompt.
     var needsImage: Bool { self != .create }
 
-    /// What the composer offers for an attached image.
+    /// What the composer offers for an attached image. Restoration comes only with upscaling:
+    /// the model was trained on 4× enlargements, and at the same size it redraws fine structure
+    /// (`scripts/restore_study.py`).
     static let imageWorkflows: [Workflow] = [.upscale, .depth]
+}
+
+/// The size the engine's restorer makes of an image. Like `iris-metal serve` by default, it
+/// first reduces an input larger than 512 pixels on the short side or 1024 on the long side
+/// (upstream `fit_budget`), then enlarges it four times.
+enum Upscaling {
+    static let factor = 4
+    /// The widest input the engine accepts (`check_upscale_input`).
+    static let maxAspect = 4
+
+    /// The copy the restorer works on: the input, or a reduced copy of a large one.
+    static func workingSize(for input: CGSize) -> CGSize {
+        let (width, height) = (input.width, input.height)
+        let scale = min(1, 512 / min(width, height), 1024 / max(width, height))
+        guard scale < 1 else { return input }
+        // Python's round(), as fit_budget uses
+        func side(_ length: CGFloat) -> CGFloat { max(1, (length * scale).rounded(.toNearestOrEven)) }
+        return CGSize(width: side(width), height: side(height))
+    }
+
+    static func output(for input: CGSize) -> CGSize {
+        let working = workingSize(for: input)
+        return CGSize(width: working.width * CGFloat(factor), height: working.height * CGFloat(factor))
+    }
+
+    static func accepts(_ input: CGSize) -> Bool {
+        min(input.width, input.height) > 0 && max(input.width, input.height) <= CGFloat(maxAspect) * min(input.width, input.height)
+    }
+
+    /// Why an image is not upscaled, or nil when it can be: the engine refuses a long, thin one,
+    /// and one larger than the result would only come out smaller.
+    static func refusal(for input: CGSize) -> String? {
+        guard accepts(input) else {
+            return "Too long and thin to upscale: the long side may be at most \(maxAspect) times the short side (this is \(input.pixelLabel))."
+        }
+        guard output(for: input).width > input.width else {
+            return "Already larger than an upscale (\(output(for: input).pixelLabel)): the restorer works on a copy reduced to \(workingSize(for: input).pixelLabel)."
+        }
+        return nil
+    }
+}
+
+extension CGSize {
+    /// "2048 × 1536"
+    var pixelLabel: String { "\(Int(width)) × \(Int(height))" }
+}
+
+extension String {
+    /// The caption as VoiceOver should say it: "896 by 1152 to 2048 by 2632, 43 sec".
+    var spokenSizes: String {
+        replacingOccurrences(of: " × ", with: " by ")
+            .replacingOccurrences(of: " → ", with: " to ")
+            .replacingOccurrences(of: " · ", with: ", ")
+    }
 }
 
 /// The native Iris-3B resolutions: the aspect buckets of its 1024-pixel
@@ -65,8 +122,9 @@ struct ImageSize: Hashable, Identifiable, Codable, Sendable {
 }
 
 /// Five step counts named by what they trade; the number stays one click away.
+/// Draft (4 steps) shows only the composition; Standard is the app's default.
 enum QualityPreset: Int, CaseIterable, Identifiable, Sendable {
-    case draft = 10, fast = 15, standard = 20, high = 30, maximum = 50
+    case draft = 4, fast = 10, standard = 20, high = 30, maximum = 50
 
     var id: Int { rawValue }
     var steps: Int { rawValue }

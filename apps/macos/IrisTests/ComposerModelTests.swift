@@ -13,13 +13,57 @@ final class ComposerModelTests: XCTestCase {
         return defaults
     }
 
+    /// The sizes upstream `fit_budget` then 4x gives (computed with it in Python).
+    func testUpscalingPredictsTheEnginesOutputSize() {
+        let cases: [(CGSize, CGSize)] = [
+            (CGSize(width: 1024, height: 1024), CGSize(width: 2048, height: 2048)),
+            (CGSize(width: 1280, height: 768), CGSize(width: 3412, height: 2048)),
+            (CGSize(width: 256, height: 256), CGSize(width: 1024, height: 1024)),
+            (CGSize(width: 4032, height: 3024), CGSize(width: 2732, height: 2048)),
+            (CGSize(width: 853, height: 1280), CGSize(width: 2048, height: 3072)),
+            (CGSize(width: 1023, height: 511), CGSize(width: 4092, height: 2044)),
+            (CGSize(width: 1025, height: 1024), CGSize(width: 2048, height: 2048)),  // 512.5 rounds to even
+        ]
+        for (input, output) in cases {
+            XCTAssertEqual(Upscaling.output(for: input), output, "\(input)")
+        }
+        XCTAssertTrue(Upscaling.accepts(CGSize(width: 1024, height: 256)))
+        XCTAssertFalse(Upscaling.accepts(CGSize(width: 1025, height: 256)))
+        XCTAssertFalse(Upscaling.accepts(.zero))
+    }
+
+    /// Offered only when the engine takes the image and the result comes out larger.
+    func testUpscalingIsRefusedWhenItWouldNotEnlarge() {
+        XCTAssertNil(Upscaling.refusal(for: CGSize(width: 1024, height: 1024)))
+        XCTAssertNil(Upscaling.refusal(for: CGSize(width: 384, height: 384)))
+        XCTAssertNotNil(Upscaling.refusal(for: CGSize(width: 2048, height: 2048)))  // an upscale
+        XCTAssertNotNil(Upscaling.refusal(for: CGSize(width: 4032, height: 3024)))  // a 12 MP photo
+        XCTAssertNotNil(Upscaling.refusal(for: CGSize(width: 2000, height: 400)))  // 5:1
+    }
+
+    func testFileNamesSayWhatWasDoneOnce() {
+        let created = Entry(workflow: .create, request: GenerationRequest(
+            prompt: "A red fox in the snow", width: 1024, height: 1024, steps: 20, cfgScale: 3, seed: 1, negativePrompt: ""
+        ))
+        XCTAssertEqual(created.fileName, "a-red-fox-in-the-snow.png")
+        let upscale = Entry(workflow: .upscale, inputName: created.fileName)
+        XCTAssertEqual(upscale.fileName, "a-red-fox-in-the-snow-upscaled.png")
+        XCTAssertEqual(Entry(workflow: .upscale, inputName: upscale.fileName).fileName, "a-red-fox-in-the-snow-upscaled.png")
+        XCTAssertEqual(Entry(workflow: .depth, inputName: upscale.fileName).fileName, "a-red-fox-in-the-snow-depth.png")
+        XCTAssertEqual(Entry(workflow: .depth, inputName: "IMG_0042.HEIC").fileName, "img-0042-depth.png")
+        let prompt = Entry(workflow: .create, request: GenerationRequest(
+            prompt: "Ocean depth", width: 1024, height: 1024, steps: 20, cfgScale: 3, seed: 1, negativePrompt: ""
+        ))
+        XCTAssertEqual(prompt.fileName, "ocean-depth.png")
+    }
+
     func testPresetsNameTheirNumbersAndFindTheNearest() {
-        XCTAssertEqual(QualityPreset.allCases.map(\.steps), [10, 15, 20, 30, 50])
+        XCTAssertEqual(QualityPreset.allCases.map(\.steps), [4, 10, 20, 30, 50])
         XCTAssertEqual(GenerationSettings().steps, QualityPreset.standard.steps)
         XCTAssertEqual(GenerationSettings().cfgScale, 3)
         XCTAssertNil(QualityPreset(steps: 100))
         XCTAssertEqual(QualityPreset.nearest(to: 100), .maximum)
-        XCTAssertEqual(QualityPreset.nearest(to: 17), .fast)
+        XCTAssertEqual(QualityPreset.nearest(to: 12), .fast)
         XCTAssertEqual(AdherencePreset.nearest(to: 3.4), .balanced)
 
         var settings = GenerationSettings()
@@ -95,9 +139,15 @@ final class ComposerModelTests: XCTestCase {
         XCTAssertEqual(sampling.phase, .sampling)
         XCTAssertEqual(sampling.percent, 65)
         XCTAssertEqual(P(.running, step: 20, steps: 20, workflow: .create).phase, .finishing)
-        let upscale = P(.running, step: 0, steps: 0, workflow: .upscale)
-        XCTAssertEqual(upscale.phase, .working)
-        XCTAssertNil(upscale.fraction)
+        // an upscale counts tiles, reported before each one
+        XCTAssertEqual(P(.running, step: 0, steps: 0, workflow: .upscale).phase, .preparing)
+        let tiles = P(.running, step: 4, steps: 9, workflow: .upscale)
+        XCTAssertEqual(tiles.phase, .sampling)
+        XCTAssertEqual(tiles.percent, 44)
+        XCTAssertEqual(P(.running, step: 0, steps: 9, workflow: .upscale).fraction, 0)
+        let depth = P(.running, step: 0, steps: 0, workflow: .depth)
+        XCTAssertEqual(depth.phase, .working)
+        XCTAssertNil(depth.fraction)
         XCTAssertNil(P(.running, step: 0, steps: 20, workflow: .create).fraction)
     }
 
@@ -115,6 +165,21 @@ final class ComposerModelTests: XCTestCase {
         workspace.reuse(GenerationRequest(prompt: "fox", width: 1024, height: 1024, steps: 30, cfgScale: 3, seed: 1, negativePrompt: ""))
         XCTAssertEqual(workspace.workflow, .create)
         XCTAssertEqual(workspace.prompt, "fox")
+    }
+
+    /// The engine refuses to upscale an image wider than 4:1, so the composer does not send one;
+    /// depth takes any shape.
+    func testATooNarrowImageCannotBeUpscaled() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = Workspace(library: Library(store: LibraryStore(root: root)), defaults: try scratchDefaults())
+        workspace.attachment = Workspace.Attachment(
+            url: URL(fileURLWithPath: "/tmp/strip.png"), name: "strip.png", pixelSize: CGSize(width: 2000, height: 400)
+        )
+        workspace.imageWorkflow = .upscale
+        XCTAssertFalse(workspace.canSubmit)
+        workspace.imageWorkflow = .depth
+        XCTAssertTrue(workspace.canSubmit)
     }
 
     func testRecentChatsAreGroupedByDay() throws {
