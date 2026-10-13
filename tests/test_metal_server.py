@@ -459,7 +459,8 @@ def test_remote_original_omitted_controls_use_checkpoint_defaults_on_cold_and_wa
             return super().__call__(prompts, height, width, steps, on_step, **kwargs)
 
     models = pipe.runner.models
-    models.pipe = models.original = None
+    models.pipe = None
+    models._generation.clear()
     models._load_generation = lambda model: Custom()
     jobs = []
     for _ in range(2):

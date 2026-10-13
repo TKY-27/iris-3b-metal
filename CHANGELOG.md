@@ -2,6 +2,8 @@
 
 ## Unreleased (engine and macOS app)
 
+- Reuse identical Turbo text conditioning within a request and shared modulation within each step, with bitwise reference parity. Preserve Turbo's bounded CPU prompt cache across model switches while unloading GPU weights.
+- Clear the gallery filter when the search cancel button is clicked after focus leaves the field; keep the gallery background drawing during generation, with reduced-motion and hidden-window pausing preserved.
 - Add the official Iris-3B Turbo full-parameter checkpoint with its fixed four-step deterministic flow-Euler sampler. Download and retain Original and Turbo separately; preserve Original guidance, negative prompts and step controls.
 - Save the selected model, sampler, precision, checkpoint provenance and generation settings in PNG metadata and library entries. Advertise engine model capabilities so older engines cannot silently handle Turbo as Original.
 - Restore the pointer-reactive liquid field in the gallery background and running tile, with an iris-flower silhouette, reduced-motion support and idle/hidden-window pausing.

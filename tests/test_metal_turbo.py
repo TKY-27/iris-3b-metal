@@ -93,6 +93,34 @@ def test_turbo_pipeline_uses_only_positive_prompt_and_reports_four_steps(tmp_pat
     assert not pipe.loaded
 
 
+def test_turbo_prepares_text_once_per_request_and_recovers_after_cancel(tmp_path, monkeypatch):
+    from test_metal_engine import _inputs, _randomized_model
+
+    _pipeline(tmp_path, monkeypatch)
+    write_distill(tmp_path)
+    pipe = IrisPipeline(tmp_path, device="cpu")
+    model = pipe._engine = _randomized_model()
+    _, _, states, mask = _inputs(batch=1)
+    pipe._encodings["cat"] = (states, mask)
+    calls = []
+    handle = model.y_embedder.register_forward_hook(lambda *_: calls.append(1))
+    try:
+        expected = pipe(["cat"], height=16, width=32, seed=5)[0].tobytes()
+        assert len(calls) == 1
+
+        def cancel(*_):
+            raise RuntimeError("cancelled")
+
+        with pytest.raises(RuntimeError, match="cancelled"):
+            pipe(["cat"], height=16, width=32, seed=5, on_step=cancel)
+        assert len(calls) == 2
+        actual = pipe(["cat"], height=16, width=32, seed=5)[0].tobytes()
+        assert len(calls) == 3
+        assert actual == expected
+    finally:
+        handle.remove()
+
+
 @pytest.mark.parametrize("control", ["steps", "cfg_scale", "negative_prompt", "order", "shift"])
 def test_turbo_api_rejects_controls_instead_of_silently_ignoring(control):
     defaults = SimpleNamespace(steps=100, cfg_scale=3.0, negative_prompt="")
@@ -130,6 +158,9 @@ def test_model_switches_unload_before_load_and_preserve_tasks():
     assert models.resident == "depth"
     assert models.text_to_image() is original
     assert log == [("unload", "original"), ("load", "turbo"), ("unload", "turbo"), ("unload", "turbo")]
+    assert models.text_to_image("turbo") is turbo
+    assert not original.loaded and not turbo.loaded
+    assert sum(event == ("load", "turbo") for event in log) == 1
 
 
 def test_png_and_job_preserve_reproduction_metadata():
@@ -334,4 +365,4 @@ def test_http_startup_and_turbo_first_request_never_resolve_original(tmp_path, m
     assert models.defaults.steps == 100
     assert models.text_to_image("turbo").model == "turbo"
     assert calls == ["turbo"]
-    assert models.original is None
+    assert "original" not in models._generation

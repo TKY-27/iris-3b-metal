@@ -10,6 +10,7 @@ import torch
 from PIL import Image
 
 from iris3b.flow.solver import FlowDPMSolver
+from iris3b.models.dit import IrisDiT
 from iris3b.sampling import generate_few_step
 from iris_metal.loading import load_config, load_dit
 from iris_metal.model import MetalIris, require_finite
@@ -355,12 +356,25 @@ class IrisPipeline:
 
         class ReportingModel:
             cfg = model.cfg
+            prepared_text = None
 
             def parameters(self):
                 return model.parameters()
 
-            def __call__(self, *args, **kwargs):
-                out = model(*args, **kwargs)
+            def __call__(self, x, t, y, y_mask):
+                if isinstance(model, IrisDiT):
+                    if self.prepared_text is None:
+                        self.prepared_text = model.embed_text(y, y_mask)
+                    out = model(
+                        x,
+                        t,
+                        y,
+                        y_mask=y_mask,
+                        prepared_text=self.prepared_text,
+                        precompute_modulation=model.cfg.modulation == "shared_bias",
+                    )
+                else:
+                    out = model(x, t, y, y_mask=y_mask)
                 reporter.queued()
                 return out
 
