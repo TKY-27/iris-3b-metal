@@ -23,21 +23,20 @@ final class LibraryTests: XCTestCase {
         let project = try XCTUnwrap(library?.createProject(named: "Coasts"))
         let conversation = try XCTUnwrap(library?.append(Entry(workflow: .create, request: request("lighthouse")), to: nil, project: project))
         library?.append(Entry(workflow: .create, request: request("harbor"), outcome: .done(seconds: 3)), to: conversation)
-        library?.rename(conversation: conversation, to: "Lighthouses")
         library?.flush()
         library = nil  // "quits", releasing the lock
 
         let reopened = Library(store: LibraryStore(root: root))
         XCTAssertEqual(reopened.projects.map(\.name), ["Coasts"])
         let saved = try XCTUnwrap(reopened.conversation(conversation))
-        XCTAssertEqual(saved.title, "Lighthouses")
+        XCTAssertEqual(saved.title, "lighthouse")
         XCTAssertEqual(saved.projectID, project)
         XCTAssertEqual(saved.entries.map(\.request?.prompt), ["lighthouse", "harbor"])
         // the first entry never finished before the "quit"
         XCTAssertEqual(saved.entries.map(\.outcome), [.interrupted, .done(seconds: 3)])
     }
 
-    func testDeletingAConversationRemovesItsFilesButDeletingAProjectKeepsConversations() async throws {
+    func testDeletingAnImageRemovesItsFilesButDeletingAProjectKeepsImages() async throws {
         let library = Library(store: LibraryStore(root: root))
         let project = try XCTUnwrap(library.createProject(named: "Tests"))
         let entry = Entry(workflow: .create, request: request("fox"), outcome: .done(seconds: 1))
@@ -48,7 +47,7 @@ final class LibraryTests: XCTestCase {
         XCTAssertNil(library.conversation(conversation)?.projectID)
         XCTAssertNotNil(library.conversation(conversation))
 
-        library.delete(conversation: conversation)
+        library.delete(entry: entry.id)
         library.flush()
         XCTAssertFalse(FileManager.default.fileExists(atPath: library.imageURL(entry.id).path))
     }
@@ -185,10 +184,41 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(loaded.snapshot.conversations.flatMap(\.entries).map(\.id), [id])
     }
 
+    func testVersionOneHistoryPreservesImagesAndMigratesOnSave() throws {
+        let store = LibraryStore(root: root)
+        let entry = Entry(workflow: .create, request: request("legacy fox"), outcome: .done(seconds: 2))
+        let conversation = Conversation(title: "Legacy chat", projectID: nil, entries: [entry])
+        var snapshot = LibrarySnapshot(conversations: [conversation])
+        snapshot.version = 1
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot)) as? [String: Any])
+        var chats = try XCTUnwrap(json["conversations"] as? [[String: Any]])
+        var entries = try XCTUnwrap(chats[0]["entries"] as? [[String: Any]])
+        var legacyRequest = try XCTUnwrap(entries[0]["request"] as? [String: Any])
+        legacyRequest.removeValue(forKey: "model")
+        entries[0]["request"] = legacyRequest
+        chats[0]["entries"] = entries
+        json["conversations"] = chats
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: json).write(to: store.indexURL)
+        let image = Data([1, 2, 3])
+        try store.writeImage(image, for: entry.id)
+
+        let library = Library(store: store)
+        XCTAssertFalse(library.isReadOnly)
+        XCTAssertEqual(library.conversations.first?.entries.first?.request?.model, .original)
+        XCTAssertEqual(library.conversations.first?.entries.first?.id, entry.id)
+        library.createProject(named: "New project")
+        library.flush()
+        let saved = try JSONDecoder().decode(LibrarySnapshot.self, from: Data(contentsOf: store.indexURL))
+        XCTAssertEqual(saved.version, LibrarySnapshot.currentVersion)
+        XCTAssertEqual(saved.conversations, [conversation])
+        XCTAssertEqual(try Data(contentsOf: store.imageURL(entry.id)), image)
+    }
+
     func testALibraryFromANewerVersionIsLeftAlone() throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let index = root.appending(path: "Library.json")
-        let newer = Data(#"{"version":2,"projects":[],"conversations":[],"albums":[]}"#.utf8)
+        let newer = Data(#"{"version":\#(LibrarySnapshot.currentVersion + 1),"projects":[],"conversations":[],"albums":[]}"#.utf8)
         try newer.write(to: index)
 
         let library = Library(store: LibraryStore(root: root))

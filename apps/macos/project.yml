@@ -30,11 +30,6 @@ targets:
         # the engine is a local process on 127.0.0.1
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
-        # a chat dragged onto a project in the sidebar
-        UTExportedTypeDeclarations:
-          - UTTypeIdentifier: io.github.tky27.iris.chat
-            UTTypeDescription: Iris chat
-            UTTypeConformsTo: [public.data]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.tky27.iris

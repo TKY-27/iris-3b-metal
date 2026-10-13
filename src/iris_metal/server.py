@@ -42,9 +42,11 @@ from urllib.parse import parse_qs, urlsplit
 
 from PIL import Image
 
+from iris3b.config import SampleConfig
 from iris_metal import __version__
 from iris_metal.pipeline import IrisPipeline, release_memory
 from iris_metal.tasks import check_upscale_input
+from iris_metal.turbo import png_info
 
 MAX_JSON_BYTES = 64 * 1024
 MAX_UPLOAD_BYTES = 64 * 1024 * 1024
@@ -78,6 +80,7 @@ class Job:
     png: bytes | None = None
     created: float = field(default_factory=time.time)
     seconds: float | None = None
+    metadata: dict | None = None
     cancel: threading.Event = field(default_factory=threading.Event)
 
     def on_step(self, step: int, total: int) -> None:
@@ -98,14 +101,24 @@ class Job:
             "seconds": self.seconds,
             "error": self.error,
             "params": self.params,
+            "metadata": self.metadata,
         }
 
 
 class Models:
     """At most one resident network: asking for another task releases the current one."""
 
-    def __init__(self, pipe: IrisPipeline, load_task: Callable[[str], object]):
+    def __init__(
+        self,
+        pipe: IrisPipeline | None,
+        load_task: Callable[[str], object],
+        load_generation=None,
+        defaults=None,
+    ):
         self.pipe = pipe
+        self.original = pipe
+        self._defaults = defaults or (pipe.cfg.sample if pipe is not None else SampleConfig())
+        self._load_generation = load_generation
         self._load_task = load_task
         self._task: tuple[str, object] | None = None
 
@@ -113,18 +126,46 @@ class Models:
     def resident(self) -> str | None:
         if self._task is not None:
             return self._task[0]
-        return "text-to-image" if self.pipe.loaded else None
+        return "text-to-image" if self.pipe is not None and self.pipe.loaded else None
 
-    def text_to_image(self) -> IrisPipeline:
+    def text_to_image(self, model: str = "original") -> IrisPipeline:
         if self._task is not None:
             self._task = None
             release_memory()
+        if self.pipe is None or model != getattr(self.pipe, "model", "original"):
+            if self.pipe is not None:
+                self.pipe.unload()
+            self.pipe = (
+                self.original
+                if model == "original" and self.original is not None
+                else self._load_generation(model)
+            )
+            if model == "original":
+                self.original = self.pipe
+                self._defaults = self.pipe.cfg.sample
         return self.pipe
+
+    @property
+    def defaults(self):
+        return self._defaults
+
+    @property
+    def supported_models(self):
+        return ["original", "turbo"] if self._load_generation is not None else ["original"]
+
+    @property
+    def loaded_model(self):
+        return (
+            getattr(self.pipe, "model", "original")
+            if self.pipe is not None and self.pipe.loaded and self._task is None
+            else None
+        )
 
     def task(self, name: str):
         if self._task is None or self._task[0] != name:
             self._task = None
-            self.pipe.unload()
+            if self.pipe is not None:
+                self.pipe.unload()
             release_memory()  # also after a different task model, which unload() does not cover
             self._task = (name, self._load_task(name))
         return self._task[1]
@@ -150,6 +191,13 @@ def validate(body, defaults) -> dict:
     """Request JSON -> generation parameters; raises ValueError with a user-facing message."""
     if not isinstance(body, dict):
         raise ValueError("the request body must be a JSON object")
+    model = body.get("model", "original")
+    if model not in ("original", "turbo"):
+        raise ValueError("model must be original or turbo")
+    if model == "turbo":
+        for control in ("steps", "cfg_scale", "negative_prompt", "order", "shift"):
+            if body.get(control) is not None:
+                raise ValueError(f"{control} does not apply to Turbo; omit sampling controls")
     prompt = body.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("prompt must be a non-empty string")
@@ -158,6 +206,7 @@ def validate(body, defaults) -> dict:
         raise ValueError("negative_prompt must be a string")
     params = {
         "prompt": prompt,
+        "model": model,
         "width": _field(body, "width", 1024, (int,)),
         "height": _field(body, "height", 1024, (int,)),
         "steps": _field(body, "steps", defaults.steps, (int,)),
@@ -165,6 +214,8 @@ def validate(body, defaults) -> dict:
         "seed": _field(body, "seed", 0, (int,)),
         "negative_prompt": defaults.negative_prompt if negative_prompt is None else negative_prompt,
     }
+    if model == "turbo":
+        params.update(steps=4, cfg_scale=1.0, negative_prompt="")
     width, height = params["width"], params["height"]
     if width < 16 or height < 16 or width % 16 or height % 16 or width * height > MAX_PIXELS:
         raise ValueError(f"width and height must be multiples of 16 with at most {MAX_PIXELS} pixels")
@@ -221,7 +272,7 @@ def decode_upload(data: bytes) -> Image.Image:
 
 def png(image: Image.Image) -> bytes:
     buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
+    image.save(buffer, format="PNG", pnginfo=png_info(image))
     return buffer.getvalue()
 
 
@@ -290,11 +341,30 @@ class JobRunner:
                 job.status = "cancelled" if job.cancel.is_set() else status
 
 
-def text_to_image_job(models: Models, params: dict) -> Callable[[Job], bytes]:
+def text_to_image_job(
+    models: Models, params: dict, default_controls: tuple[str, ...] = ()
+) -> Callable[[Job], bytes]:
     def work(job: Job) -> bytes:
         options = dict(params)
         prompt = options.pop("prompt")
-        return png(models.text_to_image()([prompt], on_step=job.on_step, **options)[0])
+        model = options.pop("model", "original")
+        if model == "turbo":
+            for control in ("steps", "cfg_scale", "negative_prompt"):
+                options.pop(control, None)
+        pipe = models.text_to_image(model)
+        if model == "original" and default_controls:
+            # A remote checkpoint's defaults are unknown until its first lazy
+            # load. Preserve JSON omissions so cold and warm requests agree.
+            for control in default_controls:
+                options[control] = getattr(pipe.cfg.sample, control)
+            normalized = validate({"prompt": prompt, "model": model, **options}, pipe.cfg.sample)
+            job.params.update(normalized)
+            options = {key: value for key, value in normalized.items() if key not in ("prompt", "model")}
+        job.raise_if_cancelled()
+        image = pipe([prompt], on_step=job.on_step, **options)[0]
+        job.raise_if_cancelled()
+        job.metadata = getattr(pipe, "last_metadata", None)
+        return png(image)
 
     return work
 
@@ -392,6 +462,8 @@ def make_handler(runner: JobRunner):
                         "queued": runner.queued,
                         "engine_version": __version__,
                         "api_version": 1,
+                        "supported_models": models.supported_models,
+                        "loaded_model": models.loaded_model,
                     },
                 )
                 return
@@ -437,8 +509,16 @@ def make_handler(runner: JobRunner):
             try:
                 body = self.rfile.read(length)
                 if url.path == "/v1/images":
-                    params = validate(json.loads(body or b"{}"), models.pipe.cfg.sample)
-                    job = runner.submit("image", params, text_to_image_job(models, params))
+                    request_body = json.loads(body or b"{}")
+                    params = validate(request_body, models.defaults)
+                    if params["model"] not in models.supported_models:
+                        raise ValueError("Turbo is not configured on this engine")
+                    defaults = tuple(
+                        control
+                        for control in ("steps", "cfg_scale", "negative_prompt")
+                        if request_body.get(control) is None
+                    )
+                    job = runner.submit("image", params, text_to_image_job(models, params, defaults))
                 elif url.path == "/v1/depth":
                     params = depth_params(query)
                     job = runner.submit("depth", params, depth_job(models, decode_upload(body), **params))

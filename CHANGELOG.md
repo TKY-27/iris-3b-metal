@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased (engine and macOS app)
+
+- Add the official Iris-3B Turbo full-parameter checkpoint with its fixed four-step deterministic flow-Euler sampler. Download and retain Original and Turbo separately; preserve Original guidance, negative prompts and step controls.
+- Save the selected model, sampler, precision, checkpoint provenance and generation settings in PNG metadata and library entries. Advertise engine model capabilities so older engines cannot silently handle Turbo as Original.
+- Restore the pointer-reactive liquid field in the gallery background and running tile, with an iris-flower silhouette, reduced-motion support and idle/hidden-window pausing.
+- Bound gallery thumbnail decoding and cache memory; use native progress, reduce-motion behavior, keyboard selection and Quick Look. Fix seed-field focus, a split-view resize crash and the prompt bar's position in empty galleries.
+- Advance the library format to 2, preserving existing chat history while preventing older apps from dropping Turbo settings. Add same-seed regeneration.
+- Replace the chat workspace with a gallery. Every request is generated on its own, so results are now listed by day, newest first, with each image's prompt, seed and steps, instead of as a conversation.
+- Move the prompt bar below the gallery with a Generate button; the prompt stays after generating so it can be refined. ⌘N puts the cursor in it.
+- Add a details panel (⌘I) with the full prompt, size, steps, guidance, seed (with Copy), creation date, generation time and project, and with Reuse Prompt and Settings and Generate with New Seed.
+- Search images by prompt words or exact seed; move single images between projects from their menu, the details panel, or by dragging them onto a project.
+- The sidebar lists All Images and projects. Chats of earlier versions keep their images, which appear in the gallery; chat titles and pins are kept in the library file but no longer shown.
+
 ## 0.4.0 — 2026-10-11 (macOS app; Python engine 0.3.0)
 
 - Validate Metal kernel offsets before launch, and report Python engine and HTTP API versions so the app can flag unsupported combinations.

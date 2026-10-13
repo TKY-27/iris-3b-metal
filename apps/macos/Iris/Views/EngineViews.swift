@@ -52,7 +52,7 @@ struct EngineBanner: View {
                 ProgressView().controlSize(.small)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Starting the engine")
-                    Text("The first start downloads the Iris-3B and Qwen3-VL weights, about 21 GB.")
+                    Text("Model weights download when first used.")
                         .foregroundStyle(.secondary)
                     if let line = engine.logTail.last {
                         Text(line)

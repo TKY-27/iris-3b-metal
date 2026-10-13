@@ -11,32 +11,39 @@ struct GenerationControls: View {
     var body: some View {
         @Bindable var workspace = workspace
         VStack(alignment: .leading, spacing: 16) {
-            PresetRow(
-                title: "Quality",
-                note: "More steps refine detail and take longer. Iris-3B was evaluated at \(GenerationSettings.evaluatedSteps).",
-                valueTitle: workspace.settings.qualityTitle,
-                presets: QualityPreset.allCases.map(\.title),
-                index: QualityPreset.allCases.firstIndex(of: QualityPreset.nearest(to: workspace.settings.steps)) ?? 2,
-                select: { workspace.settings.steps = QualityPreset.allCases[$0].steps },
-                expanded: $showsExactSteps
-            ) {
-                ExactNumber(title: "Steps", value: $workspace.settings.steps, range: GenerationSettings.stepRange)
-                Text("Fewer steps are faster but soften fine detail such as hands. Use \(GenerationSettings.evaluatedSteps) for final images.")
+            if workspace.settings.model == .original {
+                PresetRow(
+                    title: "Quality",
+                    note: "More steps refine detail and take longer. Iris-3B was evaluated at \(GenerationSettings.evaluatedSteps).",
+                    valueTitle: workspace.settings.qualityTitle,
+                    presets: QualityPreset.allCases.map(\.title),
+                    index: QualityPreset.allCases.firstIndex(of: QualityPreset.nearest(to: workspace.settings.steps)) ?? 2,
+                    select: { workspace.settings.steps = QualityPreset.allCases[$0].steps },
+                    expanded: $showsExactSteps
+                ) {
+                    ExactNumber(title: "Steps", value: $workspace.settings.steps, range: GenerationSettings.stepRange)
+                    Text("Fewer steps are faster but soften fine detail such as hands. Use \(GenerationSettings.evaluatedSteps) for final images.")
+                }
+                Divider()
+                PresetRow(
+                    title: "Prompt Adherence",
+                    note: "How literally the image follows the prompt (guidance). Very high values can look harsh.",
+                    valueTitle: workspace.settings.adherenceTitle,
+                    presets: AdherencePreset.allCases.map(\.title),
+                    index: AdherencePreset.nearest(to: workspace.settings.cfgScale).rawValue,
+                    select: { workspace.settings.cfgScale = AdherencePreset.allCases[$0].cfgScale },
+                    expanded: $showsExactGuidance
+                ) {
+                    ExactGuidance(value: $workspace.settings.cfgScale)
+                    Text("\(AdherencePreset.balanced.cfgScale.formatted()) is the checkpoint's default.")
+                }
+                Divider()
+            } else {
+                Text("Turbo uses four fixed steps with guidance built in.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Divider()
-            PresetRow(
-                title: "Prompt Adherence",
-                note: "How literally the image follows the prompt (guidance). Very high values can look harsh.",
-                valueTitle: workspace.settings.adherenceTitle,
-                presets: AdherencePreset.allCases.map(\.title),
-                index: AdherencePreset.nearest(to: workspace.settings.cfgScale).rawValue,
-                select: { workspace.settings.cfgScale = AdherencePreset.allCases[$0].cfgScale },
-                expanded: $showsExactGuidance
-            ) {
-                ExactGuidance(value: $workspace.settings.cfgScale)
-                Text("\(AdherencePreset.balanced.cfgScale.formatted()) is the checkpoint's default.")
-            }
-            Divider()
             VStack(alignment: .leading, spacing: 8) {
                 Toggle("New seed for every image", isOn: $workspace.settings.randomizeSeed)
                 if !workspace.settings.randomizeSeed {
@@ -47,9 +54,11 @@ struct GenerationControls: View {
                             .frame(width: 110)
                     }
                 }
-                TextField("Avoid", text: $workspace.settings.negativePrompt, prompt: Text("Things to avoid (negative prompt)"), axis: .vertical)
-                    .lineLimit(1...3)
-                    .textFieldStyle(.roundedBorder)
+                if workspace.settings.model == .original {
+                    TextField("Avoid", text: $workspace.settings.negativePrompt, prompt: Text("Things to avoid (negative prompt)"), axis: .vertical)
+                        .lineLimit(1...3)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
             HStack {
                 Spacer()

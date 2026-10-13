@@ -72,8 +72,6 @@ final class Generator {
 
     var isBusy: Bool { active != nil }
 
-    func isRunning(_ conversation: UUID) -> Bool { active?.conversation == conversation }
-
     func isQueued(_ entry: UUID) -> Bool { queued.contains { $0.id == entry } }
 
     /// Adds one text-to-image entry per request to `conversation` (a new one when nil) and runs
@@ -174,6 +172,9 @@ final class Generator {
             try checkCancellation()
             let id: String
             if let request = entry.request {
+                guard engine.health?.supports(request.model) == true else {
+                    return .failed("This engine does not support \(request.model.fullTitle). Update the engine in Settings.")
+                }
                 id = try await client.submit(request)
             } else if let input {
                 let png = try await Task.detached(priority: .userInitiated) { try ImageFiles.uploadPNG(from: input) }.value
@@ -195,6 +196,7 @@ final class Generator {
                 try checkCancellation()
                 try await library.write(png, for: entry.id)
                 try checkCancellation()
+                library.setMetadata(status.metadata, of: entry.id)
                 return .done(seconds: status.seconds ?? 0)
             case .cancelled:
                 return .cancelled

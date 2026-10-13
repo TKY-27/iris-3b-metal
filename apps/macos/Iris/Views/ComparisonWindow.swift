@@ -13,8 +13,8 @@ struct ComparisonWindow: View {
             ComparisonViewer(
                 entry: found.entry, before: library.inputURL(entryID), after: library.imageURL(entryID)
             )
-            // two of these from one chat stay apart in the Window menu
-            .navigationTitle("\(found.conversation.title) — \(ComparisonViewer.afterTitle(found.entry.workflow))")
+            // two of these stay apart in the Window menu
+            .navigationTitle("\(Conversation.title(for: found.entry)) — \(ComparisonViewer.afterTitle(found.entry.workflow))")
         } else {
             ContentUnavailableView(
                 "Nothing to Compare", systemImage: "square.split.2x1",

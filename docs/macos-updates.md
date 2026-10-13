@@ -32,7 +32,7 @@ test ! -e "$candidate" && \
 
 If the candidate directory already exists, choose another new path; do not replace an existing environment. This installs Python engine `0.3.0`; `v0.4.0` is the repository/app release tag. The older repository tag `v0.3.0` predates engine version fields, so the app can connect to it only with a notice that compatibility cannot be fully verified. The current `v0.4.0` source reports engine and API versions.
 
-After confirming the candidate command works, select its absolute `bin/iris-metal` path in Iris Settings and check the engine status. Keep the previous environment until a small generation succeeds. This install command downloads Python package dependencies; model weights download separately on first use. The app never modifies chat history, images or model checkpoints during an engine change.
+After confirming the candidate command works, select its absolute `bin/iris-metal` path in Iris Settings and check the engine status. Keep the previous environment until a small generation succeeds. This install command downloads Python package dependencies; model weights download separately on first use. The app never modifies the image library, images or model checkpoints during an engine change.
 
 ## Maintainer packaging
 

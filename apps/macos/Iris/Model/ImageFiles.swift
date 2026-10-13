@@ -7,27 +7,36 @@ import UniformTypeIdentifiers
 enum ImageFiles {
     private final class Cache: @unchecked Sendable {  // NSCache is thread-safe
         let images = NSCache<NSString, CGImage>()
-        init() { images.totalCostLimit = 384 << 20 }
+        init() {
+            images.totalCostLimit = 128 << 20
+            images.countLimit = 256
+        }
     }
 
     private static let cache = Cache()
+    private static let decoding = DispatchQueue(label: "Iris.ThumbnailDecoder", qos: .userInitiated)
 
     /// The image at `url`, at most `maxPixels` on its long side and upright.
     static func thumbnail(of url: URL, maxPixels: Int) async -> CGImage? {
-        let key = "\(url.path)#\(maxPixels)" as NSString
-        if let cached = cache.images.object(forKey: key) { return cached }
-        let image = await Task.detached(priority: .userInitiated) { () -> CGImage? in
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let key = "\(url.path)#\(maxPixels)"
+        if let cached = cache.images.object(forKey: key as NSString) { return cached }
+        guard !Task.isCancelled else { return nil }
+        let image: CGImage? = await withCheckedContinuation { continuation in
+          decoding.async {
+            // Serial ImageIO decoding bounds transient memory during a fast scroll.
+            if let cached = cache.images.object(forKey: key as NSString) { continuation.resume(returning: cached); return }
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
+            else { continuation.resume(returning: nil); return }
             let options: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
                 kCGImageSourceShouldCacheImmediately: true,
                 kCGImageSourceThumbnailMaxPixelSize: maxPixels,
             ]
-            return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-        }.value
-        if let image {
-            cache.images.setObject(image, forKey: key, cost: image.bytesPerRow * image.height)
+            let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+            if let image { cache.images.setObject(image, forKey: key as NSString, cost: image.bytesPerRow * image.height) }
+            continuation.resume(returning: image)
+          }
         }
         return image
     }

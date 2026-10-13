@@ -4,6 +4,68 @@ import XCTest
 
 @MainActor
 final class ComposerModelTests: XCTestCase {
+    func testTurboKeepsOriginalTuningAndUsesItsOwnFixedRequest() throws {
+        var settings = GenerationSettings()
+        settings.steps = 48
+        settings.cfgScale = 4.25
+        settings.negativePrompt = "blur"
+        settings.randomizeSeed = false
+        settings.seed = 42
+        settings.model = .turbo
+        let turbo = settings.request(for: "a fox")
+        XCTAssertEqual(turbo.model, .turbo)
+        XCTAssertEqual(turbo.steps, 4)
+        XCTAssertEqual(turbo.cfgScale, 1)
+        XCTAssertEqual(turbo.negativePrompt, "")
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: turbo.submissionData()) as? [String: Any])
+        XCTAssertEqual(payload["model"] as? String, "turbo")
+        XCTAssertNil(payload["steps"])
+        XCTAssertNil(payload["cfg_scale"])
+        XCTAssertNil(payload["negative_prompt"])
+        settings.reuse(turbo)
+        settings.model = .original
+        let original = settings.request(for: "a fox")
+        XCTAssertEqual(original.steps, 48)
+        XCTAssertEqual(original.cfgScale, 4.25)
+        XCTAssertEqual(original.negativePrompt, "blur")
+        XCTAssertEqual(original.seed, 42)
+        settings.model = .turbo
+        settings.restoreDefaults()
+        XCTAssertTrue(settings.randomizeSeed)
+        XCTAssertEqual(settings.steps, 48)
+        XCTAssertEqual(settings.cfgScale, 4.25)
+        XCTAssertEqual(settings.negativePrompt, "blur")
+    }
+
+    func testOldRequestsAndPreferencesDefaultToOriginal() throws {
+        let request = Data(#"{"prompt":"fox","width":1024,"height":1024,"steps":50,"cfg_scale":3,"seed":7,"negative_prompt":""}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(GenerationRequest.self, from: request).model, .original)
+        let oldSettings = Data(#"{"size":{"width":1024,"height":1024},"steps":50,"cfgScale":3,"seed":7,"randomizeSeed":false,"negativePrompt":"blur"}"#.utf8)
+        let settings = try JSONDecoder().decode(GenerationSettings.self, from: oldSettings)
+        XCTAssertEqual(settings.model, .original)
+        XCTAssertEqual(settings.steps, 50)
+        XCTAssertEqual(settings.negativePrompt, "blur")
+        let legacyHealth = try JSONDecoder().decode(EngineHealth.self, from: Data(#"{"resident":null,"queued":0}"#.utf8))
+        XCTAssertTrue(legacyHealth.supports(.original))
+        XCTAssertFalse(legacyHealth.supports(.turbo))
+    }
+
+    func testTurboHistoryRoundTripPreservesModelAndSettings() throws {
+        var settings = GenerationSettings(model: .turbo)
+        settings.seed = 123
+        settings.randomizeSeed = false
+        let request = settings.request(for: "a lighthouse")
+        var entry = Entry(workflow: .create, request: request, outcome: .done(seconds: 2))
+        entry.metadata = try JSONDecoder().decode(GenerationMetadata.self, from: Data(#"{"sampler":"flow-euler","precision":"bf16-linear-fp32-parameter-bf16-autocast","sigmas":[1,0.938,0.833,0.625],"checkpoint_sha256":"verified-checkpoint-hash"}"#.utf8))
+        let decoded = try JSONDecoder().decode(Entry.self, from: JSONEncoder().encode(entry))
+        XCTAssertEqual(decoded, entry)
+        XCTAssertEqual(decoded.request?.model, .turbo)
+        XCTAssertEqual(decoded.metadata?.checkpointSHA256, "verified-checkpoint-hash")
+        XCTAssertEqual(decoded.metadata?.precisionLabel, "BF16 / FP32")
+        XCTAssertTrue(decoded.matches("Turbo"))
+        XCTAssertFalse(decoded.matches("Original"))
+    }
+
     /// One reused, emptied domain: the user's preferences are never touched and no files pile up.
     private func scratchDefaults() throws -> UserDefaults {
         let suite = "io.github.tky27.iris.tests"
@@ -152,10 +214,7 @@ final class ComposerModelTests: XCTestCase {
     }
 
     func testComposerSwitchesToTheImageWorkflowWhenAnImageIsAttached() throws {
-        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let defaults = try scratchDefaults()
-        let workspace = Workspace(library: Library(store: LibraryStore(root: root)), defaults: defaults)
+        let workspace = Workspace(defaults: try scratchDefaults())
         XCTAssertEqual(workspace.workflow, .create)
         workspace.attach(URL(fileURLWithPath: "/tmp/photo.jpg"))
         XCTAssertEqual(workspace.workflow, .upscale)
@@ -165,14 +224,15 @@ final class ComposerModelTests: XCTestCase {
         workspace.reuse(GenerationRequest(prompt: "fox", width: 1024, height: 1024, steps: 30, cfgScale: 3, seed: 1, negativePrompt: ""))
         XCTAssertEqual(workspace.workflow, .create)
         XCTAssertEqual(workspace.prompt, "fox")
+        XCTAssertEqual(workspace.settings.seed, 1)
+        XCTAssertFalse(workspace.settings.randomizeSeed)  // the same seed, to make it again
+        XCTAssertEqual(workspace.promptFocusRequests, 1)
     }
 
     /// The engine refuses to upscale an image wider than 4:1, so the composer does not send one;
     /// depth takes any shape.
     func testATooNarrowImageCannotBeUpscaled() throws {
-        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let workspace = Workspace(library: Library(store: LibraryStore(root: root)), defaults: try scratchDefaults())
+        let workspace = Workspace(defaults: try scratchDefaults())
         workspace.attachment = Workspace.Attachment(
             url: URL(fileURLWithPath: "/tmp/strip.png"), name: "strip.png", pixelSize: CGSize(width: 2000, height: 400)
         )
@@ -180,19 +240,5 @@ final class ComposerModelTests: XCTestCase {
         XCTAssertFalse(workspace.canSubmit)
         workspace.imageWorkflow = .depth
         XCTAssertTrue(workspace.canSubmit)
-    }
-
-    func testRecentChatsAreGroupedByDay() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
-        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 11, hour: 9)))
-        func chat(_ daysAgo: Int) -> Conversation {
-            var conversation = Conversation(title: "\(daysAgo)", projectID: nil)
-            conversation.updated = now.addingTimeInterval(-Double(daysAgo) * 86_400)
-            return conversation
-        }
-        let groups = RecentGroup.group([chat(40), chat(0), chat(1), chat(3), chat(12), chat(0)], now: now, calendar: calendar)
-        XCTAssertEqual(groups.map(\.title), ["Today", "Yesterday", "Previous 7 Days", "Previous 30 Days", "September"])
-        XCTAssertEqual(groups.map(\.conversations.count), [2, 1, 1, 1, 1])
     }
 }

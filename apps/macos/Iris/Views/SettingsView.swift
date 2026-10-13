@@ -13,8 +13,9 @@ struct SettingsView: View {
 
 private struct GeneralSettings: View {
     @Environment(UpdateChecker.self) private var updates
-    @AppStorage(FieldSettings.animatesKey) private var animatesCanvas = true
     @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system
+    @AppStorage(FieldSettings.animatesKey) private var animates = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         @Bindable var updates = updates
@@ -23,11 +24,9 @@ private struct GeneralSettings: View {
                 Picker("Appearance", selection: $appearance) {
                     ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
                 }
-                Toggle("Animate the canvas", isOn: $animatesCanvas)
-            } footer: {
-                Text("The iris behind a new chat and a running image follows the pointer. Off, or with Reduce Motion, it stays still.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Toggle("Animate iris flowers", isOn: $animates)
+                    .disabled(reduceMotion)
+                    .help(reduceMotion ? "Reduce Motion is enabled in macOS Accessibility settings." : "Flowers respond to the pointer and animate while an image is being made.")
             }
             Section("Updates") {
                 LabeledContent("App version", value: "\(updates.appVersion) (\(UpdateChecker.installedBuild))")
@@ -105,7 +104,6 @@ private struct EngineSettings: View {
 
 private struct StorageSettings: View {
     @Environment(Library.self) private var library
-    @Environment(Generator.self) private var generator
     @State private var models: [ModelCache] = []
     @State private var libraryBytes: Int64?
     @State private var confirmsDelete = false
@@ -135,7 +133,7 @@ private struct StorageSettings: View {
                     .textSelection(.enabled)
             }
             Section("Library") {
-                LabeledContent("^[\(library.conversations.count) conversation](inflect: true)") {
+                LabeledContent("^[\(library.imageCount) image](inflect: true)") {
                     if let libraryBytes {
                         Text(libraryBytes, format: .byteCount(style: .file))
                     }
@@ -145,7 +143,7 @@ private struct StorageSettings: View {
                 }
                 HStack {
                     Spacer()
-                    Button("Delete All Conversations…", role: .destructive) { confirmsDelete = true }
+                    Button("Delete All Images…", role: .destructive) { confirmsDelete = true }
                         .disabled(library.conversations.isEmpty || library.isReadOnly)
                 }
             }
@@ -153,12 +151,12 @@ private struct StorageSettings: View {
         .formStyle(.grouped)
         .task { models = await ModelCache.scan() }
         .task(id: library.entryCount) { libraryBytes = await library.byteCount() }
-        .confirmationDialog("Delete all conversations and their images?", isPresented: $confirmsDelete) {
+        .confirmationDialog("Delete all images?", isPresented: $confirmsDelete) {
             Button("Delete All", role: .destructive) {
-                library.deleteAllConversations(except: generator.active?.conversation)
+                library.deleteAllImages()
             }
         } message: {
-            Text("Projects are kept, and so is the conversation of a request that is running. This cannot be undone.")
+            Text("Their prompts and settings are deleted too. Projects are kept, and so are images still being made. This cannot be undone.")
         }
     }
 }

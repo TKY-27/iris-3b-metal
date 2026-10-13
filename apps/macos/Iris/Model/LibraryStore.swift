@@ -23,6 +23,12 @@ struct LibraryStore: Sendable {
         if let path = arguments["libraryRoot"] as? String, !path.isEmpty {
             return URL(fileURLWithPath: NSString(string: path).expandingTildeInPath, isDirectory: true)
         }
+        #if DEBUG
+        // A development bundle may be relaunched by GUI automation without its arguments.
+        if let path = Bundle.main.object(forInfoDictionaryKey: "IrisDevelopmentLibraryRoot") as? String, !path.isEmpty {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        #endif
         return URL.applicationSupportDirectory.appending(path: "Iris", directoryHint: .isDirectory)
     }
 

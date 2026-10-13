@@ -198,6 +198,7 @@ struct GenerationSettings: Codable, Equatable, Sendable {
     var seed = 0
     var randomizeSeed = true
     var negativePrompt = ""
+    var model: GenerationModel = .original
 
     var quality: QualityPreset? { QualityPreset(steps: steps) }
     var adherence: AdherencePreset? { AdherencePreset(cfgScale: cfgScale) }
@@ -224,32 +225,42 @@ struct GenerationSettings: Codable, Equatable, Sendable {
         if randomizeSeed { seed = Int.random(in: Self.seedRange) }
         return GenerationRequest(
             prompt: prompt, width: size.width, height: size.height,
-            steps: steps.clamped(to: Self.stepRange),
-            cfgScale: cfgScale.clamped(to: Self.guidanceRange),
+            steps: model == .turbo ? 4 : steps.clamped(to: Self.stepRange),
+            cfgScale: model == .turbo ? 1 : cfgScale.clamped(to: Self.guidanceRange),
             seed: seed.clamped(to: Self.seedRange),
-            negativePrompt: negativePrompt
+            negativePrompt: model == .turbo ? "" : negativePrompt,
+            model: model
         )
     }
 
     /// Quality, adherence, seed and negative prompt back to their defaults; the size stays.
     mutating func restoreDefaults() {
-        self = GenerationSettings(size: size)
+        if model == .turbo {
+            seed = 0
+            randomizeSeed = true
+        } else {
+            self = GenerationSettings(size: size, model: model)
+        }
     }
 
     /// Whether `restoreDefaults()` would change anything (a drawn seed does not count).
     var hasDefaultTuning: Bool {
-        var defaults = GenerationSettings(size: size)
+        if model == .turbo { return randomizeSeed }
+        var defaults = GenerationSettings(size: size, model: model)
         if randomizeSeed { defaults.seed = seed }
         return self == defaults
     }
 
     mutating func reuse(_ request: GenerationRequest) {
         size = ImageSize(width: request.width, height: request.height)
-        steps = request.steps
-        cfgScale = request.cfgScale
+        model = request.model
+        if model == .original {
+            steps = request.steps
+            cfgScale = request.cfgScale
+            negativePrompt = request.negativePrompt
+        }
         seed = request.seed
         randomizeSeed = false
-        negativePrompt = request.negativePrompt
     }
 
     // MARK: - Persistence
@@ -257,6 +268,26 @@ struct GenerationSettings: Codable, Equatable, Sendable {
     private static let defaultsKey = "generationSettings.v2"
     /// Iris 0.2 saved its settings, including its 100-step default, here.
     private static let legacyKey = "generationSettings"
+
+    private enum CodingKeys: String, CodingKey {
+        case size, steps, cfgScale, seed, randomizeSeed, negativePrompt, model
+    }
+
+    init(size: ImageSize = .square, model: GenerationModel = .original) {
+        self.size = size
+        self.model = model
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        size = try values.decode(ImageSize.self, forKey: .size)
+        steps = try values.decode(Int.self, forKey: .steps)
+        cfgScale = try values.decode(Double.self, forKey: .cfgScale)
+        seed = try values.decode(Int.self, forKey: .seed)
+        randomizeSeed = try values.decode(Bool.self, forKey: .randomizeSeed)
+        negativePrompt = try values.decode(String.self, forKey: .negativePrompt)
+        model = try values.decodeIfPresent(GenerationModel.self, forKey: .model) ?? .original
+    }
 
     static func load(from defaults: UserDefaults = .standard) -> GenerationSettings {
         if let data = defaults.data(forKey: defaultsKey) {

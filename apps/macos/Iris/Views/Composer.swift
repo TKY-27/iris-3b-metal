@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// The next request: a prompt, or an attached image and what to do with it, plus Send or Stop.
+/// The prompt bar below the gallery: a prompt, or an attached image and what to do with it, the
+/// settings of the next image, and Generate. Each image is made from what is here alone.
 struct Composer: View {
     @Environment(Library.self) private var library
     @Environment(Generator.self) private var generator
@@ -18,37 +19,20 @@ struct Composer: View {
                 } else {
                     promptField
                 }
-                HStack(spacing: 16) {
-                    Button(action: chooseImage) {
-                        Label("Add Image…", systemImage: "photo.badge.plus")
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        settingsRow
+                        Spacer(minLength: 8)
+                        generateOrStop
                     }
-                    .help("Restore and upscale an image, or estimate its depth (or drop one here)")
-                    if workspace.attachment == nil {
-                        AspectMenu()
-                        Button {
-                            showsTuning.toggle()
-                        } label: {
-                            Label(tuningTitle, systemImage: "slider.horizontal.3")
-                        }
-                        .help("Quality, prompt adherence, seed and negative prompt")
-                        .accessibilityLabel("Generation settings: \(tuningTitle)")
-                        .popover(isPresented: $showsTuning, arrowEdge: .top) { GenerationControls() }
-                        CountMenu()
+                    VStack(alignment: .leading, spacing: 10) {
+                        settingsRow
+                        HStack { Spacer(); generateOrStop }
                     }
-                    if workspace.selection == .newChat {
-                        ProjectMenu()
-                    }
-                    Spacer(minLength: 0)
-                    sendOrStop
                 }
-                .buttonStyle(.borderless)
-                .menuStyle(.button)
-                .menuIndicator(.hidden)
-                .labelStyle(.titleAndIcon)
-                .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 14)
-            .padding(.top, 14)
+            .padding(.top, 12)
             .padding(.bottom, 10)
             .background(.fieldBackground, in: RoundedRectangle(cornerRadius: Theme.composerRadius, style: .continuous))
             .overlay {
@@ -56,10 +40,9 @@ struct Composer: View {
                     .strokeBorder(promptFocused ? Color.primary.opacity(0.28) : Color(nsColor: .separatorColor), lineWidth: 1)
             }
             .contentShape(RoundedRectangle(cornerRadius: Theme.composerRadius, style: .continuous))
-            .onTapGesture { promptFocused = workspace.attachment == nil }
         }
-        .frame(maxWidth: Theme.readableWidth)
         .onAppear { promptFocused = workspace.attachment == nil }
+        .onChange(of: workspace.promptFocusRequests) { promptFocused = workspace.attachment == nil }
     }
 
     // MARK: - Parts
@@ -70,65 +53,135 @@ struct Composer: View {
             Notice("This library is read-only; see the message shown at launch.", systemImage: "lock")
         }
         if let elsewhere = busyElsewhere {
-            BusyElsewhere(conversation: elsewhere)
+            BusyElsewhere(entry: elsewhere.entry, project: library.project(elsewhere.project))
         }
     }
 
     private var promptField: some View {
         @Bindable var workspace = workspace
-        return TextField(placeholder, text: $workspace.prompt, axis: .vertical)
-            .textFieldStyle(.plain)
-            .font(.system(size: 15))
-            .lineSpacing(2)
-            // two lines to start, then it grows with the text and scrolls past twelve
-            .lineLimit(2...12)
-            .focused($promptFocused)
-            .onSubmit(submit)
-            .padding(.horizontal, 2)
-            .accessibilityLabel("Prompt")
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            TextField(placeholder, text: $workspace.prompt, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(size: 15))
+                .lineSpacing(2)
+                // two lines to start, then it grows with the text and scrolls past eight
+                .lineLimit(2...8)
+                .focused($promptFocused)
+                .onSubmit(submit)
+                .accessibilityLabel("Prompt")
+            if !workspace.prompt.isEmpty {
+                // the prompt stays after Generate, to be refined; this starts over
+                Button {
+                    workspace.prompt = ""
+                    promptFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.borderless)
+                .help("Clear Prompt")
+                .accessibilityLabel("Clear Prompt")
+            }
+        }
+        .padding(.horizontal, 2)
     }
 
-    /// Each request starts fresh, so a chat's composer asks for a new image, not a follow-up.
     private var placeholder: String {
-        switch workspace.selection {
-        case let .project(id): "Start a chat in \(library.project(id)?.name ?? "this project")"
-        case .conversation: "Describe a new image"
-        default: "Describe an image"
+        library.project(workspace.project).map { "Describe a new image for “\($0.name)”" } ?? "Describe a new image"
+    }
+
+    private var settingsRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                inputControls
+                if workspace.attachment == nil { tuningControls }
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                inputControls
+                if workspace.attachment == nil { tuningControls }
+            }
+        }
+        .buttonStyle(.borderless)
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .labelStyle(.titleAndIcon)
+        .foregroundStyle(.secondary)
+    }
+
+    private var inputControls: some View {
+        HStack(spacing: 10) {
+            Button(action: chooseImage) { Label("Add Image…", systemImage: "photo.badge.plus") }
+                .labelStyle(.iconOnly)
+                .accessibilityLabel("Add Image")
+                .help("Restore and upscale an image, or estimate its depth")
+            if workspace.attachment == nil {
+                modelMenu
+                AspectMenu()
+            }
         }
     }
 
-    private var tuningTitle: String {
-        "\(workspace.settings.qualityTitle), \(workspace.settings.adherenceTitle)"
+    private var tuningControls: some View {
+        HStack(spacing: 10) {
+            Button { showsTuning.toggle() } label: {
+                Label(tuningTitle, systemImage: "slider.horizontal.3")
+            }
+            .help(workspace.settings.model == .turbo ? "Seed settings; Turbo always uses four steps" : "Steps, guidance, seed and negative prompt")
+            .accessibilityLabel("Generation settings: \(tuningTitle)")
+            .popover(isPresented: $showsTuning, arrowEdge: .bottom) { GenerationControls() }
+            CountMenu().labelStyle(.titleOnly)
+        }
     }
 
-    @ViewBuilder private var sendOrStop: some View {
-        if isBusyHere {
-            RoundAction(systemImage: "stop.fill", label: "Stop", enabled: true) {
-                generator.cancel(engine: engine)
+    private var modelMenu: some View {
+        @Bindable var workspace = workspace
+        return Menu {
+            Picker("Model", selection: $workspace.settings.model) {
+                ForEach(GenerationModel.allCases) { model in
+                    Text(model == .turbo ? "Turbo · 4 steps" : "Original").tag(model)
+                        .disabled(engine.health?.supports(model) != true)
+                }
             }
-            .keyboardShortcut(".", modifiers: .command)
-            .help("Stop (⌘.)")
+            .pickerStyle(.inline)
+        } label: {
+            Text(workspace.settings.model.title)
+        }
+        .fixedSize()
+        .accessibilityLabel("Model, \(workspace.settings.model.title)")
+        .help("Original supports adjustable guidance and steps. Turbo uses four fixed steps. Models download when first used.")
+    }
+
+    private var tuningTitle: String {
+        workspace.settings.model == .turbo ? "4 steps" : "\(workspace.settings.steps) steps"
+    }
+
+    /// One request runs at a time, wherever it was started, so Stop takes Generate's place.
+    @ViewBuilder private var generateOrStop: some View {
+        if generator.isBusy {
+            Button("Stop") { generator.cancel(engine: engine) }
+                .keyboardShortcut(".", modifiers: .command)
+                .help("Stop the current request and the rest of its batch (⌘.)")
         } else {
-            RoundAction(systemImage: "arrow.up", label: sendTitle, enabled: canSend, action: submit)
+            Button(sendTitle, action: submit)
+                .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!canSend)
                 .help(sendHelp)
         }
     }
 
     // MARK: - State
 
-    private var isBusyHere: Bool {
-        guard let active = generator.active else { return false }
-        return active.conversation == workspace.conversationID
-    }
-
-    private var busyElsewhere: UUID? {
-        guard let active = generator.active, active.conversation != workspace.conversationID else { return nil }
-        return active.conversation
+    /// The running request when the gallery does not show it.
+    private var busyElsewhere: (entry: UUID, project: UUID?)? {
+        guard let active = generator.active, let found = library.entry(active.entry),
+              workspace.selection?.contains(found.conversation) == false
+        else { return nil }
+        return (active.entry, found.conversation.projectID)
     }
 
     private var canSend: Bool {
         workspace.canSubmit && !generator.isBusy && engine.state == .ready && !library.isReadOnly
+            && (workspace.workflow != .create || engine.health?.supports(workspace.settings.model) == true)
     }
 
     private var sendTitle: String {
@@ -141,7 +194,9 @@ struct Composer: View {
 
     private var sendHelp: String {
         if engine.state != .ready { return "The engine is not ready" }
-        if generator.isBusy { return "Wait for the current request to finish" }
+        if workspace.workflow == .create, engine.health?.supports(workspace.settings.model) != true {
+            return "Update the engine in Settings to use Turbo."
+        }
         if !workspace.canSubmit {
             switch workspace.workflow {
             case .create: return "Describe an image first"
@@ -274,44 +329,19 @@ private struct CountMenu: View {
     }
 }
 
-/// The project a new chat is saved in, with a way to make one on the spot.
-private struct ProjectMenu: View {
-    @Environment(Library.self) private var library
-    @Environment(Workspace.self) private var workspace
-
-    var body: some View {
-        Menu {
-            Picker("Project", selection: Binding(get: { workspace.draftProject }, set: { workspace.draftProject = $0 })) {
-                Text("No Project").tag(UUID?.none)
-                ForEach(library.projects) { Text($0.name).tag(UUID?.some($0.id)) }
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
-            Divider()
-            Button("New Project…") { workspace.naming = .newProjectForDraft }
-        } label: {
-            Label(library.project(workspace.draftProject)?.name ?? "No Project", systemImage: "folder")
-                .foregroundStyle(.secondary)
-        }
-        .buttonStyle(.plain)
-        .fixedSize()
-        .help("The project this chat is saved in")
-        .accessibilityLabel("Project, \(library.project(workspace.draftProject)?.name ?? "none")")
-    }
-}
-
-/// Points to the conversation whose request is running, since only one runs at a time.
+/// Points to the running request when the gallery shows other images; only one runs at a time.
 private struct BusyElsewhere: View {
     @Environment(Library.self) private var library
     @Environment(Workspace.self) private var workspace
-    let conversation: UUID
+    let entry: UUID
+    let project: Project?
 
     var body: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.mini)
-            Text("Working in “\(library.conversation(conversation)?.title ?? "another chat")”")
+            Text(project.map { "Generating in “\($0.name)”" } ?? "Generating outside this project")
                 .lineLimit(1)
-            Button("Show") { workspace.show(conversation) }
+            Button("Show") { workspace.reveal(entry, library: library) }
                 .buttonStyle(.link)
         }
         .font(.callout)
@@ -339,34 +369,42 @@ struct Notice: View {
     }
 }
 
-/// The round send (or stop) button at the composer's trailing edge: ink on paper, no color.
-private struct RoundAction: View {
-    let systemImage: String
-    let label: String
-    let enabled: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(enabled ? Color.fieldBackground : Color.secondary)
-                .frame(width: 26, height: 26)
-                .background(Circle().fill(enabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.quaternary)))
-                .contentShape(Circle())
-        }
-        .buttonStyle(PressScale())
-        .disabled(!enabled)
-        .accessibilityLabel(label)
-    }
+extension View {
+    /// Dropping an image file attaches it to the prompt bar, for upscaling or depth.
+    func acceptsImageDrops() -> some View { modifier(ImageDrop()) }
 }
 
-/// Feedback on press, not on release.
-struct PressScale: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.75 : 1)
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+private struct ImageDrop: ViewModifier {
+    @Environment(Library.self) private var library
+    @Environment(Workspace.self) private var workspace
+    @State private var targeted = false
+
+    func body(content: Content) -> some View {
+        content
+            .dropDestination(for: URL.self) { urls, _ in
+                // only images, and not a result dragged within the gallery by accident;
+                // anything else would fail later, at upload
+                guard let url = urls.first, library.entryID(forImage: url) == nil,
+                      (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.conforms(to: .image) == true
+                else { return false }
+                workspace.attach(url)
+                return true
+            } isTargeted: { targeted = $0 }
+            .overlay {
+                if targeted {
+                    RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .overlay {
+                            Text("Drop to restore and upscale, or to estimate depth")
+                                .font(.headline)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(.fieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(.separator))
+                        }
+                        .padding(8)
+                        .allowsHitTesting(false)
+                }
+            }
     }
 }

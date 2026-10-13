@@ -24,7 +24,7 @@ struct IrisApp: App {
                 CheckForUpdatesButton().environment(delegate.updates)
             }
             CommandGroup(replacing: .newItem) {
-                Button("New Chat") { delegate.workspace.newConversationHere(library: delegate.library) }
+                Button("New Image") { delegate.workspace.newImage() }
                     .keyboardShortcut("n")
                 Button("New Project…") { delegate.workspace.naming = .newProject(moving: nil) }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
@@ -72,8 +72,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         root: isTestHost ? .temporaryDirectory.appending(path: "IrisTestHost-\(UUID().uuidString)") : LibraryStore.defaultRoot
     ))
     @MainActor let generator = Generator()
-    @MainActor lazy var workspace = Workspace(
-        library: library, defaults: Self.isTestHost ? UserDefaults(suiteName: "IrisTestHost") ?? .standard : .standard
+    @MainActor let workspace = Workspace(
+        defaults: isTestHost ? UserDefaults(suiteName: "IrisTestHost") ?? .standard : .standard
     )
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
