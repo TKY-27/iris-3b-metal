@@ -116,7 +116,7 @@ class Models:
         defaults=None,
     ):
         self.pipe = pipe
-        # Unloaded pipelines keep their bounded CPU prompt caches, not model weights.
+        # Retain only bounded CPU prompt caches.
         self._generation = {} if pipe is None else {getattr(pipe, "model", "original"): pipe}
         self._defaults = defaults or (pipe.cfg.sample if pipe is not None else SampleConfig())
         self._load_generation = load_generation

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// All Images and the projects; images dragged from the gallery onto a project are filed there.
+/// Projects accept images dragged from the gallery.
 struct Sidebar: View {
     @Environment(Library.self) private var library
     @Environment(Workspace.self) private var workspace
@@ -11,7 +11,7 @@ struct Sidebar: View {
         List(selection: $workspace.selection) {
             Section {
                 HStack(spacing: 4) {
-                    Label("All Images", systemImage: "photo.on.rectangle")
+                    Label(String(localized: "All Images"), systemImage: "photo.on.rectangle")
                     Spacer(minLength: 0)
                     if generator.isBusy { WorkingIndicator() }
                 }
@@ -21,11 +21,11 @@ struct Sidebar: View {
                 Button {
                     workspace.naming = .newProject(moving: nil)
                 } label: {
-                    Label("New Project", systemImage: "plus")
+                    Label(String(localized: "New Project"), systemImage: "plus")
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("New Project (⇧⌘N)")
+                .help(String(localized: "New Project (⇧⌘N)"))
                 ForEach(library.projects) { project in
                     ProjectRow(project: project, isWorking: runningProject == project.id)
                 }
@@ -39,13 +39,13 @@ struct Sidebar: View {
         }
     }
 
-    /// The project of the running request, if it is in one.
+    /// Project containing the active request.
     private var runningProject: UUID? {
         generator.active.flatMap { library.entry($0.entry)?.conversation.projectID }
     }
 }
 
-/// A project: selecting it shows its images, and dropping an image from the gallery on it files the image there.
+/// Select a project or file dropped images.
 private struct ProjectRow: View {
     @Environment(Library.self) private var library
     @Environment(Workspace.self) private var workspace
@@ -70,7 +70,7 @@ private struct ProjectRow: View {
         .contextMenu {
             Button("Rename…") { workspace.naming = .project(project.id) }
             Divider()
-            Button("Delete Project…", role: .destructive) { workspace.deleting = .project(project.id) }
+            Button(String(localized: "Delete Project…"), role: .destructive) { workspace.deleting = .project(project.id) }
         }
     }
 }
@@ -90,12 +90,12 @@ private struct SidebarFooter: View {
             SettingsLink {
                 HStack(spacing: 8) {
                     Image(systemName: "gearshape").frame(width: 18)
-                    Text("Settings")
+                    Text(String(localized: "Settings"))
                 }
             }
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
-            .help("Settings (⌘,)")
+            .help(String(localized: "Settings (⌘,)"))
             Spacer(minLength: 0)
             EngineStatus()
         }

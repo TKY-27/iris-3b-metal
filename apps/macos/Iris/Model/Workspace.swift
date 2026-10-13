@@ -1,11 +1,11 @@
 import Foundation
 import Observation
 
-/// What the main window shows and what the prompt bar holds.
+/// Window selection and the next generation request.
 @MainActor
 @Observable
 final class Workspace {
-    /// Which images the gallery shows; new images are saved there.
+    /// Gallery scope and destination for new images.
     enum Selection: Hashable {
         case allImages
         case project(UUID)
@@ -26,7 +26,7 @@ final class Workspace {
         var pixelSize: CGSize?
     }
 
-    /// Optional only because a sidebar list may clear it.
+    /// Sidebar selection may temporarily become nil.
     var selection: Selection? = .allImages {
         didSet {
             // a click on the sidebar's empty space clears the list's selection; keep what is shown.
@@ -44,14 +44,15 @@ final class Workspace {
     /// Filters the gallery by prompt or seed.
     var searchText = ""
     private(set) var searchFocusRequests = 0
-    /// Counts requests to put the cursor in the prompt field.
+    private(set) var searchFocusPending = false
+    /// Prompt focus request counter.
     private(set) var promptFocusRequests = 0
     /// A name being asked for, and a deletion being confirmed; the window shows the dialogs.
     var naming: Naming?
     var deleting: Deletion?
 
     enum Naming: Equatable {
-        /// `moving`: an image to file in the new project.
+        /// Move this image into the new project.
         case newProject(moving: UUID?)
         case project(UUID)
     }
@@ -61,8 +62,18 @@ final class Workspace {
         case image(UUID)
     }
 
+    static let galleryVisibilityKey = "showsGallery"
+    var showsGallery: Bool {
+        didSet { defaults.set(showsGallery, forKey: Self.galleryVisibilityKey) }
+    }
+
+    func toggleGallery() {
+        showsGallery.toggle()
+        if !showsGallery { focusPrompt() }
+    }
+
     var prompt = ""
-    /// An attached image switches the prompt bar from creating to processing it.
+    /// Attachments switch generation to image processing.
     var attachment: Attachment?
     /// What to do with an attached image.
     var imageWorkflow = Workflow.upscale
@@ -78,10 +89,11 @@ final class Workspace {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        showsGallery = defaults.object(forKey: Self.galleryVisibilityKey) as? Bool ?? true
         settings = GenerationSettings.load(from: defaults)
     }
 
-    /// The project new images are saved in: the one shown, if any.
+    /// Destination project for new images.
     var project: UUID? {
         if case let .project(id) = selection { id } else { nil }
     }
@@ -99,16 +111,22 @@ final class Workspace {
     }
 
     func focusSearch() {
+        showsGallery = true
+        searchFocusPending = true
         searchFocusRequests += 1
     }
 
-    /// File > New Image: back from an attached image to a prompt, with the cursor in it.
+    func didFocusSearch() {
+        searchFocusPending = false
+    }
+
+    /// Clear the attachment and focus the prompt.
     func newImage() {
         attachment = nil
         focusPrompt()
     }
 
-    /// Puts a request's prompt and settings, seed included, back in the prompt bar.
+    /// Restore the request, including its seed.
     func reuse(_ request: GenerationRequest) {
         attachment = nil
         prompt = request.prompt
@@ -116,15 +134,16 @@ final class Workspace {
         focusPrompt()
     }
 
-    /// Selects an entry, showing the images it is among if the gallery does not.
+    /// Reveal an entry in its gallery scope.
     func reveal(_ entry: UUID, library: Library) {
+        showsGallery = true
         if let found = library.entry(entry), selection.map({ !$0.contains(found.conversation) }) ?? true {
             selection = found.conversation.projectID.map(Selection.project) ?? .allImages
         }
         selectedEntry = entry
     }
 
-    /// Selects a request that has just started, dropping a search that would hide it.
+    /// Select new work and clear obstructing filters.
     func selectStarted(_ entry: UUID?, library: Library) {
         guard let entry else { return }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -140,8 +159,7 @@ final class Workspace {
         }
     }
 
-    /// Starts the prompt bar's request as new entries in the shown project, and selects the first.
-    /// The prompt stays, so it can be refined and generated again.
+    /// Generate in the selected project, retaining prompts.
     func submit(generator: Generator, library: Library, engine: EngineController) {
         guard canSubmit, !generator.isBusy, engine.state == .ready else { return }
         switch workflow {

@@ -131,8 +131,8 @@ final class ComposerModelTests: XCTestCase {
         var settings = GenerationSettings()
         settings.steps = 48
         settings.cfgScale = 3.25
-        XCTAssertEqual(settings.qualityTitle, "48 steps")
-        XCTAssertEqual(settings.adherenceTitle, "Guidance 3.25")
+        XCTAssertEqual(settings.qualityTitle, String(localized: "\(48) steps"))
+        XCTAssertEqual(settings.adherenceTitle, String(localized: "Guidance \("3.25")"))
     }
 
     func testABatchHasOneRequestPerImageWithItsOwnSeed() {

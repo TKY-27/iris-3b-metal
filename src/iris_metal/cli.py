@@ -210,8 +210,7 @@ def serve_main(argv: list[str]) -> None:
     args = parser.parse_args(argv)
     if not torch.backends.mps.is_available():
         parser.error("no Apple GPU (MPS) available")
-    # HTTP startup downloads no generation weights. Both model resolvers run
-    # on the serial worker only when that model is first requested.
+    # Resolve weights lazily on the serial worker.
     defaults = None
     local = Path(args.checkpoint)
     if local.is_dir():
@@ -336,7 +335,7 @@ def main(argv: list[str] | None = None) -> None:
         "--attention",
         choices=("float16", "bfloat16"),
         default=None,
-        help="Original attention precision (default float16); Turbo uses fixed BF16 autocast",
+        help="Original attention precision (default float16); Turbo uses official BF16",
     )
     args = parser.parse_args(argv)
     if args.model == "turbo" and any(

@@ -343,8 +343,7 @@ class IrisPipeline:
         # Preserve official arithmetic: exported BF16 Linear weights have exactly
         # the values the FP32-master recipe casts to under BF16 autocast.
         # All non-linear parameters remain FP32.
-        # The existing fused Metal forward uses different rounding and requires
-        # independent measured validation before it can replace this path.
+        # Metal FP16 failed the release typography gate.
         encodings = self.encode(prompts)
         model = self.engine
         reporter = StepReporter(len(self.sigmas), on_step, self.device)

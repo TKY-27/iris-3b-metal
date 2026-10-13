@@ -13,6 +13,7 @@ from benchmark import (
     _CURRENT_FOOTPRINT,
     _INTERVAL_MAX_FOOTPRINT,
     environment,
+    gpu_utilization,
     paging_counters,
     peak_footprint_gib,
     swap_used_mb,
@@ -27,11 +28,14 @@ def main():
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--prompt", default="A red fox sleeping in fresh snow, golden hour")
     parser.add_argument("--steps", type=int)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--size", type=int, default=1024)
     parser.add_argument("--repeats", type=int, default=2)
     parser.add_argument("--compare-head", type=Path)
     parser.add_argument("--reload", action="store_true")
     args = parser.parse_args()
+    if args.repeats < 2:
+        parser.error("--repeats must include a cold and warm request (at least 2)")
     args.out.mkdir(parents=True, exist_ok=True)
     stages = []
     original_loader = pipeline_module.load_dit
@@ -66,6 +70,7 @@ def main():
     pipeline_module.StreamingQwen3VLEncoder = TimedEncoder
     results = {
         "environment": environment(),
+        "background_gpu_before_percent": gpu_utilization(),
         "requests": [],
         "paging_before": paging_counters(),
         "swap_before_mb": swap_used_mb(),
@@ -82,6 +87,7 @@ def main():
             height=args.size,
             width=args.size,
             steps=args.steps,
+            seed=args.seed,
             on_step=lambda step, total, callbacks=callbacks, start=start: callbacks.append(
                 (step, total, time.perf_counter() - start)
             ),
@@ -111,7 +117,7 @@ def main():
         head._engine = pipe._engine
         head._encodings = pipe._encodings
         start = time.perf_counter()
-        baseline = head([args.prompt], height=args.size, width=args.size, steps=args.steps)[0]
+        baseline = head([args.prompt], height=args.size, width=args.size, steps=args.steps, seed=args.seed)[0]
         results["head_comparison"] = {
             "seconds": time.perf_counter() - start,
             "pixels_bitwise_equal": baseline.tobytes() == image.tobytes(),
@@ -127,7 +133,7 @@ def main():
     }
     if args.reload:
         start = time.perf_counter()
-        reloaded = pipe([args.prompt], height=args.size, width=args.size, steps=args.steps)[0]
+        reloaded = pipe([args.prompt], height=args.size, width=args.size, steps=args.steps, seed=args.seed)[0]
         results["reload"] = {
             "seconds": time.perf_counter() - start,
             "pixels_bitwise_equal": reloaded.tobytes() == image.tobytes(),
@@ -143,6 +149,7 @@ def main():
     results["metadata"] = pipe.last_metadata
     results["paging_after"] = paging_counters()
     results["swap_after_mb"] = swap_used_mb()
+    results["background_gpu_after_percent"] = gpu_utilization()
     (args.out / "results.json").write_text(json.dumps(results, indent=2))
     print(json.dumps(results, indent=2), flush=True)
 

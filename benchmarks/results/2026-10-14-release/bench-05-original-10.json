@@ -1,0 +1,258 @@
+{
+  "environment": {
+    "chip": "Apple M5",
+    "memory_gb": 25.769803776,
+    "macos": "27.0.1",
+    "python": "3.14.8",
+    "torch": "2.14.1",
+    "transformers": "5.19.0",
+    "mps_environment": {},
+    "power": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=36175971)\t95%; AC attached; not charging present: true",
+    "power_modes": "Battery Power:\n Sleep On Power Button 1\n lowpowermode         0\n standby              1\n ttyskeepawake        1\n hibernatemode        3\n powernap             1\n hibernatefile        /var/vm/sleepimage\n displaysleep         0\n womp                 1\n networkoversleep     0\n sleep                1\n lessbright           1\n tcpkeepalive         1\n disksleep            0\nAC Power:\n Sleep On Power Button 1\n lowpowermode         0\n standby              1\n ttyskeepawake        1\n hibernatemode        3\n powernap             1\n hibernatefile        /var/vm/sleepimage\n displaysleep         10\n womp                 1\n networkoversleep     0\n sleep                0\n tcpkeepalive         1\n disksleep            0",
+    "commit": "d95c179-dirty"
+  },
+  "background_gpu_before_percent": 3.9,
+  "requests": [
+    {
+      "seconds": 50.35085391695611,
+      "steps": [
+        [
+          1,
+          10,
+          15.52598074998241
+        ],
+        [
+          2,
+          10,
+          19.256076666992158
+        ],
+        [
+          3,
+          10,
+          23.046235125046223
+        ],
+        [
+          4,
+          10,
+          26.87831916694995
+        ],
+        [
+          5,
+          10,
+          30.733359582955018
+        ],
+        [
+          6,
+          10,
+          34.61488966702018
+        ],
+        [
+          7,
+          10,
+          38.50938916695304
+        ],
+        [
+          8,
+          10,
+          42.43086320802104
+        ],
+        [
+          9,
+          10,
+          46.34129695803858
+        ],
+        [
+          10,
+          10,
+          50.33425299997907
+        ]
+      ],
+      "physical_peak_gib": 10.012635841965675,
+      "physical_current_gib": 10.004701271653175,
+      "allocated_bytes": 6102094592,
+      "driver_bytes": 9801203712,
+      "png_sha256": "0d41d0e0057f5dba2ed1b12e473f9a440a5b3cafbfc9ee5de3a870a0db42702a",
+      "pixel_sha256": "3ce7731df33dcd16b80c92d92deb9c4aaf0a95693c7756f46ee9d214c6a090ef"
+    },
+    {
+      "seconds": 39.18516562494915,
+      "steps": [
+        [
+          1,
+          10,
+          4.032894832897
+        ],
+        [
+          2,
+          10,
+          7.9475998749258
+        ],
+        [
+          3,
+          10,
+          11.858955832896754
+        ],
+        [
+          4,
+          10,
+          15.760263375006616
+        ],
+        [
+          5,
+          10,
+          19.65170079190284
+        ],
+        [
+          6,
+          10,
+          23.542663333006203
+        ],
+        [
+          7,
+          10,
+          27.43656545795966
+        ],
+        [
+          8,
+          10,
+          31.35190466698259
+        ],
+        [
+          9,
+          10,
+          35.25678016699385
+        ],
+        [
+          10,
+          10,
+          39.1773593329126
+        ]
+      ],
+      "physical_peak_gib": 10.023042358458042,
+      "physical_current_gib": 10.01161352545023,
+      "allocated_bytes": 6102094592,
+      "driver_bytes": 9801203712,
+      "png_sha256": "0d41d0e0057f5dba2ed1b12e473f9a440a5b3cafbfc9ee5de3a870a0db42702a",
+      "pixel_sha256": "3ce7731df33dcd16b80c92d92deb9c4aaf0a95693c7756f46ee9d214c6a090ef"
+    },
+    {
+      "seconds": 38.49444954202045,
+      "steps": [
+        [
+          1,
+          10,
+          3.909565750043839
+        ],
+        [
+          2,
+          10,
+          7.796185750048608
+        ],
+        [
+          3,
+          10,
+          11.659892625059001
+        ],
+        [
+          4,
+          10,
+          15.5179166670423
+        ],
+        [
+          5,
+          10,
+          19.373251625103876
+        ],
+        [
+          6,
+          10,
+          23.202562000020407
+        ],
+        [
+          7,
+          10,
+          27.04121820803266
+        ],
+        [
+          8,
+          10,
+          30.86061579210218
+        ],
+        [
+          9,
+          10,
+          34.670564500032924
+        ],
+        [
+          10,
+          10,
+          38.48670895805117
+        ]
+      ],
+      "physical_peak_gib": 10.027452148497105,
+      "physical_current_gib": 10.01161352545023,
+      "allocated_bytes": 6102094592,
+      "driver_bytes": 9801203712,
+      "png_sha256": "0d41d0e0057f5dba2ed1b12e473f9a440a5b3cafbfc9ee5de3a870a0db42702a",
+      "pixel_sha256": "3ce7731df33dcd16b80c92d92deb9c4aaf0a95693c7756f46ee9d214c6a090ef"
+    }
+  ],
+  "paging_before": {
+    "Pageouts": 492602,
+    "Swapouts": 218627127
+  },
+  "swap_before_mb": 2438.19,
+  "init_seconds": 0.03116441599559039,
+  "unloaded": {
+    "loaded": false,
+    "allocated_bytes": 0,
+    "driver_bytes": 1769472
+  },
+  "stages": [
+    {
+      "phase": "qwen_tokenizer_setup",
+      "seconds": 0.7756636249832809
+    },
+    {
+      "phase": "qwen_encode_including_streamed_layer_transfer",
+      "seconds": 3.0368206249549985
+    },
+    {
+      "phase": "dit_load",
+      "seconds": 7.322828457923606
+    }
+  ],
+  "metadata": {
+    "model": "original",
+    "checkpoint": "iris-3b",
+    "config_sha256": "077ce19156d9425a7e665a0059be02b3c5a1fcd7aea7607047b4f7486efa6cd5",
+    "hf_revision": "7445443349bc9abe3c96f01ff793e2098ca012b3",
+    "checkpoint_sha256": "a90e1f4c197bac8491f82078def68884b6a3527ea7fc97a693e3e367372aa80f",
+    "prompt": [
+      "A red fox sleeping in fresh snow, golden hour"
+    ],
+    "width": 1024,
+    "height": 1024,
+    "seed": 0,
+    "noise": "torch-cpu-fp32",
+    "steps": 10,
+    "cfg_scale": 3.0,
+    "negative_prompt": "",
+    "sampler": "flow-dpm-solver++",
+    "precision": "mixed-fp16-bf16-fp32",
+    "attention_dtype": "torch.float16",
+    "order": 2,
+    "shift": 4.0,
+    "cfg_interval": [
+      0.0,
+      1.0
+    ]
+  },
+  "paging_after": {
+    "Pageouts": 492807,
+    "Swapouts": 218707103
+  },
+  "swap_after_mb": 2420.19,
+  "background_gpu_after_percent": 13.9,
+  "implementation": "v0.5.0 release working tree"
+}

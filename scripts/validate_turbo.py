@@ -1,7 +1,14 @@
-"""Serial, saved-noise official Turbo/reference/Metal numerical and timing study.
+"""Serial, saved-noise Turbo numerical and timing study over one fixture.
 
-Artifacts are local validation evidence; candidate precision does not change
-production defaults. Run each mode in its own process to keep one model resident.
+Modes: ``prepare`` saves the prompt's encoder states and noise; ``fp32`` is the
+upstream forward without autocast (the oracle); ``reference`` and
+``upstream-bf16`` are the official BF16 autocast recipe with FP32 and BF16
+linear storage; ``metal-fp16`` is the rejected Turbo candidate (``MetalIris``, as
+Original uses) and ``metal-bf16`` its BF16-trunk variant. Production Turbo
+uses the upstream BF16 recipe. Every mode after
+``prepare`` records its velocities and reports its distance from the saved
+``reference`` and ``fp32`` results. Run each mode in its own process to keep
+one model resident.
 """
 
 import argparse
@@ -26,7 +33,14 @@ def sync():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("prepare", "reference", "metal-bf16", "metal-fp16", "upstream-bf16"))
+    parser.add_argument(
+        "mode", choices=("prepare", "reference", "fp32", "metal-bf16", "metal-fp16", "upstream-bf16")
+    )
+    parser.add_argument(
+        "--attention",
+        choices=("float32", "float16", "bfloat16"),
+        help="Metal modes: attention precision (default: the trunk dtype)",
+    )
     parser.add_argument("--checkpoint", type=Path, default=Path("iris-3b/turbo"))
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--prompt", default="A red fox sleeping in fresh snow, golden hour")
@@ -59,7 +73,7 @@ def main():
     start = time.perf_counter()
     dtype = (
         torch.float32
-        if args.mode == "reference"
+        if args.mode in ("reference", "fp32")
         else torch.bfloat16
         if args.mode in ("metal-bf16", "upstream-bf16")
         else torch.float16
@@ -67,7 +81,9 @@ def main():
     dit = load_dit(args.checkpoint, cfg, torch.device("mps"), dtype=dtype)
     sync()
     load_seconds = time.perf_counter() - start
-    engine = None if args.mode in ("reference", "upstream-bf16") else MetalIris(dit, attention_dtype=dtype)
+    upstream = args.mode in ("reference", "fp32", "upstream-bf16")
+    attention = getattr(torch, args.attention) if args.attention else dtype
+    engine = None if upstream else MetalIris(dit, attention_dtype=attention)
     trajectories = []
 
     class Encoder:
@@ -96,7 +112,9 @@ def main():
     adapter_seconds = time.perf_counter() - start
 
     def run():
-        with torch.no_grad(), torch.autocast("mps", dtype=torch.bfloat16, enabled=engine is None):
+        # FP32 reference uses no autocast.
+        autocast = engine is None and args.mode != "fp32"
+        with torch.no_grad(), torch.autocast("mps", dtype=torch.bfloat16, enabled=autocast):
             return generate_few_step(
                 Model(),
                 Encoder(),
@@ -129,7 +147,7 @@ def main():
         "hf_revision": checkpoint_revision(args.checkpoint),
         "checkpoint_dtype": "BF16",
         "linear_storage_dtype": str(dtype),
-        "attention_dtype": str(dtype) if engine else "bf16-autocast",
+        "attention_dtype": str(attention) if engine else "fp32" if args.mode == "fp32" else "bf16-autocast",
         "torch": torch.__version__,
         "load_seconds": load_seconds,
         "adapter_seconds": adapter_seconds,
@@ -139,20 +157,23 @@ def main():
         "driver_bytes": torch.mps.driver_allocated_memory(),
         "png_sha256": hashlib.sha256((args.out / f"{args.mode}.png").read_bytes()).hexdigest(),
     }
-    reference = args.out / "reference.pt"
-    if args.mode != "reference" and reference.exists():
-        baseline = torch.load(reference, map_location="cpu", weights_only=True)
 
-        def metrics(a, b):
-            difference = (a - b).float()
-            return {
-                "max_abs": difference.abs().max().item(),
-                "rmse": difference.square().mean().sqrt().item(),
-                "relative_l2": (torch.linalg.vector_norm(difference) / torch.linalg.vector_norm(b)).item(),
-            }
+    def metrics(a, b):
+        difference = (a - b).float()
+        return {
+            "max_abs": difference.abs().max().item(),
+            "rmse": difference.square().mean().sqrt().item(),
+            "relative_l2": (torch.linalg.vector_norm(difference) / torch.linalg.vector_norm(b)).item(),
+        }
 
-        stats["deltas"] = [metrics(a, b) for a, b in zip(trajectories, baseline["steps"], strict=True)]
-        stats["final_delta"] = metrics(result.cpu(), baseline["final"])
+    # Compare both reference precision recipes.
+    for name in ("reference", "fp32"):
+        saved = args.out / f"{name}.pt"
+        if args.mode != name and saved.exists():
+            baseline = torch.load(saved, map_location="cpu", weights_only=True)
+            key = "deltas" if name == "reference" else "fp32_deltas"
+            stats[key] = [metrics(a, b) for a, b in zip(trajectories, baseline["steps"], strict=True)]
+            stats[key.replace("deltas", "final_delta")] = metrics(result.cpu(), baseline["final"])
     (args.out / f"{args.mode}.json").write_text(json.dumps(stats, indent=2))
     print(json.dumps(stats, indent=2), flush=True)
 

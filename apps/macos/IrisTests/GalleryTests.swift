@@ -9,7 +9,7 @@ final class GalleryTests: XCTestCase {
     func testSearchCancelUpdatesBindingWithoutAnEditor() throws {
         var query = "fox"
         let binding = Binding(get: { query }, set: { query = $0 })
-        let coordinator = GallerySearchField.Coordinator(text: binding, focusRequests: 0)
+        let coordinator = GallerySearchField.Coordinator(text: binding)
         let field = NSSearchField()
         field.stringValue = query
         field.target = coordinator
@@ -70,6 +70,15 @@ final class GalleryTests: XCTestCase {
         XCTAssertEqual(Gallery.items(of: conversations, in: .allImages, matching: "4").map(\.id), [])  // seeds match whole
     }
 
+    func testSearchingByLocalizedModelTitle() {
+        let item = entry("fox", at: 0)
+        let conversations = [Conversation(title: "fox", projectID: nil, entries: [item])]
+        XCTAssertEqual(
+            Gallery.items(of: conversations, in: .allImages, matching: GenerationModel.original.title).map(\.id),
+            [item.id]
+        )
+    }
+
     /// One image of a batch filed in a project keeps its place among the others in All Images.
     func testAMovedImageStaysInItsBatch() {
         let batch = (0..<4).map { entry("fox \($0)", at: Double($0) * 0.001) }
@@ -94,7 +103,7 @@ final class GalleryTests: XCTestCase {
             now: now, calendar: calendar
         )
         XCTAssertEqual(sections.map(\.items.count), [2, 1, 2, 1])
-        XCTAssertEqual(Array(sections.map(\.title).prefix(2)), ["Today", "Yesterday"])
+        XCTAssertEqual(Array(sections.map(\.title).prefix(2)), [String(localized: "Today"), String(localized: "Yesterday")])
         XCTAssertEqual(Set(sections.map(\.title)).count, 4)
         XCTAssertTrue(try XCTUnwrap(sections.last?.title).contains("2025"))  // another year says so
     }

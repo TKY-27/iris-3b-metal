@@ -1,0 +1,9 @@
+{
+  "fixture_sha256": "9503ad952d026fae05cafe20b96c58f171b43766ecf70cca7fcd6353b05af5c5",
+  "pixel_sha256": "e478e758bba40a7cf8b9cef97c812b576eda82592ab489a8e44d6fdcbd201a20",
+  "official_bf16_pixel_equality": true,
+  "precision": "bf16-linear-fp32-parameter-bf16-autocast",
+  "steps": 4,
+  "allocated_bytes_after_unload": 0,
+  "driver_bytes_after_unload": 1769472
+}

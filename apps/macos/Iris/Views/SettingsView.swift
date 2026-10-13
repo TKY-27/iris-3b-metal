@@ -3,9 +3,9 @@ import SwiftUI
 struct SettingsView: View {
     var body: some View {
         TabView {
-            Tab("General", systemImage: "gearshape") { GeneralSettings() }
-            Tab("Engine", systemImage: "cpu") { EngineSettings() }
-            Tab("Storage", systemImage: "internaldrive") { StorageSettings() }
+            Tab(String(localized: "General"), systemImage: "gearshape") { GeneralSettings() }
+            Tab(String(localized: "Engine"), systemImage: "cpu") { EngineSettings() }
+            Tab(String(localized: "Storage"), systemImage: "internaldrive") { StorageSettings() }
         }
         .frame(width: 520)
     }
@@ -21,16 +21,16 @@ private struct GeneralSettings: View {
         @Bindable var updates = updates
         Form {
             Section {
-                Picker("Appearance", selection: $appearance) {
+                Picker(String(localized: "Appearance"), selection: $appearance) {
                     ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
                 }
-                Toggle("Animate iris flowers", isOn: $animates)
+                Toggle(String(localized: "Animate iris flowers"), isOn: $animates)
                     .disabled(reduceMotion)
-                    .help(reduceMotion ? "Reduce Motion is enabled in macOS Accessibility settings." : "Flowers respond to the pointer and animate while an image is being made.")
+                    .help(reduceMotion ? String(localized: "Reduce Motion is enabled in macOS Accessibility settings.") : String(localized: "Flowers respond to the pointer and animate while an image is being made."))
             }
             Section("Updates") {
-                LabeledContent("App version", value: "\(updates.appVersion) (\(UpdateChecker.installedBuild))")
-                Toggle("Check automatically", isOn: $updates.automatic)
+                LabeledContent(String(localized: "App version"), value: "\(updates.appVersion) (\(UpdateChecker.installedBuild))")
+                Toggle(String(localized: "Check automatically"), isOn: $updates.automatic)
                 CheckForUpdatesButton()
             }
 
@@ -48,34 +48,34 @@ private struct EngineSettings: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("Status") { Text(status) }
-                LabeledContent("Engine version", value: engine.health?.engineVersion ?? "Not reported")
+                LabeledContent(String(localized: "Status")) { Text(status) }
+                LabeledContent(String(localized: "Engine version"), value: engine.health?.engineVersion ?? String(localized: "Not reported"))
                 if let notice = engine.health?.compatibilityNotice {
                     Text(notice).foregroundStyle(.secondary)
                 }
-                DisclosureGroup("Engine update instructions") {
-                    Text("Use iris-metal 0.3.x with this app. Quit Iris before changing the engine. Install the chosen release into a new Python environment, then select its bin/iris-metal here. Keep the old environment until the new one works; select the old path again to roll back.")
-                    Text("For pipx or another package manager, use the tool that owns the installation. App updates do not update Python packages. Checkpoints and the Hugging Face cache can stay where they are.")
-                    Link("Official installation guide", destination: EngineHealth.instructionsURL)
+                DisclosureGroup(String(localized: "Engine update instructions")) {
+                    Text(String(localized: "Use iris-metal 0.3.x or 0.5.x with this app. Quit Iris before changing the engine. Install the chosen release into a new Python environment, then select its bin/iris-metal here. Keep the old environment until the new one works; select the old path again to roll back."))
+                    Text(String(localized: "For pipx or another package manager, use the tool that owns the installation. App updates do not update Python packages. Checkpoints and the Hugging Face cache can stay where they are."))
+                    Link(String(localized: "Official installation guide"), destination: EngineHealth.instructionsURL)
                 }
-                TextField("iris-metal location", text: $path, prompt: Text(engine.resolvedExecutable()?.path ?? "Not found"))
+                TextField(String(localized: "iris-metal location"), text: $path, prompt: Text(engine.resolvedExecutable()?.path ?? String(localized: "Not found")))
                 Button("Choose…", action: choose)
                 TextField("Port", value: $port, format: .number.grouping(.never))
                     .help("\(EngineController.portRange.lowerBound)–\(EngineController.portRange.upperBound)")
             } footer: {
-                Text("The Python engine is installed separately. Iris never changes your Python environment. Leave the location empty to search ~/.local/bin and Homebrew.")
+                Text(String(localized: "The Python engine is installed separately. Iris never changes your Python environment. Leave the location empty to search ~/.local/bin and Homebrew."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             HStack {
                 Spacer()
-                Button("Apply and Restart Engine") {
+                Button(String(localized: "Apply and Restart Engine")) {
                     engine.executablePath = path
                     engine.port = port
                     Task { await engine.restart() }
                 }
                 .disabled(generator.isBusy || engine.state == .starting)
-                .help(generator.isBusy ? "Wait for the current request to finish" : "")
+                .help(generator.isBusy ? String(localized: "Wait for the current request to finish") : "")
             }
         }
         .formStyle(.grouped)
@@ -87,9 +87,9 @@ private struct EngineSettings: View {
 
     private var status: String {
         switch engine.state {
-        case .ready: "Running"
-        case .starting: "Starting"
-        case .stopped: "Stopped"
+        case .ready: String(localized: "Running")
+        case .starting: String(localized: "Starting")
+        case .stopped: String(localized: "Stopped")
         case let .failed(message): message
         }
     }
@@ -112,38 +112,38 @@ private struct StorageSettings: View {
         Form {
             Section {
                 if models.isEmpty {
-                    Text("No model weights downloaded yet.").foregroundStyle(.secondary)
+                    Text(String(localized: "No model weights downloaded yet.")).foregroundStyle(.secondary)
                 }
                 ForEach(models) { model in
                     LabeledContent(model.name) {
                         Text(model.bytes, format: .byteCount(style: .file))
-                        Button("Show in Finder") {
+                        Button(String(localized: "Show in Finder")) {
                             NSWorkspace.shared.activateFileViewerSelecting([model.url])
                         }
                     }
                 }
             } header: {
-                Text("Models")
+                Text(String(localized: "Models"))
             } footer: {
                 // the Hugging Face cache can share files between repositories, so
                 // removal is left to its own tool, which knows the layout
-                Text("Models live in the Hugging Face cache. Remove one with `hf cache rm model/speridlabs/iris-3b`; the engine downloads it again when needed.")
+                Text(String(localized: "Models live in the Hugging Face cache. Remove one with `hf cache rm model/speridlabs/iris-3b`; the engine downloads it again when needed."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
-            Section("Library") {
-                LabeledContent("^[\(library.imageCount) image](inflect: true)") {
+            Section(String(localized: "Library")) {
+                LabeledContent(String(localized: "\(library.imageCount) images")) {
                     if let libraryBytes {
                         Text(libraryBytes, format: .byteCount(style: .file))
                     }
-                    Button("Show in Finder") {
+                    Button(String(localized: "Show in Finder")) {
                         NSWorkspace.shared.activateFileViewerSelecting([library.store.root])
                     }
                 }
                 HStack {
                     Spacer()
-                    Button("Delete All Images…", role: .destructive) { confirmsDelete = true }
+                    Button(String(localized: "Delete All Images…"), role: .destructive) { confirmsDelete = true }
                         .disabled(library.conversations.isEmpty || library.isReadOnly)
                 }
             }
@@ -151,12 +151,12 @@ private struct StorageSettings: View {
         .formStyle(.grouped)
         .task { models = await ModelCache.scan() }
         .task(id: library.entryCount) { libraryBytes = await library.byteCount() }
-        .confirmationDialog("Delete all images?", isPresented: $confirmsDelete) {
-            Button("Delete All", role: .destructive) {
+        .confirmationDialog(String(localized: "Delete all images?"), isPresented: $confirmsDelete) {
+            Button(String(localized: "Delete All"), role: .destructive) {
                 library.deleteAllImages()
             }
         } message: {
-            Text("Their prompts and settings are deleted too. Projects are kept, and so are images still being made. This cannot be undone.")
+            Text(String(localized: "Their prompts and settings are deleted too. Projects are kept, and so are images still being made. This cannot be undone."))
         }
     }
 }
@@ -171,7 +171,7 @@ struct ModelCache: Identifiable, Sendable {
 
     static let known = [
         ("Iris-3B", "models--speridlabs--iris-3b"),
-        ("Qwen3-VL-4B text encoder", "models--Qwen--Qwen3-VL-4B-Instruct"),
+        (String(localized: "Qwen3-VL-4B text encoder"), "models--Qwen--Qwen3-VL-4B-Instruct"),
     ]
 
     static func scan() async -> [ModelCache] {
@@ -214,9 +214,9 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .system: "System"
-        case .light: "Light"
-        case .dark: "Dark"
+        case .system: String(localized: "System")
+        case .light: String(localized: "Light")
+        case .dark: String(localized: "Dark")
         }
     }
 

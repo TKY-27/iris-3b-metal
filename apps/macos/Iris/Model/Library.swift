@@ -25,7 +25,7 @@ final class Library {
         projects = loaded.snapshot.projects
         conversations = loaded.snapshot.conversations
         isReadOnly = loaded.readOnly
-        problem = lock != nil ? loaded.problem : "Iris is already running with this library, so this window shows it read-only."
+        problem = lock != nil ? loaded.problem : String(localized: "Iris is already running with this library, so this window shows it read-only.")
     }
 
     // MARK: - Queries
@@ -48,7 +48,7 @@ final class Library {
     func imageURL(_ entry: UUID) -> URL { store.imageURL(entry) }
     func inputURL(_ entry: UUID) -> URL { store.inputURL(entry) }
 
-    /// The entry whose result `url` is, e.g. an image dragged from the gallery.
+    /// Find a dragged result in the library.
     func entryID(forImage url: URL) -> UUID? {
         guard url.isFileURL,
               url.deletingLastPathComponent().standardizedFileURL == store.imagesDirectory.standardizedFileURL,
@@ -95,8 +95,8 @@ final class Library {
         setOutcome(found.entry.outcome, of: id, metadata: metadata)
     }
 
-    /// Deletes an entry and its files, and its conversation once nothing is left in it.
-    /// A running or queued entry is the generator's until it ends.
+    /// Delete an entry and empty conversation.
+    /// Running entries remain owned by the generator.
     func delete(entry id: UUID) {
         guard !isReadOnly,
               let c = conversations.firstIndex(where: { $0.entries.contains { $0.id == id } }),
@@ -107,9 +107,8 @@ final class Library {
         save(thenRemoveFilesOf: [id])
     }
 
-    /// Files one entry in `project`, nil for none. An entry kept with others, such as one image
-    /// of a batch, moves to a conversation of its own, so the others stay where they are.
-    /// A running entry stays in the conversation the generator knows it by.
+    /// Move one entry, leaving other images intact.
+    /// Preserve running entries at their original location.
     func move(entry id: UUID, to project: UUID?) {
         guard !isReadOnly,
               let c = conversations.firstIndex(where: { $0.entries.contains { $0.id == id } }),
@@ -192,7 +191,7 @@ final class Library {
         }.value
     }
 
-    /// Deletes every entry and its files, keeping projects and the entries still running or queued.
+    /// Delete finished entries, preserving projects and jobs.
     func deleteAllImages() {
         guard !isReadOnly else { return }
         let removed = conversations.flatMap { $0.entries.filter { $0.outcome != .running }.map(\.id) }
@@ -216,7 +215,7 @@ final class Library {
                 store.removeFiles(of: removed)
             } catch {
                 logger.error("Saving the library failed: \(error.localizedDescription, privacy: .public)")
-                let message = "Iris could not save the library: \(error.localizedDescription)"
+                let message = String(localized: "Iris could not save the library: \(error.localizedDescription)")
                 Task { @MainActor in self?.problem = message }
             }
         }

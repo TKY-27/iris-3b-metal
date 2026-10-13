@@ -208,7 +208,9 @@ final class Generator {
         } catch EngineError.unreachable {
             if cancelRequested { return .cancelled }
             engine.connectionLost()
-            return .failed(EngineError.unreachable.localizedDescription)
+            return .failed(EngineError.unreachable.diagnosticDescription)
+        } catch let error as EngineError {
+            return cancelRequested ? .cancelled : .failed(error.diagnosticDescription)
         } catch {
             return cancelRequested ? .cancelled : .failed(error.localizedDescription)
         }

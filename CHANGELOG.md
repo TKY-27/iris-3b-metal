@@ -1,8 +1,14 @@
 # Changelog
 
-## Unreleased (engine and macOS app)
+## 0.5.0 — 2026-10-14 (engine and macOS app)
 
-- Reuse identical Turbo text conditioning within a request and shared modulation within each step, with bitwise reference parity. Preserve Turbo's bounded CPU prompt cache across model switches while unloading GPU weights.
+- Add native Japanese and English localization, including plurals, dates, progress, settings, errors and accessibility. Preserve prompts, stored identifiers and library data independently of UI language.
+- Add persistent gallery visibility controls in the toolbar and View menu (⇧⌘G), retain progress when hidden, and reveal/focus search with ⌘F.
+- Retain the official BF16 Turbo forward with exact conditioning reuse. Reject the faster FP16 candidate after independent review found a reproducible typography regression; retain its measurements as an explicitly unshipped comparison.
+- Validate pixel-kernel gain and bias lengths before Metal dispatch.
+- Publish final Original 10/20-step and Turbo measurements, raw records and a Turbo time/memory graph. This is a source-only release, without a signed app binary or model weights.
+- Label the seed on gallery cards and in VoiceOver, describe Turbo in the generation settings, and drop sub-second time estimates.
+- Preserve Turbo's bounded CPU prompt cache across model switches while unloading GPU weights.
 - Clear the gallery filter when the search cancel button is clicked after focus leaves the field; keep the gallery background drawing during generation, with reduced-motion and hidden-window pausing preserved.
 - Add the official Iris-3B Turbo full-parameter checkpoint with its fixed four-step deterministic flow-Euler sampler. Download and retain Original and Turbo separately; preserve Original guidance, negative prompts and step controls.
 - Save the selected model, sampler, precision, checkpoint provenance and generation settings in PNG metadata and library entries. Advertise engine model capabilities so older engines cannot silently handle Turbo as Original.

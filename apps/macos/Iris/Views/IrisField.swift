@@ -2,8 +2,7 @@ import MetalKit
 import SwiftUI
 import os
 
-/// An iris flower behind the gallery or a running result. Pointer motion stays outside
-/// SwiftUI observation; Reduce Motion and the animation setting use a still flower.
+/// Decorative canvas respecting reduced motion.
 struct IrisCanvas<Content: View>: View {
     /// 0 idle, 1 generating.
     var energy: Double = 0
@@ -321,8 +320,7 @@ vertex VOut field_vertex(uint id [[vertex_id]]) {
     return out;
 }
 
-// Each petal grows from the throat along its own curved axis. Three upright
-// standards and three falling petals follow the silhouette of the app's iris.
+// Six curved petals form the iris.
 static float4 petal(float2 p, float2 axis, float extent, float width,
                     float bend, float3 hue, float light, float time) {
     axis = normalize(axis);

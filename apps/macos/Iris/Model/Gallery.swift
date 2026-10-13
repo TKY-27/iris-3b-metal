@@ -1,6 +1,6 @@
 import Foundation
 
-/// A result as the gallery lists it, with where it is kept.
+/// A gallery entry and its project.
 struct GalleryItem: Identifiable, Equatable {
     let entry: Entry
     let conversation: UUID
@@ -17,8 +17,7 @@ struct GallerySection: Identifiable, Equatable {
     var id: String { title }
 }
 
-/// What the gallery shows, and in what order: every result was made on its own, so they are
-/// listed newest first, with the images of one batch kept in the order they were made.
+/// Newest batches first, preserving their internal order.
 enum Gallery {
     /// The entries of a batch are created together, within microseconds; the next request
     /// comes after the previous one has finished, so a shorter gap means the same batch.
@@ -28,8 +27,7 @@ enum Gallery {
         of conversations: [Conversation], in scope: Workspace.Selection, matching query: String = ""
     ) -> [GalleryItem] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        // in the order they were made, wherever they are kept, so an image moved out of
-        // its batch still sorts with it
+        // Moving images preserves their original batch order.
         let made = conversations.filter(scope.contains)
             .flatMap { c in c.entries.map { GalleryItem(entry: $0, conversation: c.id, project: c.projectID) } }
             .enumerated()
@@ -48,7 +46,7 @@ enum Gallery {
             .map(\.item)
     }
 
-    /// `items` in order, under "Today", "Yesterday" or their date.
+    /// Group entries by their local creation date.
     static func sections(_ items: [GalleryItem], now: Date = .now, calendar: Calendar = .current) -> [GallerySection] {
         let today = calendar.startOfDay(for: now)
         var sections: [GallerySection] = []
@@ -69,7 +67,7 @@ enum Gallery {
         case ...0: return String(localized: "Today")
         case 1: return String(localized: "Yesterday")
         default:
-            let style = Date.FormatStyle(calendar: calendar, timeZone: calendar.timeZone).weekday(.wide).month(.wide).day()
+            let style = Date.FormatStyle(locale: .iris, calendar: calendar, timeZone: calendar.timeZone).weekday(.wide).month(.wide).day()
             let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: today)
             return date.formatted(sameYear ? style : style.year())
         }
@@ -79,8 +77,7 @@ enum Gallery {
         case left, right, up, down
     }
 
-    /// Where an arrow key takes the selection: along the order, or to the same column of the
-    /// row above or below, each day being its own grid of `columns`. With nothing selected, the first item.
+    /// Arrow navigation across separate daily grids.
     static func neighbor(of id: UUID?, in sections: [GallerySection], columns: Int, moving move: Move) -> UUID? {
         let columns = max(columns, 1)
         let rows = sections.flatMap { section in

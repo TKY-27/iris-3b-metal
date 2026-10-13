@@ -34,9 +34,13 @@ The upstream depth and restoration fine-tunes reuse the Iris architecture for re
 
 ## At a glance
 
-<p align="center"><img src="assets/benchmarks/startup.svg" width="760" alt="Prompt-to-image timings on a base M5 MacBook Pro with 24 GB: at 10 steps, 55 seconds for the first image after launch, 48 seconds for a new prompt and 45 seconds for a repeated cached prompt; at 20 steps, 100, 95 and 91 seconds respectively"></p>
-
-On the base M5 MacBook Pro with 24 GB, 1024 × 1024, CFG 3, a warm repeated prompt takes about **45 s at 10 steps** or **91 s at 20 steps**. Peak process physical memory is about **10.0 GiB**. Macs with 16 GB have not been tested; this measurement does not establish comfortable operation on them.
+On a base M5 MacBook Pro with 24 GiB, the final 1024 × 1024 measurements
+were **12.07 s warm for official Turbo (4 steps)**, **38.38 s for Original
+(10 steps)** and **76.04 s for Original (20 steps)**. Peak process physical
+memory was **10.03 GiB for Turbo** and about **10.02 GiB for Original**.
+These are different models and step counts, not an engine-only speedup.
+See [conditions and ranges](#performance-details). Macs with 16 GB have not
+been tested.
 
 ## Examples and tasks
 
@@ -78,21 +82,16 @@ weights (about 12 GB each) download only when first used. Model weights are not
 included in the repository or release.
 
 ```bash
-pipx install "git+https://github.com/TKY-27/iris-3b-metal@v0.4.0"
+pipx install "git+https://github.com/TKY-27/iris-3b-metal@v0.5.0"
 iris-metal "A red fox sleeping in fresh snow, golden hour" --steps 20 -o fox.png
 ```
 
-`v0.4.0` is the current repository and macOS app release tag; the Python
-engine in that source reports version `0.3.0`. [pipx](https://pipx.pypa.io)
+`v0.5.0` is the repository, macOS app and Python engine release. [pipx](https://pipx.pypa.io)
 installs `iris-metal` in `~/.local/bin`, where the app can find it. Installing
 the package does not download model weights; the first inference does. A
 virtual environment with `pip install` also works.
 
 **Explore:** [Usage](#usage) · [macOS app](#macos-app) · [Performance details](#performance-details) · [How it works](#how-it-works) · [Image quality](#image-quality) · [Development](#development) · [License and credits](#license-and-credits)
-
-Turbo and the gallery described below are unreleased changes. To use them, install
-this checkout with `pip install -e .` and build the app from the same checkout;
-the published `v0.4.0` tag does not include them.
 
 ## What it supports
 
@@ -104,6 +103,8 @@ the published `v0.4.0` tag does not include them.
   deterministic flow-Euler steps with sigmas `1, 0.938, 0.833, 0.625`. Guidance
   is baked into the weights; steps, CFG and negative prompts cannot be adjusted.
   This is a separate model with different image characteristics from Original.
+  Turbo retains the official BF16 forward on MPS; a 1024 × 1024 image takes
+  about 12.07 s warm in the final M5 measurement (see below).
 - Relative depth estimation and 4× image restoration/upscaling with the official upstream fine-tunes.
 - A native SwiftUI macOS app, `iris-metal` CLI, `IrisPipeline` Python API, and localhost HTTP API.
 - Local inference on Apple Silicon. Prompts and images are processed on the Mac; first use downloads model files from Hugging Face. The app's release checker contacts GitHub when enabled.
@@ -177,8 +178,7 @@ The server has no authentication and must not be exposed beyond localhost. It re
 ## macOS app
 
 The SwiftUI app is a client of `iris-metal serve`; it contains no model code.
-The current app release is [v0.4.0](https://github.com/TKY-27/iris-3b-metal/releases/tag/v0.4.0),
-while the Python engine is separately versioned at `0.3.0`. The release is
+The current app and engine release is [v0.5.0](https://github.com/TKY-27/iris-3b-metal/releases/tag/v0.5.0). The release is
 source-only: no signed, downloadable app or model weights are available. Build
 the app from source with Xcode 27:
 
@@ -193,6 +193,7 @@ The app uses an engine already running on its port, or starts `iris-metal serve`
 The app can check GitHub for compatible stable releases and open their release pages. It does not download or install app updates. Automatic checks can be disabled in Settings. Iris does not upgrade or modify a Python environment; Settings reports engine compatibility and manual update instructions. See [macOS releases and updates](docs/macos-updates.md).
 
 - **Gallery.** Every result appears in a gallery by day, newest first, with its model, prompt, seed and steps; projects keep their own images, and search finds images by prompt, model or seed. The prompt bar below the gallery generates batches of up to four images, and the prompt stays for the next request. The details panel shows the full prompt and settings, and can copy the seed, reuse the prompt and settings, or generate again with the same seed or a new seed. Results can be saved, copied, moved to a project, upscaled or turned into depth maps, and depth maps and restored images can be compared with their inputs.
+- **Language and focus.** The app follows macOS’s preferred app language, with Japanese and English UI and an English fallback. Prompts and saved model identities stay unchanged. Hide or show the gallery from the toolbar or View menu (⇧⌘G); the choice persists across launches. Hidden galleries keep the prompt and generation progress available. Find Images (⌘F) brings the gallery back and focuses search.
 - **Motion.** The background and active generation tile retain the pointer-reactive liquid field, shaped as an iris flower. Animation can be turned off in Settings and respects macOS Reduce Motion. The background stops drawing after the pointer settles, while the active generation tile keeps moving; hidden windows stop animation.
 - **Generation controls.** The model menu selects Original or Turbo. Turbo only exposes shape and seed; its four steps are fixed. Original tuning is preserved when switching models. Original presets are Draft, Fast, Standard, High and Maximum at 4, 10, 20, 30 and 50 steps; Standard is the default. The exact controls include steps, guidance, seed and negative prompt. The model's evaluated 100-step setting is available by entering 100.
 - **Progress and library.** Generation reports step progress and can be stopped. Upscaling reports tiles. Images with their prompts and settings, and projects, live under `~/Library/Application Support/Iris`. A legacy `History` folder from Iris 0.1 is imported once; existing chat entries remain visible. Saving upgrades the library to format 2 so older apps cannot silently discard Turbo model identity. Older apps refuse to modify this newer library.
@@ -205,27 +206,52 @@ The app icon was generated by Iris-3B at 100 steps; its source is in [`apps/maco
 
 ## Performance details
 
-### Official Turbo (unreleased)
+### v0.5.0 final measurements
 
-In the October 13 validation on an M5 24 GiB, 1024 × 1024 Turbo generation took **12.6–22.2 s
-warm** and 19.6–29.2 s for the first request in two runs. The first run peaked
-at 10.0 GiB including text encoding. These observed ranges include session
-variation, not a controlled median. Turbo is a different checkpoint from
-Original. Three native-size saved-input fixtures matched the official Turbo
-MPS recipe bitwise; BF16 Linear storage reduced the paired denoising process
-peak from 14.8 to 8.9 GiB. See [Turbo validation and reproduction](benchmarks/turbo-validation-2026-10-13.md)
-for pins, comparisons, rejected experiments and limitations.
+M5, 24 GiB, 1024 × 1024, fixed fox prompt and seed 0, offline local weights.
+Values are medians; warm ranges show min–max. Original has guidance 3.
 
-The [October 14 optimization measurements](benchmarks/performance-2026-10-14.md)
-used alternating baseline/candidate runs on the same busy machine. Exact
-conditioning reuse reduced warm Turbo generation from 22.40 to 21.83 seconds
-on average (2.5%, six requests each), with bitwise-equal images. Keeping Turbo's
-CPU prompt cache reduced return-to-Turbo preparation from about 6.64 to 3.45
-seconds; weights are still unloaded when switching models. No additional
-Original speedup is claimed. A lower-load follow-up confirmed 12.695 to 12.414
-seconds (2.2%, four requests each), again with identical pixels.
+| Model / path | Model load | First request | Warm request (min–max) | Peak process memory |
+|---|---:|---:|---:|---:|
+| Original · 10 steps | 6.95 s | 48.96 s | **38.38 s** (37.98–39.19) | 10.03 GiB |
+| Original · 20 steps | 6.54 s | 86.86 s | **76.04 s** (75.30–76.54) | 10.02 GiB |
+| Turbo · previous BF16 · 4 steps | 2.71 s | 18.63 s | **12.16 s** (12.07–12.32) | 10.02 GiB |
+| Official Turbo · released BF16 · 4 steps | 2.80 s | 18.66 s | **12.07 s** (12.06–12.08) | 10.03 GiB |
+| Rejected Turbo candidate · Metal FP16 · 4 steps | 2.62 s | 13.94 s | **7.63 s** (7.52–7.78) | 7.92 GiB |
 
-### Original prompt-to-image (earlier baseline)
+<p align="center"><img src="assets/benchmarks/turbo.svg" width="900" alt="Turbo benchmark comparison: released BF16, previous BF16, and the faster FP16 candidate rejected for a typography regression"></p>
+
+All rows use four warm requests. Original and released Turbo use two fresh
+processes each, with one cold and two warm requests per process. The earlier
+BF16/FP16 comparison used four fresh processes per path in alternating order.
+First requests include model loading and text encoding; timings end at the
+PNG-ready image with metadata and exclude disk writing. Model-load intervals
+exclude text encoding. Other apps remained open; background GPU samples,
+swap activity and timing ranges are documented. These are session
+measurements, not idle-GPU or all-Mac guarantees.
+[Raw records, exact boundaries and reproduction](benchmarks/release-0.5.0.md).
+
+Turbo is the **official four-step distilled checkpoint**, with fixed steps,
+embedded guidance and no negative-prompt control. Its weights and sampler
+are identical across the Turbo rows. **v0.5.0 ships the official BF16
+recipe.** The FP16 candidate was faster and used less memory, but failed the
+release quality gate: a fixed storefront prompt changed `BREAD` to `BRIEAD`.
+The released BF16 result restores pixel equality with the official recipe
+for that fixture. Original uses different weights, a different sampler and
+more steps, so its time is not an engine-speedup denominator.
+
+The rejected FP16 candidate is numerically closer to FP32 on all eight study
+prompts (mean LPIPS 0.0325 versus 0.0785 for BF16). That does **not** establish
+better visual quality or outweigh a known prompt-following regression.
+Turbo quality is not identical to Original.
+[Quality findings and remediation](benchmarks/release-0.5.0.md#quality-review).
+The earlier [FP16 study](benchmarks/turbo-metal-2026-10-14.md) and
+[official-recipe validation](benchmarks/turbo-validation-2026-10-13.md)
+remain as historical evidence; their older timings are not pooled here.
+
+### Original prompt-to-image (October 11 baseline)
+
+<p align="center"><img src="assets/benchmarks/startup.svg" width="760" alt="Prompt-to-image timings on a base M5 MacBook Pro with 24 GB: at 10 steps, 55 seconds for the first image after launch, 48 seconds for a new prompt and 45 seconds for a repeated cached prompt; at 20 steps, 100, 95 and 91 seconds respectively"></p>
 
 Measurements used a base M5 MacBook Pro with 24 GB, 1024 × 1024, guidance 3, FP16 trunk and attention, and warm file cache. The warm repeated-prompt values below are from `scripts/benchmark.py`; each 10- and 20-step value is the median of three fresh processes. The 100-step run was one process.
 
@@ -251,7 +277,7 @@ The figure and table use a saved fixture (text states and noise) with the same i
 | iris3b-mlx-optimized, memory preset | 84.0 s | 168.6 s | 10.1 GiB |
 | Upstream PyTorch, BF16 autocast recipe | 69.2 s | 135.2 s | 17.9 GiB |
 
-The comparison used two interleaved rounds where available, with the second round in reverse order. The MLX and BF16 runs are different inference implementations and precision recipes; these results do not establish a universal speed or image-quality ranking. The upstream Mac FP32 path was not part of this comparison: one separate 10-step measurement took 346 s and a 100-step measurement took 2940 s, with roughly 20 GiB use and heavy swapping on the 24 GB Mac. Those single runs are not a controlled speedup baseline.
+The comparison used two interleaved rounds where available, with the second round in reverse order. The MLX and BF16 runs are different inference implementations and precision recipes; these results do not establish a universal speed or image-quality ranking. The upstream Mac FP32 path was not part of this comparison: one separate 10-step measurement took 346 s and a 100-step measurement took 2940 s, with roughly 20 GiB use and heavy swapping on the 24 GB Mac. The earlier **8.2×** headline divided the separate-day, swap-heavy 346 s FP32 single run by the 42.1 s saved-fixture result. It is not a controlled engine speedup or a repeatable guarantee.
 
 For the full machine details, raw logs, commands and reproduction steps, see [benchmark methodology and records](benchmarks/README.md).
 
@@ -269,15 +295,14 @@ Upstream Iris-3B uses a 24-block transformer over 16 × 16 pixel patches (8 dual
 
 In a single-stream block at 1024 × 1024, measured GPU time was 66% matrix multiplies, 22% attention and 12% other work.
 
-Turbo keeps the official `IrisDiT` forward and BF16 autocast with deterministic
-flow-Euler sampling. Linear parameters remain in their checkpoint BF16 format;
-other parameters and the flow state stay FP32. This removes redundant FP32
-linear-weight storage while preserving the reference arithmetic. Identical text
-conditioning is reused within each request and shared modulation within each step.
-Original's fused Metal forward was tested for Turbo and rejected for excessive
-numerical drift. Turbo performs four single-batch forwards without a negative
-conditioning branch. Both models use the streamed text encoder and bounded
-prompt cache.
+Turbo runs the upstream forward under BF16 autocast, with BF16 linear
+storage and FP32 non-linear parameters. Its official deterministic flow-Euler
+sampler makes four single-batch forwards without a negative conditioning
+branch. Prompt encodings remain cached, adapted text is reused within each
+request, and shared modulation is computed once per step. These reuse steps
+retain the official arithmetic. The faster mixed-precision Metal candidate
+is available only in the numerical study script; it is not the released
+Turbo path ([release decision](benchmarks/release-0.5.0.md#quality-review)).
 
 ## Image quality
 

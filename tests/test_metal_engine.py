@@ -123,7 +123,7 @@ def test_prepared_conditioning_is_exact_and_request_local(batch, device):
                 expected = model(x, timestep, states, y_mask=mask).x
                 torch.testing.assert_close(actual, expected, rtol=0, atol=0)
                 torch.testing.assert_close(prepared, original, rtol=0, atol=0)
-            # A different prompt must be adapted independently, even with the same shape.
+            # Equal shapes must not alias different prompts.
             changed_states = states + 0.25
             changed = model.embed_text(changed_states, mask)
             assert not torch.equal(changed, prepared)
@@ -241,6 +241,40 @@ def test_pixel_kernels_match_reference():
         rtol=1e-2,
         atol=1e-2,
     )
+
+
+@requires_mps
+@pytest.mark.parametrize("parameter", ["rms_gain", "norm_gain", "next_gain", "fc1_bias", "fc2_bias"])
+def test_pixel_kernels_reject_short_parameter_buffers(parameter, monkeypatch):
+    import iris_metal.kernels as kernels
+
+    def forbidden():
+        pytest.fail("invalid buffers reached Metal compilation")
+
+    monkeypatch.setattr(kernels, "_library", forbidden)
+    pixels = torch.zeros(1, 1, 16, device="mps", dtype=torch.bfloat16)
+    gain = torch.ones(16, device="mps")
+    if parameter == "rms_gain":
+        with pytest.raises(ValueError, match="gain width"):
+            pixel_rms_norm(pixels, gain[:1], 1e-6)
+        return
+    mods = torch.zeros(1, 1, 64, device="mps", dtype=torch.bfloat16)
+    fc1 = torch.nn.Linear(16, 64, device="mps", dtype=torch.bfloat16)
+    fc2 = torch.nn.Linear(64, 16, device="mps", dtype=torch.bfloat16)
+    if parameter in ("fc1_bias", "fc2_bias"):
+        layer = fc1 if parameter == "fc1_bias" else fc2
+        layer.bias = torch.nn.Parameter(layer.bias[:1])
+    with pytest.raises(ValueError, match="gain width|pixel-stage widths"):
+        pixel_mlp_(
+            pixels,
+            pixels.clone(),
+            mods,
+            gain[:1] if parameter == "norm_gain" else gain,
+            fc1,
+            fc2,
+            gain[:1] if parameter == "next_gain" else gain,
+            1e-6,
+        )
 
 
 def _relative_error(actual: torch.Tensor, expected: torch.Tensor) -> float:

@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// The prompt bar below the gallery: a prompt, or an attached image and what to do with it, the
-/// settings of the next image, and Generate. Each image is made from what is here alone.
+/// Prompt, attachment and settings for independent requests.
 struct Composer: View {
     @Environment(Library.self) private var library
     @Environment(Generator.self) private var generator
@@ -50,7 +49,7 @@ struct Composer: View {
     @ViewBuilder private var notices: some View {
         EngineBanner()
         if library.isReadOnly {
-            Notice("This library is read-only; see the message shown at launch.", systemImage: "lock")
+            Notice(String(localized: "This library is read-only; see the message shown at launch."), systemImage: "lock")
         }
         if let elsewhere = busyElsewhere {
             BusyElsewhere(entry: elsewhere.entry, project: library.project(elsewhere.project))
@@ -64,13 +63,13 @@ struct Composer: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 15))
                 .lineSpacing(2)
-                // two lines to start, then it grows with the text and scrolls past eight
+                // Grow to eight lines, then scroll.
                 .lineLimit(2...8)
                 .focused($promptFocused)
                 .onSubmit(submit)
-                .accessibilityLabel("Prompt")
+                .accessibilityLabel(String(localized: "Prompt"))
             if !workspace.prompt.isEmpty {
-                // the prompt stays after Generate, to be refined; this starts over
+                // Generation retains prompts; clear explicitly here.
                 Button {
                     workspace.prompt = ""
                     promptFocused = true
@@ -78,15 +77,15 @@ struct Composer: View {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.borderless)
-                .help("Clear Prompt")
-                .accessibilityLabel("Clear Prompt")
+                .help(String(localized: "Clear Prompt"))
+                .accessibilityLabel(String(localized: "Clear Prompt"))
             }
         }
         .padding(.horizontal, 2)
     }
 
     private var placeholder: String {
-        library.project(workspace.project).map { "Describe a new image for “\($0.name)”" } ?? "Describe a new image"
+        library.project(workspace.project).map { String(localized: "Describe a new image for “\($0.name)”") } ?? String(localized: "Describe a new image")
     }
 
     private var settingsRow: some View {
@@ -109,10 +108,10 @@ struct Composer: View {
 
     private var inputControls: some View {
         HStack(spacing: 10) {
-            Button(action: chooseImage) { Label("Add Image…", systemImage: "photo.badge.plus") }
+            Button(action: chooseImage) { Label(String(localized: "Add Image…"), systemImage: "photo.badge.plus") }
                 .labelStyle(.iconOnly)
-                .accessibilityLabel("Add Image")
-                .help("Restore and upscale an image, or estimate its depth")
+                .accessibilityLabel(String(localized: "Add Image"))
+                .help(String(localized: "Restore and upscale an image, or estimate its depth"))
             if workspace.attachment == nil {
                 modelMenu
                 AspectMenu()
@@ -125,8 +124,8 @@ struct Composer: View {
             Button { showsTuning.toggle() } label: {
                 Label(tuningTitle, systemImage: "slider.horizontal.3")
             }
-            .help(workspace.settings.model == .turbo ? "Seed settings; Turbo always uses four steps" : "Steps, guidance, seed and negative prompt")
-            .accessibilityLabel("Generation settings: \(tuningTitle)")
+            .help(workspace.settings.model == .turbo ? String(localized: "Seed settings; Turbo always uses four steps") : String(localized: "Steps, guidance, seed and negative prompt"))
+            .accessibilityLabel(String(localized: "Generation settings: \(tuningTitle)"))
             .popover(isPresented: $showsTuning, arrowEdge: .bottom) { GenerationControls() }
             CountMenu().labelStyle(.titleOnly)
         }
@@ -135,9 +134,9 @@ struct Composer: View {
     private var modelMenu: some View {
         @Bindable var workspace = workspace
         return Menu {
-            Picker("Model", selection: $workspace.settings.model) {
+            Picker(String(localized: "Model"), selection: $workspace.settings.model) {
                 ForEach(GenerationModel.allCases) { model in
-                    Text(model == .turbo ? "Turbo · 4 steps" : "Original").tag(model)
+                    Text(model == .turbo ? String(localized: "Turbo · 4 steps") : String(localized: "Original")).tag(model)
                         .disabled(engine.health?.supports(model) != true)
                 }
             }
@@ -146,20 +145,20 @@ struct Composer: View {
             Text(workspace.settings.model.title)
         }
         .fixedSize()
-        .accessibilityLabel("Model, \(workspace.settings.model.title)")
-        .help("Original supports adjustable guidance and steps. Turbo uses four fixed steps. Models download when first used.")
+        .accessibilityLabel(String(localized: "Model, \(workspace.settings.model.title)"))
+        .help(String(localized: "Original: adjustable steps, prompt adherence and negative prompt. Turbo: the distilled checkpoint generates images in four fixed steps. Each model downloads when first used."))
     }
 
     private var tuningTitle: String {
-        workspace.settings.model == .turbo ? "4 steps" : "\(workspace.settings.steps) steps"
+        String(localized: "\(workspace.settings.model == .turbo ? 4 : workspace.settings.steps) steps")
     }
 
-    /// One request runs at a time, wherever it was started, so Stop takes Generate's place.
+    /// Stop replaces Generate while any request runs.
     @ViewBuilder private var generateOrStop: some View {
         if generator.isBusy {
-            Button("Stop") { generator.cancel(engine: engine) }
+            Button(String(localized: "Stop")) { generator.cancel(engine: engine) }
                 .keyboardShortcut(".", modifiers: .command)
-                .help("Stop the current request and the rest of its batch (⌘.)")
+                .help(String(localized: "Stop the current request and the rest of its batch (⌘.)"))
         } else {
             Button(sendTitle, action: submit)
                 .buttonStyle(.borderedProminent)
@@ -171,7 +170,7 @@ struct Composer: View {
 
     // MARK: - State
 
-    /// The running request when the gallery does not show it.
+    /// Running work outside the current gallery scope.
     private var busyElsewhere: (entry: UUID, project: UUID?)? {
         guard let active = generator.active, let found = library.entry(active.entry),
               workspace.selection?.contains(found.conversation) == false
@@ -186,25 +185,25 @@ struct Composer: View {
 
     private var sendTitle: String {
         switch workspace.workflow {
-        case .create: workspace.imageCount == 1 ? "Generate" : "Generate \(workspace.imageCount) Images"
-        case .depth: "Estimate Depth"
-        case .upscale: "Restore and Upscale"
+        case .create: workspace.imageCount == 1 ? String(localized: "Generate") : String(localized: "Generate \(workspace.imageCount) Images")
+        case .depth: String(localized: "Estimate Depth")
+        case .upscale: String(localized: "Restore and Upscale")
         }
     }
 
     private var sendHelp: String {
-        if engine.state != .ready { return "The engine is not ready" }
+        if engine.state != .ready { return String(localized: "The engine is not ready") }
         if workspace.workflow == .create, engine.health?.supports(workspace.settings.model) != true {
-            return "Update the engine in Settings to use Turbo."
+            return String(localized: "Update the engine in Settings to use Turbo.")
         }
         if !workspace.canSubmit {
             switch workspace.workflow {
-            case .create: return "Describe an image first"
-            case .upscale where workspace.attachment != nil: return "This image cannot be upscaled"
-            default: return "Add an image first"
+            case .create: return String(localized: "Describe an image first")
+            case .upscale where workspace.attachment != nil: return String(localized: "This image cannot be upscaled")
+            default: return String(localized: "Add an image first")
             }
         }
-        return workspace.workflow == .create ? "\(sendTitle) (↩ or ⌘↩)" : "\(sendTitle) (⌘↩)"
+        return workspace.workflow == .create ? String(localized: "\(sendTitle) (↩ or ⌘↩)") : String(localized: "\(sendTitle) (⌘↩)")
     }
 
     private func submit() {
@@ -243,10 +242,10 @@ private struct AttachmentRow: View {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.borderless)
-                    .help("Remove Image")
-                    .accessibilityLabel("Remove Image")
+                    .help(String(localized: "Remove Image"))
+                    .accessibilityLabel(String(localized: "Remove Image"))
                 }
-                Picker("Action", selection: $workspace.imageWorkflow) {
+                Picker(String(localized: "Action"), selection: $workspace.imageWorkflow) {
                     ForEach(Workflow.imageWorkflows) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
@@ -266,10 +265,10 @@ private struct AttachmentRow: View {
 
     /// What the chosen action will make of this image, with the sizes when known.
     private var explanation: String {
-        if workspace.imageWorkflow == .depth { return "Relative depth: near is bright, not in meters." }
-        guard let size = attachment.pixelSize else { return "Repairs blur, noise and compression while enlarging." }
+        if workspace.imageWorkflow == .depth { return String(localized: "Relative depth: near is bright, not in meters.") }
+        guard let size = attachment.pixelSize else { return String(localized: "Repairs blur, noise and compression while enlarging.") }
         if let refusal = Upscaling.refusal(for: size) { return refusal }
-        return "Repairs blur, noise and compression while enlarging: \(size.pixelLabel) → \(Upscaling.output(for: size).pixelLabel)."
+        return String(localized: "Repairs blur, noise and compression while enlarging: \(size.pixelLabel) → \(Upscaling.output(for: size).pixelLabel).")
     }
 }
 
@@ -280,17 +279,17 @@ private struct AspectMenu: View {
     var body: some View {
         let size = workspace.settings.size
         Menu {
-            item(.square, name: "Square")
-            Section("Landscape") { ForEach(ImageSize.landscape) { item($0) } }
-            Section("Portrait") { ForEach(ImageSize.portrait) { item($0) } }
+            item(.square, name: String(localized: "Square"))
+            Section(String(localized: "Landscape")) { ForEach(ImageSize.landscape) { item($0) } }
+            Section(String(localized: "Portrait")) { ForEach(ImageSize.portrait) { item($0) } }
         } label: {
             Label(size.ratioLabel, systemImage: size.aspectRatio > 1.05 ? "rectangle" : size.aspectRatio < 0.95 ? "rectangle.portrait" : "square")
                 .foregroundStyle(.secondary)
         }
         .buttonStyle(.plain)  // drawn by SwiftUI, so it takes the row's secondary color like the buttons
         .fixedSize()
-        .help("Shape: \(size.label) pixels")
-        .accessibilityLabel("Shape, \(size.ratioLabel), \(size.label)")
+        .help(String(localized: "Shape: \(size.label) pixels"))
+        .accessibilityLabel(String(localized: "Shape, \(size.ratioLabel), \(size.label)"))
     }
 
     private func item(_ size: ImageSize, name: String? = nil) -> some View {
@@ -307,9 +306,9 @@ private struct CountMenu: View {
     var body: some View {
         @Bindable var workspace = workspace
         Menu {
-            Picker("Images", selection: $workspace.imageCount) {
+            Picker(String(localized: "Images"), selection: $workspace.imageCount) {
                 ForEach(Array(Workspace.imageCountRange), id: \.self) { count in
-                    Text(count == 1 ? "1 Image" : "\(count) Images").tag(count)
+                    Text(String(localized: "\(count) images")).tag(count)
                 }
             }
             .pickerStyle(.inline)
@@ -320,16 +319,16 @@ private struct CountMenu: View {
         }
         .buttonStyle(.plain)
         .fixedSize()
-        .help("How many images to make from the prompt, one after another, each with its own seed")
-        .accessibilityLabel("Number of images, \(workspace.imageCount)")
+        .help(String(localized: "How many images to make from the prompt, one after another, each with its own seed"))
+        .accessibilityLabel(String(localized: "Number of images, \(workspace.imageCount)"))
     }
 
     private var title: String {
-        workspace.imageCount == 1 ? "1 image" : "\(workspace.imageCount) images"
+        String(localized: "\(workspace.imageCount) images")
     }
 }
 
-/// Points to the running request when the gallery shows other images; only one runs at a time.
+/// Reveal running work outside this gallery scope.
 private struct BusyElsewhere: View {
     @Environment(Library.self) private var library
     @Environment(Workspace.self) private var workspace
@@ -339,9 +338,9 @@ private struct BusyElsewhere: View {
     var body: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.mini)
-            Text(project.map { "Generating in “\($0.name)”" } ?? "Generating outside this project")
+            Text(project.map { String(localized: "Generating in “\($0.name)”") } ?? String(localized: "Generating outside this project"))
                 .lineLimit(1)
-            Button("Show") { workspace.reveal(entry, library: library) }
+            Button(String(localized: "Show")) { workspace.reveal(entry, library: library) }
                 .buttonStyle(.link)
         }
         .font(.callout)
@@ -370,7 +369,7 @@ struct Notice: View {
 }
 
 extension View {
-    /// Dropping an image file attaches it to the prompt bar, for upscaling or depth.
+    /// Attach dropped images for processing.
     func acceptsImageDrops() -> some View { modifier(ImageDrop()) }
 }
 
@@ -382,8 +381,7 @@ private struct ImageDrop: ViewModifier {
     func body(content: Content) -> some View {
         content
             .dropDestination(for: URL.self) { urls, _ in
-                // only images, and not a result dragged within the gallery by accident;
-                // anything else would fail later, at upload
+                // Gallery drags move entries instead of attaching.
                 guard let url = urls.first, library.entryID(forImage: url) == nil,
                       (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.conforms(to: .image) == true
                 else { return false }
@@ -395,7 +393,7 @@ private struct ImageDrop: ViewModifier {
                     RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
                         .strokeBorder(Color.accentColor, lineWidth: 2)
                         .overlay {
-                            Text("Drop to restore and upscale, or to estimate depth")
+                            Text(String(localized: "Drop to restore and upscale, or to estimate depth"))
                                 .font(.headline)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)

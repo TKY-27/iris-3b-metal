@@ -1,7 +1,7 @@
 import SwiftUI
 
 extension View {
-    /// The name prompt and delete confirmation for projects and images, wherever they were asked for.
+    /// Shared naming and deletion dialogs.
     func libraryEditing() -> some View { modifier(LibraryEditing()) }
 }
 
@@ -19,13 +19,13 @@ private struct LibraryEditing: ViewModifier {
                 }
             }
             .alert(namingTitle, isPresented: isNaming) {
-                TextField("Name", text: $name)
-                Button(creates ? "Create" : "Rename", action: commitName)
+                TextField(String(localized: "Name"), text: $name)
+                Button(creates ? String(localized: "Create") : String(localized: "Rename"), action: commitName)
                     .keyboardShortcut(.defaultAction)
-                Button("Cancel", role: .cancel) { workspace.naming = nil }
+                Button(String(localized: "Cancel"), role: .cancel) { workspace.naming = nil }
             }
             .confirmationDialog(deletionTitle, isPresented: isDeleting, titleVisibility: .visible) {
-                Button("Delete", role: .destructive, action: commitDeletion)
+                Button(String(localized: "Delete"), role: .destructive, action: commitDeletion)
             } message: {
                 Text(deletionMessage)
             }
@@ -43,8 +43,8 @@ private struct LibraryEditing: ViewModifier {
 
     private var namingTitle: String {
         switch workspace.naming {
-        case .newProject: "New Project"
-        case .project: "Rename Project"
+        case .newProject: String(localized: "New Project")
+        case .project: String(localized: "Rename Project")
         case nil: ""
         }
     }
@@ -59,7 +59,7 @@ private struct LibraryEditing: ViewModifier {
             if let moving {
                 library.move(entry: moving, to: project)
             } else {
-                workspace.selection = .project(project)  // show the new project, ready for its first image
+                workspace.selection = .project(project)
             }
         case let .project(id):
             library.rename(project: id, to: trimmed)
@@ -76,16 +76,16 @@ private struct LibraryEditing: ViewModifier {
 
     private var deletionTitle: String {
         switch workspace.deleting {
-        case let .project(id): "Delete “\(library.project(id)?.name ?? "")”?"
-        case .image: "Delete this image?"
+        case let .project(id): String(localized: "Delete “\(library.project(id)?.name ?? "")”?")
+        case .image: String(localized: "Delete this image?")
         case nil: ""
         }
     }
 
     private var deletionMessage: String {
         switch workspace.deleting {
-        case .project: "Its images are kept and stay in All Images."
-        case .image: "The image and the record of its prompt and settings are deleted. This cannot be undone."
+        case .project: String(localized: "Its images are kept and stay in All Images.")
+        case .image: String(localized: "The image and the record of its prompt and settings are deleted. This cannot be undone.")
         case nil: ""
         }
     }

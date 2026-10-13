@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// What can be done with a result, for its card, the inspector and their menus.
+/// Shared result actions for cards and inspector.
 @MainActor
 struct EntryActions {
     let entry: Entry
@@ -17,10 +17,10 @@ struct EntryActions {
 
     var canRegenerate: Bool { canStart && (entry.request.map { engine.health?.supports($0.model) == true } ?? true) }
 
-    /// A running entry stays where it is until it is done.
+    /// Running entries cannot move.
     var canChange: Bool { !library.isReadOnly && entry.outcome != .running }
 
-    /// The input of a depth map or upscale, kept since Iris 0.2.
+    /// Original input, retained since Iris 0.2.
     var hasInput: Bool {
         entry.request == nil && FileManager.default.fileExists(atPath: library.inputURL(entry.id).path)
     }
@@ -29,7 +29,7 @@ struct EntryActions {
 
     var canRunAgain: Bool { entry.request != nil || hasInput }
 
-    /// Whether the restorer would make this result larger; an upscale of an upscale usually would not.
+    /// Upscaling must enlarge the result.
     var canUpscale: Bool {
         guard entry.isDone, entry.workflow != .depth else { return false }
         let size = entry.request.map { CGSize(width: $0.width, height: $0.height) } ?? ImageFiles.pixelSize(of: imageURL)
@@ -49,13 +49,13 @@ struct EntryActions {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    /// The same request as a new entry, with a new seed or exactly as it was; the new one is selected.
+    /// Regenerate with the saved or new seed.
     func runAgain(newSeed: Bool) {
         generator.rerun(entry, newSeed: newSeed, in: conversation, library: library, engine: engine)
         selectStarted()
     }
 
-    /// Depth or upscaling of this result as a new entry, which is selected.
+    /// Process this result into a new entry.
     func process(_ workflow: Workflow) {
         generator.process(
             workflow, image: imageURL, named: entry.fileName, in: conversation, library: library, engine: engine
@@ -63,7 +63,7 @@ struct EntryActions {
         selectStarted()
     }
 
-    /// An image is deleted after a confirmation; a request without one at once.
+    /// Confirm before deleting a generated image.
     func delete() {
         if entry.isDone {
             workspace.deleting = .image(entry.id)
@@ -77,7 +77,7 @@ struct EntryActions {
     }
 }
 
-/// The context menu of a result, and the inspector's More menu.
+/// Result context menu and inspector actions.
 struct EntryMenu: View {
     @Environment(Library.self) private var library
     @Environment(Generator.self) private var generator
@@ -95,32 +95,32 @@ struct EntryMenu: View {
             generator: generator, engine: engine, workspace: workspace
         )
         if entry.isDone {
-            Button("Quick Look") { preview(actions.imageURL) }
-            Button("Copy Image", action: actions.copyImage)
-            Button("Save As…", action: actions.saveAs)
-            Button("Show in Finder", action: actions.showInFinder)
+            Button(String(localized: "Quick Look")) { preview(actions.imageURL) }
+            Button(String(localized: "Copy Image"), action: actions.copyImage)
+            Button(String(localized: "Save As…"), action: actions.saveAs)
+            Button(String(localized: "Show in Finder"), action: actions.showInFinder)
             if actions.canCompare {
-                Button("Compare with Original") { openWindow(id: ComparisonWindow.id, value: entry.id) }
+                Button(String(localized: "Compare with Original")) { openWindow(id: ComparisonWindow.id, value: entry.id) }
             }
             Divider()
         }
         if entry.outcome == .running {
-            Button("Stop") { generator.cancel(engine: engine) }
+            Button(String(localized: "Stop")) { generator.cancel(engine: engine) }
             Divider()
         }
         if let request = entry.request {
-            Button("Reuse Prompt and Settings") { workspace.reuse(request) }
+            Button(String(localized: "Reuse Prompt and Settings")) { workspace.reuse(request) }
             if entry.isDone {
-                Button("Generate Again") { actions.runAgain(newSeed: false) }
+                Button(String(localized: "Generate Again")) { actions.runAgain(newSeed: false) }
                     .disabled(!actions.canRegenerate)
-                Button("Generate with New Seed") { actions.runAgain(newSeed: true) }
+                Button(String(localized: "Generate with New Seed")) { actions.runAgain(newSeed: true) }
                     .disabled(!actions.canRegenerate)
             }
-            Button("Copy Prompt") { actions.copy(request.prompt) }
-            Button("Copy Seed") { actions.copy(String(request.seed)) }
+            Button(String(localized: "Copy Prompt")) { actions.copy(request.prompt) }
+            Button(String(localized: "Copy Seed")) { actions.copy(String(request.seed)) }
         }
         if !entry.isDone, entry.outcome != .running, actions.canRunAgain {
-            Button("Try Again") { actions.runAgain(newSeed: false) }
+            Button(String(localized: "Try Again")) { actions.runAgain(newSeed: false) }
                 .disabled(!actions.canRegenerate)
         }
         if actions.canUpscale || actions.canEstimateDepth {
@@ -129,24 +129,24 @@ struct EntryMenu: View {
                 Button(Workflow.upscale.title) { actions.process(.upscale) }.disabled(!actions.canStart)
             }
             if actions.canEstimateDepth {
-                Button("Estimate Depth") { actions.process(.depth) }.disabled(!actions.canStart)
+                Button(String(localized: "Estimate Depth")) { actions.process(.depth) }.disabled(!actions.canStart)
             }
         }
         Divider()
-        Menu("Move to Project") {
+        Menu(String(localized: "Move to Project")) {
             ForEach(library.projects) { candidate in
                 Button(candidate.name) { library.move(entry: entry.id, to: candidate.id) }
                     .disabled(candidate.id == project)
             }
             if !library.projects.isEmpty { Divider() }
-            Button("New Project…") { workspace.naming = .newProject(moving: entry.id) }
+            Button(String(localized: "New Project…")) { workspace.naming = .newProject(moving: entry.id) }
             if project != nil {
-                Button("Remove from Project") { library.move(entry: entry.id, to: nil) }
+                Button(String(localized: "Remove from Project")) { library.move(entry: entry.id, to: nil) }
             }
         }
         .disabled(!actions.canChange)
         Divider()
-        Button(entry.isDone ? "Delete…" : "Delete", role: .destructive, action: actions.delete)
+        Button(entry.isDone ? String(localized: "Delete…") : String(localized: "Delete"), role: .destructive, action: actions.delete)
             .disabled(!actions.canChange)
     }
 }

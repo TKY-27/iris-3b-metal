@@ -274,17 +274,29 @@ final class WorkflowTests: XCTestCase {
         XCTAssertEqual(Conversation.title(for: entry), "A lighthouse on a rocky coast at dusk, waves…")
     }
 
+    private func runningTestEngine() async throws -> EngineController {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["IRIS_ENGINE_TEST"] == "1" else {
+            throw XCTSkip("Set TEST_RUNNER_IRIS_ENGINE_TEST=1 for the stand-in engine.")
+        }
+        let port = try XCTUnwrap(Int(environment["IRIS_TEST_PORT"] ?? "8765"))
+        guard EngineController.portRange.contains(port) else {
+            XCTFail("Invalid test engine port: \(port)")
+            throw URLError(.badURL)
+        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "IrisOptInEngine-\(UUID().uuidString)"))
+        defaults.register(defaults: ["enginePort": port])
+        let engine = EngineController(defaults: defaults)
+        _ = try await engine.client.health()
+        await engine.start()
+        XCTAssertEqual(engine.state, .ready)
+        return engine
+    }
+
     /// A batch runs one image after another in one chat; Stop ends the rest of it.
     /// Opt-in against the stand-in engine, like the test below.
     func testBatchRunsInOrderAndStopEndsTheRest() async throws {
-        guard ProcessInfo.processInfo.environment["IRIS_ENGINE_TEST"] == "1" else {
-            throw XCTSkip("set TEST_RUNNER_IRIS_ENGINE_TEST=1 with a stand-in engine on 127.0.0.1:8765")
-        }
-        let engine = EngineController()
-        guard (try? await engine.client.health()) != nil else {
-            throw XCTSkip("no engine listening on 127.0.0.1:\(engine.port)")
-        }
-        await engine.start()
+        let engine = try await runningTestEngine()
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let library = Library(store: LibraryStore(root: root))
@@ -317,14 +329,7 @@ final class WorkflowTests: XCTestCase {
     /// default port. Opt-in, so it never sends work to a real engine by accident:
     /// `TEST_RUNNER_IRIS_ENGINE_TEST=1 xcodebuild -scheme Iris test`.
     func testDepthWorkflowAgainstRunningEngine() async throws {
-        guard ProcessInfo.processInfo.environment["IRIS_ENGINE_TEST"] == "1" else {
-            throw XCTSkip("set TEST_RUNNER_IRIS_ENGINE_TEST=1 with a stand-in engine on 127.0.0.1:8765")
-        }
-        let engine = EngineController()
-        guard (try? await engine.client.health()) != nil else {
-            throw XCTSkip("no engine listening on 127.0.0.1:\(engine.port)")
-        }
-        await engine.start()
+        let engine = try await runningTestEngine()
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let library = Library(store: LibraryStore(root: root))
@@ -343,14 +348,7 @@ final class WorkflowTests: XCTestCase {
     /// An upscale reports its tiles as it goes, keeps its original for Compare, and comes out
     /// at the size the composer predicts. Opt-in against the stand-in engine, like the others.
     func testUpscaleReportsTilesAndMatchesThePredictedSize() async throws {
-        guard ProcessInfo.processInfo.environment["IRIS_ENGINE_TEST"] == "1" else {
-            throw XCTSkip("set TEST_RUNNER_IRIS_ENGINE_TEST=1 with a stand-in engine on 127.0.0.1:8765")
-        }
-        let engine = EngineController()
-        guard (try? await engine.client.health()) != nil else {
-            throw XCTSkip("no engine listening on 127.0.0.1:\(engine.port)")
-        }
-        await engine.start()
+        let engine = try await runningTestEngine()
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let library = Library(store: LibraryStore(root: root))

@@ -41,9 +41,9 @@ struct ComparisonView: View {
             return .handled
         }
         .accessibilityElement()
-        .accessibilityLabel("Comparison of \(beforeTitle) and \(afterTitle)")
+        .accessibilityLabel(String(localized: "Comparison of \(beforeTitle) and \(afterTitle)"))
         .accessibilityValue(
-            "\(beforeTitle) \(Int((split * 100).rounded())) percent, \(afterTitle) \(100 - Int((split * 100).rounded())) percent"
+            String(localized: "\(beforeTitle) \(Int((split * 100).rounded())) percent, \(afterTitle) \(100 - Int((split * 100).rounded())) percent")
         )
         .accessibilityAdjustableAction { direction in
             nudge(direction == .increment ? 1 : -1)

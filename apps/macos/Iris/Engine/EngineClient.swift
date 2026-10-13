@@ -4,8 +4,8 @@ enum GenerationModel: String, Codable, CaseIterable, Identifiable, Sendable {
     case original, turbo
 
     var id: Self { self }
-    var title: String { self == .turbo ? "Turbo" : "Original" }
-    var fullTitle: String { "Iris-3B \(title)" }
+    var title: String { self == .turbo ? String(localized: "Turbo") : String(localized: "Original") }
+    var fullTitle: String { self == .turbo ? "Iris-3B Turbo" : "Iris-3B Original" }
 }
 
 /// Parameters of one text-to-image request, as `iris-metal serve` accepts them.
@@ -73,7 +73,7 @@ struct JobStatus: Decodable, Sendable {
     var metadata: GenerationMetadata? = nil
 }
 
-/// Engine provenance supplements the user settings in history and the PNG metadata.
+/// Checkpoint provenance accompanying saved generation settings.
 struct GenerationMetadata: Codable, Hashable, Sendable {
     let sampler: String?
     let precision: String?
@@ -130,11 +130,11 @@ struct EngineHealth: Decodable, Sendable {
 
     var compatibilityIssue: String? {
         if let apiVersion, apiVersion != 1 {
-            return "This engine uses API \(apiVersion); Iris requires API 1. See Engine update instructions in Settings."
+            return String(localized: "This engine uses API \(apiVersion); Iris requires API 1. See Engine update instructions in Settings.")
         }
         if let engineVersion {
-            guard let version = ReleaseVersion(engineVersion), version.major == 0, version.minor == 3 else {
-                return "Engine \(engineVersion) is not supported by this app. Use iris-metal 0.3.x; see Settings."
+            guard let version = ReleaseVersion(engineVersion), version.major == 0, [3, 5].contains(version.minor) else {
+                return String(localized: "Engine \(engineVersion) is not supported by this app. Use iris-metal 0.3.x or 0.5.x; see Settings.")
             }
         }
         return nil
@@ -142,7 +142,7 @@ struct EngineHealth: Decodable, Sendable {
 
     var compatibilityNotice: String? {
         compatibilityIssue ?? ((engineVersion == nil || apiVersion == nil)
-            ? "This legacy engine does not report its version. Compatibility cannot be fully verified." : nil)
+            ? String(localized: "This legacy engine does not report its version. Compatibility cannot be fully verified.") : nil)
     }
 }
 
@@ -150,12 +150,20 @@ enum EngineError: LocalizedError {
     case unreachable
     case rejected(status: Int, message: String)
 
+    var diagnosticDescription: String {
+        switch self {
+        case .unreachable: "The engine is not running."
+        case let .rejected(status, message):
+            status == 429 ? "The engine is busy; try again when the current image finishes." : message
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case .unreachable:
-            "The engine is not running."
+            String(localized: "The engine is not running.")
         case let .rejected(status, message):
-            status == 429 ? "The engine is busy; try again when the current image finishes." : message
+            status == 429 ? String(localized: "The engine is busy; try again when the current image finishes.") : message
         }
     }
 }

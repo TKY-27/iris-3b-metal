@@ -2,9 +2,9 @@
 
 ## Current distribution
 
-As verified on 2026-10-11, the latest published release is [v0.4.0](https://github.com/TKY-27/iris-3b-metal/releases/tag/v0.4.0). It contains source code only: there is no signed or notarized app download and no model checkpoint attached. Build the app from source using the instructions in the [README](../README.md#macos-app).
+The v0.5.0 distribution is a [GitHub source release](https://github.com/TKY-27/iris-3b-metal/releases/tag/v0.5.0). It contains source code only: there is no signed or notarized app download and no model checkpoint attached. Build the app from source using the instructions in the [README](../README.md#macos-app).
 
-The macOS app is version `0.4.0` (build `1`), supports arm64, and targets macOS 15.0 or later. The Python engine has its own version: the source in the `v0.4.0` repository release reports engine `0.3.0` and HTTP API version `1`. The app supports engine `0.3.x` with API version `1`.
+The macOS app and Python engine are version `0.5.0`; the app build is `1`. The app supports arm64 and macOS 15.0 or later. HTTP API version remains `1`. The app supports engines `0.3.x` and `0.5.x` with API `1`; Turbo requires the engine to advertise Turbo support.
 
 ## App update checks
 
@@ -20,20 +20,20 @@ Drafts, prereleases and releases without valid compatibility metadata are not of
 
 ## Updating the Python engine
 
-The app uses a separately installed `iris-metal` executable and never changes its Python environment. To try the engine packaged in repository release `v0.4.0` without replacing an existing installation, create a new virtual environment:
+The app uses a separately installed `iris-metal` executable and never changes its Python environment. To try the engine packaged in repository release `v0.5.0` without replacing an existing installation, create a new virtual environment:
 
 ```sh
-candidate="$HOME/.local/share/iris-engine-v0.3.0"
+candidate="$HOME/.local/share/iris-engine-v0.5.0"
 test ! -e "$candidate" && \
   python3 -m venv "$candidate" && \
-  "$candidate/bin/python" -m pip install "git+https://github.com/TKY-27/iris-3b-metal@v0.4.0" && \
+  "$candidate/bin/python" -m pip install "git+https://github.com/TKY-27/iris-3b-metal@v0.5.0" && \
   "$candidate/bin/iris-metal" --help
 ```
 
-If the candidate directory already exists, choose another new path; do not replace an existing environment. This installs Python engine `0.3.0`; `v0.4.0` is the repository/app release tag. The older repository tag `v0.3.0` predates engine version fields, so the app can connect to it only with a notice that compatibility cannot be fully verified. The current `v0.4.0` source reports engine and API versions.
+If the candidate directory already exists, choose another new path; do not replace an existing environment. This installs Python engine `0.5.0`. The older repository tag `v0.3.0` predates engine version fields, so the app can connect to it only with a notice that compatibility cannot be fully verified. The current `v0.5.0` source reports engine and API versions.
 
 After confirming the candidate command works, select its absolute `bin/iris-metal` path in Iris Settings and check the engine status. Keep the previous environment until a small generation succeeds. This install command downloads Python package dependencies; model weights download separately on first use. The app never modifies the image library, images or model checkpoints during an engine change.
 
 ## Maintainer packaging
 
-[`apps/macos/package_release.sh`](../apps/macos/package_release.sh) can build, sign, notarize and package a local app archive. `--dry-run` validates inputs only; `--execute` submits the app to Apple and never uploads a GitHub release. Execution requires an existing Developer ID Application identity, a Keychain notary profile, an approved version/build and a new output directory. The current `v0.4.0` release has no signed or notarized app archive.
+[`apps/macos/package_release.sh`](../apps/macos/package_release.sh) can build, sign, notarize and package a local app archive. `--dry-run` validates inputs only; `--execute` submits the app to Apple and never uploads a GitHub release. Execution requires an existing Developer ID Application identity, a Keychain notary profile, an approved version/build and a new output directory. The current `v0.5.0` release has no signed or notarized app archive.

@@ -477,6 +477,7 @@ def pixel_rms_norm(pixels: torch.Tensor, weight: torch.Tensor, eps: float) -> to
         pixels.shape[-1] == PIXEL_WIDTH and pixels.is_contiguous(), "pixel_rms_norm needs 16-wide pixels"
     )
     _require_fp32(weight=weight)
+    _require(weight.numel() == PIXEL_WIDTH, "pixel_rms_norm gain width mismatch")
     out = torch.empty_like(pixels)
     n_pixels = pixels.numel() // PIXEL_WIDTH
     _library().pixel_rms_norm(pixels, out, weight, n_pixels, float(eps), threads=n_pixels, group_size=256)
@@ -531,7 +532,11 @@ def pixel_mlp_(
         and branch.shape == pixels.shape
         and mods.shape == (*pixels.shape[:-1], 4 * PIXEL_WIDTH)
         and fc1.weight.shape == (PIXEL_HIDDEN, PIXEL_WIDTH)
-        and fc2.weight.shape == (PIXEL_WIDTH, PIXEL_HIDDEN),
+        and fc2.weight.shape == (PIXEL_WIDTH, PIXEL_HIDDEN)
+        and fc1.bias is not None
+        and fc1.bias.shape == (PIXEL_HIDDEN,)
+        and fc2.bias is not None
+        and fc2.bias.shape == (PIXEL_WIDTH,),
         "pixel_mlp_ needs the released pixel-stage widths",
     )
     tensors = (pixels, branch, mods, fc1.weight, fc1.bias, fc2.weight, fc2.bias)
@@ -540,6 +545,10 @@ def pixel_mlp_(
         "pixel_mlp_ needs contiguous BF16 activations and MLP parameters",
     )
     _require_fp32(norm_weight=norm_weight, next_norm_weight=next_norm_weight)
+    _require(
+        norm_weight.numel() == next_norm_weight.numel() == PIXEL_WIDTH,
+        "pixel_mlp_ gain width mismatch",
+    )
     next_input = torch.empty_like(pixels)
     n_pixels = pixels.numel() // PIXEL_WIDTH
     _library().pixel_mlp(

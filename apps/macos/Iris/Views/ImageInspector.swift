@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// The selected result: the image, its full prompt and every setting it was made with, and
-/// what can be done with it.
+/// Selected image, settings and available actions.
 struct ImageInspector: View {
     @Environment(Library.self) private var library
     @Environment(Workspace.self) private var workspace
@@ -10,11 +9,11 @@ struct ImageInspector: View {
     var body: some View {
         if let id = workspace.selectedEntry, let found = library.entry(id) {
             EntryDetails(entry: found.entry, conversation: found.conversation, preview: preview)
-                .id(id)  // the sizes of one entry are never shown for another
+                .id(id)  // Reset dimensions when the selection changes.
         } else {
             ContentUnavailableView(
-                "No Selection", systemImage: "photo",
-                description: Text("Select an image to see its prompt, seed and settings.")
+                String(localized: "No Selection"), systemImage: "photo",
+                description: Text(String(localized: "Select an image to see its prompt, seed and settings."))
             )
         }
     }
@@ -53,7 +52,7 @@ private struct EntryDetails: View {
             }
             .padding(16)
         }
-        // the input is written just after a depth or upscaling entry appears, the result when it is done
+        // Input and result arrive separately.
         .task(id: SizeKey(outcome: entry.outcome, storedInput: generator.storedInput == entry.id)) {
             let loaded = await EntrySizes.load(entry, library: library)
             if !Task.isCancelled { sizes = loaded }  // not a slower read for an earlier state
@@ -73,9 +72,9 @@ private struct EntryDetails: View {
                 }
                 .buttonStyle(.plain)
                 .draggable(actions.imageURL)
-                .help("Quick Look (Space)")
-                .accessibilityLabel(entry.title)
-                .accessibilityHint("Opens Quick Look")
+                .help(String(localized: "Quick Look (Space)"))
+                .accessibilityLabel(entry.displayTitle)
+                .accessibilityHint(String(localized: "Opens Quick Look"))
                 actionBar
             }
         case .running:
@@ -92,10 +91,10 @@ private struct EntryDetails: View {
 
     private var actionBar: some View {
         HStack(spacing: 2) {
-            IconButton("Copy Image", systemImage: "doc.on.doc", action: actions.copyImage)
-            IconButton("Save As…", systemImage: "square.and.arrow.down", action: actions.saveAs)
+            IconButton(String(localized: "Copy Image"), systemImage: "doc.on.doc", action: actions.copyImage)
+            IconButton(String(localized: "Save As…"), systemImage: "square.and.arrow.down", action: actions.saveAs)
             if actions.canCompare {
-                IconButton("Compare with Original", systemImage: "square.split.2x1") {
+                IconButton(String(localized: "Compare with Original"), systemImage: "square.split.2x1") {
                     openWindow(id: ComparisonWindow.id, value: entry.id)
                 }
             }
@@ -104,21 +103,21 @@ private struct EntryDetails: View {
                     .disabled(!actions.canStart)
             }
             if actions.canEstimateDepth {
-                IconButton("Estimate Depth", systemImage: Workflow.depth.symbol) { actions.process(.depth) }
+                IconButton(String(localized: "Estimate Depth"), systemImage: Workflow.depth.symbol) { actions.process(.depth) }
                     .disabled(!actions.canStart)
             }
             Spacer(minLength: 0)
             Menu {
                 EntryMenu(entry: entry, conversation: conversation.id, project: conversation.projectID, preview: preview)
             } label: {
-                Label("More", systemImage: "ellipsis")
+                Label(String(localized: "More"), systemImage: "ellipsis")
             }
             .menuStyle(.button)
             .buttonStyle(.borderless)
             .menuIndicator(.hidden)
             .labelStyle(.iconOnly)
             .frame(width: 26, height: 22)
-            .help("More")
+            .help(String(localized: "More"))
         }
     }
 
@@ -127,15 +126,15 @@ private struct EntryDetails: View {
     private func prompt(_ request: GenerationRequest) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Prompt").font(.headline)
+                Text(String(localized: "Prompt")).font(.headline)
                 Spacer()
-                IconButton("Copy Prompt", systemImage: "doc.on.doc") { actions.copy(request.prompt) }
+                IconButton(String(localized: "Copy Prompt"), systemImage: "doc.on.doc") { actions.copy(request.prompt) }
             }
             Text(request.prompt)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
             if request.model == .original, !request.negativePrompt.isEmpty {
-                Text("Avoid: \(request.negativePrompt)")
+                Text(String(localized: "Avoid: \(request.negativePrompt)"))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -153,7 +152,7 @@ private struct EntryDetails: View {
             VStack(alignment: .leading, spacing: 2) {
                 Label(entry.workflow.title, systemImage: entry.workflow.symbol)
                     .font(.headline)
-                Text(entry.inputName ?? "image")
+                Text(entry.inputName ?? String(localized: "Image"))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -161,38 +160,38 @@ private struct EntryDetails: View {
         }
     }
 
-    /// Making the image again, the same or changed, is the next step after looking at one.
+    /// Reuse settings or regenerate the selected image.
     @ViewBuilder private var primaryActions: some View {
         VStack(spacing: 8) {
             if let request = entry.request {
                 Button {
                     workspace.reuse(request)
                 } label: {
-                    Text("Reuse Prompt and Settings").frame(maxWidth: .infinity)
+                    Text(String(localized: "Reuse Prompt and Settings")).frame(maxWidth: .infinity)
                 }
-                .help("Put this prompt and its settings, seed included, in the prompt bar")
+                .help(String(localized: "Put this prompt and its settings, seed included, in the prompt bar"))
                 if entry.isDone {
                     Button {
                         actions.runAgain(newSeed: false)
                     } label: {
-                        Text("Generate Again").frame(maxWidth: .infinity)
+                        Text(String(localized: "Generate Again")).frame(maxWidth: .infinity)
                     }
                     .disabled(!actions.canRegenerate)
-                    .help("Generate with the same model, prompt, seed and settings")
+                    .help(String(localized: "Generate with the same model, prompt, seed and settings"))
                     Button {
                         actions.runAgain(newSeed: true)
                     } label: {
-                        Text("Generate with New Seed").frame(maxWidth: .infinity)
+                        Text(String(localized: "Generate with New Seed")).frame(maxWidth: .infinity)
                     }
                     .disabled(!actions.canRegenerate)
-                    .help("Generate this prompt again with the same settings and a new seed")
+                    .help(String(localized: "Generate this prompt again with the same settings and a new seed"))
                 }
             }
             if !entry.isDone, entry.outcome != .running, actions.canRunAgain {
                 Button {
                     actions.runAgain(newSeed: false)
                 } label: {
-                    Text("Try Again").frame(maxWidth: .infinity)
+                    Text(String(localized: "Try Again")).frame(maxWidth: .infinity)
                 }
                 .disabled(!actions.canRegenerate)
             }
@@ -206,35 +205,35 @@ private struct EntryDetails: View {
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 8) {
             if let r = entry.request {
                 let size = ImageSize(width: r.width, height: r.height)
-                row("Model", r.model.fullTitle)
-                row("Size", "\(size.label) (\(size.ratioLabel))")
-                row("Steps", r.model == .turbo ? "4 · Fixed" : QualityPreset(steps: r.steps).map { "\(r.steps) · \($0.title)" } ?? "\(r.steps)")
+                row(String(localized: "Model"), r.model.fullTitle)
+                row(String(localized: "Size"), "\(size.label) (\(size.ratioLabel))")
+                row(String(localized: "Steps"), r.model == .turbo ? String(localized: "4 · Fixed") : QualityPreset(steps: r.steps).map { "\(r.steps) · \($0.title)" } ?? "\(r.steps)")
                 if r.model == .original {
-                    row("Guidance", AdherencePreset(cfgScale: r.cfgScale).map { "\(r.cfgScale.formatted()) · \($0.title)" } ?? r.cfgScale.formatted())
+                    row(String(localized: "Guidance"), AdherencePreset(cfgScale: r.cfgScale).map { "\(r.cfgScale.formatted()) · \($0.title)" } ?? r.cfgScale.formatted())
                 }
                 GridRow {
-                    label("Seed")
+                    label(String(localized: "Seed"))
                     HStack(spacing: 4) {
                         Text(String(r.seed)).textSelection(.enabled)
-                        IconButton("Copy Seed", systemImage: "doc.on.doc") { actions.copy(String(r.seed)) }
+                        IconButton(String(localized: "Copy Seed"), systemImage: "doc.on.doc") { actions.copy(String(r.seed)) }
                     }
                 }
             } else {
-                if let input = sizes.input { row("Input", input.pixelLabel) }
-                if let output = sizes.output { row("Result", output.pixelLabel) }
+                if let input = sizes.input { row(String(localized: "Input"), input.pixelLabel) }
+                if let output = sizes.output { row(String(localized: "Result"), output.pixelLabel) }
             }
-            row("Created", entry.created.formatted(date: .abbreviated, time: .shortened))
-            if let precision = entry.metadata?.precisionLabel { row("Precision", precision) }
+            row(String(localized: "Created"), entry.created.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(.iris)))
+            if let precision = entry.metadata?.precisionLabel { row(String(localized: "Precision"), precision) }
             if case let .done(seconds) = entry.outcome {
-                row("Time", Duration.seconds(seconds).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated)))
+                row(String(localized: "Time"), Duration.seconds(seconds).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated).locale(.iris)))
             }
             GridRow {
-                label("Project")
-                Picker("Project", selection: Binding(
+                label(String(localized: "Project"))
+                Picker(String(localized: "Project"), selection: Binding(
                     get: { conversation.projectID },
                     set: { library.move(entry: entry.id, to: $0) }
                 )) {
-                    Text("None").tag(UUID?.none)
+                    Text(String(localized: "None")).tag(UUID?.none)
                     ForEach(library.projects) { Text($0.name).tag(UUID?.some($0.id)) }
                 }
                 .labelsHidden()
@@ -278,12 +277,12 @@ private struct RunningStatus: View {
                     Text(detail).font(.callout).foregroundStyle(.secondary).monospacedDigit()
                 }
             } else {
-                Text(generator.isQueued(entry.id) ? "Queued" : "Waiting").font(.headline)
-                Text("Starts when the image before it is done.").font(.callout).foregroundStyle(.secondary)
+                Text(generator.isQueued(entry.id) ? String(localized: "Queued") : String(localized: "Waiting")).font(.headline)
+                Text(String(localized: "Starts when the image before it is done.")).font(.callout).foregroundStyle(.secondary)
             }
             if generator.isBusy {
-                Button("Stop") { generator.cancel(engine: engine) }
-                    .help("Stop this request and the rest of its batch (⌘.)")
+                Button(String(localized: "Stop")) { generator.cancel(engine: engine) }
+                    .help(String(localized: "Stop this request and the rest of its batch (⌘.)"))
             }
         }
         .padding(12)
@@ -315,12 +314,12 @@ struct IconButton: View {
     }
 }
 
-/// Pixel sizes of an entry's input and result, read from the files' headers.
+/// Image dimensions read from file headers.
 struct EntrySizes: Equatable {
     var input: CGSize?
     var output: CGSize?
 
-    /// The result's shape, or the input's while the result is being made.
+    /// Prefer result dimensions, then input dimensions.
     var aspectRatio: CGFloat? {
         (output ?? input).map { $0.width / $0.height }
     }

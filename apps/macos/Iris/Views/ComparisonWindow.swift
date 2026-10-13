@@ -13,14 +13,14 @@ struct ComparisonWindow: View {
             ComparisonViewer(
                 entry: found.entry, before: library.inputURL(entryID), after: library.imageURL(entryID)
             )
-            // two of these stay apart in the Window menu
-            .navigationTitle("\(Conversation.title(for: found.entry)) — \(ComparisonViewer.afterTitle(found.entry.workflow))")
+            // Distinguish comparisons in the Window menu.
+            .navigationTitle("\(Conversation.abbreviatedTitle(found.entry.displayTitle)) — \(ComparisonViewer.afterTitle(found.entry.workflow))")
         } else {
             ContentUnavailableView(
-                "Nothing to Compare", systemImage: "square.split.2x1",
-                description: Text("This result is no longer in the library.")
+                String(localized: "Nothing to Compare"), systemImage: "square.split.2x1",
+                description: Text(String(localized: "This result is no longer in the library."))
             )
-            .navigationTitle("Compare")
+            .navigationTitle(String(localized: "Compare"))
         }
     }
 }
@@ -50,8 +50,8 @@ private struct ComparisonViewer: View {
                 viewer(images)
             } else if missing {
                 ContentUnavailableView(
-                    "Original Not Available", systemImage: "photo",
-                    description: Text("Iris keeps the original of results made since version 0.2.")
+                    String(localized: "Original Not Available"), systemImage: "photo",
+                    description: Text(String(localized: "Iris keeps the original of results made since version 0.2."))
                 )
             } else {
                 ProgressView()
@@ -77,10 +77,10 @@ private struct ComparisonViewer: View {
             ScrollView([.horizontal, .vertical]) {
                 ComparisonView(
                     before: images.before, after: images.after,
-                    beforeTitle: "Original", afterTitle: afterTitle, split: $split
+                    beforeTitle: String(localized: "comparison.original", defaultValue: "Original"), afterTitle: afterTitle, split: $split
                 )
                 .frame(width: size.width, height: size.height)
-                .overlay(alignment: .topLeading) { SideLabel("Original") }
+                .overlay(alignment: .topLeading) { SideLabel(String(localized: "comparison.original", defaultValue: "Original")) }
                 .overlay(alignment: .topTrailing) { SideLabel(afterTitle) }
                 .padding(Self.margin)
                 .frame(minWidth: geometry.size.width, minHeight: geometry.size.height)
@@ -106,28 +106,28 @@ private struct ComparisonViewer: View {
         let current = images.map { scale($0.after) }
         ToolbarItem {
             ControlGroup {
-                Button("Zoom Out", systemImage: "minus.magnifyingglass") { step(-1) }
+                Button(String(localized: "Zoom Out"), systemImage: "minus.magnifyingglass") { step(-1) }
                     .keyboardShortcut("-")
-                    .help("Zoom Out (⌘-)")
+                    .help(String(localized: "Zoom Out (⌘-)"))
                     .disabled(current.map { $0 <= minimumScale * 1.01 } ?? true)
-                Button("Zoom In", systemImage: "plus.magnifyingglass") { step(1) }
+                Button(String(localized: "Zoom In"), systemImage: "plus.magnifyingglass") { step(1) }
                     .keyboardShortcut("=")
-                    .help("Zoom In (⌘+)")
+                    .help(String(localized: "Zoom In (⌘+)"))
                     .disabled(current.map { $0 >= Self.steps.last! * 0.99 } ?? true)
             }
         }
         // words, not two more magnifying glasses; each is off while it is what is shown
         ToolbarItem {
             ControlGroup {
-                Button("Fit") { setZoom(nil) }
+                Button(String(localized: "Fit")) { setZoom(nil) }
                     .keyboardShortcut("9")
-                    .help("Zoom to Fit (⌘9)")
-                    .accessibilityLabel("Zoom to Fit")
+                    .help(String(localized: "Zoom to Fit (⌘9)"))
+                    .accessibilityLabel(String(localized: "Zoom to Fit"))
                     .disabled(images == nil || zoom == nil)
                 Button("100%") { setZoom(1) }
                     .keyboardShortcut("0")
-                    .help("Actual Size (⌘0): one pixel of the result per screen pixel")
-                    .accessibilityLabel("Actual Size")
+                    .help(String(localized: "Actual Size (⌘0): one pixel of the result per screen pixel"))
+                    .accessibilityLabel(String(localized: "Actual Size"))
                     .disabled(images == nil || zoom == 1)
             }
             .labelStyle(.titleOnly)
@@ -195,7 +195,7 @@ private struct ComparisonViewer: View {
     private var afterTitle: String { Self.afterTitle(entry.workflow) }
 
     static func afterTitle(_ workflow: Workflow) -> String {
-        workflow == .depth ? "Depth Map" : "Restored and Upscaled"
+        workflow == .depth ? String(localized: "Depth Map") : String(localized: "Restored and Upscaled")
     }
 
     private var subtitle: String {
@@ -204,7 +204,7 @@ private struct ComparisonViewer: View {
         let result = "\(images.after.width) × \(images.after.height)"
         let percent = Int((scale(images.after) * 100).rounded())
         return entry.workflow == .depth
-            ? "Depth map of the \(original) original · \(percent)%"
+            ? String(localized: "Depth map of the \(original) original · \(percent)%")
             : "\(original) → \(result) · \(percent)%"
     }
 }

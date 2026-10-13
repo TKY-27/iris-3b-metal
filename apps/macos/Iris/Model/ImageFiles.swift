@@ -23,7 +23,7 @@ enum ImageFiles {
         guard !Task.isCancelled else { return nil }
         let image: CGImage? = await withCheckedContinuation { continuation in
           decoding.async {
-            // Serial ImageIO decoding bounds transient memory during a fast scroll.
+            // Serial decoding bounds transient memory while scrolling.
             if let cached = cache.images.object(forKey: key as NSString) { continuation.resume(returning: cached); return }
             guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
             else { continuation.resume(returning: nil); return }

@@ -1,8 +1,6 @@
 import SwiftUI
 
-/// The shown results by day, newest first. A click selects one and the inspector shows its
-/// prompt and settings; the arrow keys move the selection, and Space or a double click opens
-/// Quick Look.
+/// Daily results with selection and Quick Look.
 struct GalleryView: View {
     @Environment(Library.self) private var library
     @Environment(Workspace.self) private var workspace
@@ -50,7 +48,7 @@ struct GalleryView: View {
                     }
                 }
                 .onGeometryChange(for: CGFloat.self, of: \.size.width) { width in
-                    // as many as fit at the minimum width, as an adaptive grid places them
+                    // Match the adaptive grid's column count.
                     columns = max(1, Int((width + Self.spacing) / (Self.minimumWidth + Self.spacing)))
                 }
                 .padding(.horizontal, 24)
@@ -58,7 +56,7 @@ struct GalleryView: View {
             }
             .focusable()
             .focused($focused)
-            .focusEffectDisabled()  // the selection shows where the keyboard is
+            .focusEffectDisabled()  // Selection indicates keyboard focus.
             .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
                 let move: Gallery.Move = switch press.key {
                 case .leftArrow: .left
@@ -93,13 +91,13 @@ struct GalleryView: View {
         let url = library.imageURL(item.id)
         return GalleryCard(entry: item.entry, isSelected: workspace.selectedEntry == item.id, isFocused: focused)
             .onTapGesture(count: 2) { if item.entry.isDone { preview(url) } }
-            // with the double click above, selects at once rather than after the double-click interval
+            // Select immediately while awaiting a double click.
             .simultaneousGesture(TapGesture().onEnded {
                 workspace.selectedEntry = item.id
                 focused = true
             })
             .accessibilityAction { workspace.selectedEntry = item.id; focused = true }
-            .accessibilityAction(named: "Quick Look") { if item.entry.isDone { preview(url) } }
+            .accessibilityAction(named: String(localized: "Quick Look")) { if item.entry.isDone { preview(url) } }
             .draggable(url, if: item.entry.isDone)
             .contextMenu {
                 EntryMenu(entry: item.entry, conversation: item.conversation, project: item.project, preview: preview)
@@ -119,15 +117,15 @@ private struct EmptyGallery: View {
 
     var body: some View {
         ContentUnavailableView {
-            Label(project.map { "No Images in “\($0.name)”" } ?? "No Images Yet", systemImage: "photo.on.rectangle")
+            Label(project.map { String(localized: "No Images in “\($0.name)”") } ?? String(localized: "No Images Yet"), systemImage: "photo.on.rectangle")
         } description: {
-            Text("Describe an image below to generate it, or add a photo for restoration or depth.")
+            Text(String(localized: "Describe an image below to generate it, or add a photo for restoration or depth."))
         }
     }
 }
 
 extension View {
-    /// Dragging out the file of a finished result: to the Finder, another app or a project.
+    /// Drag completed results into apps or projects.
     @ViewBuilder
     func draggable(_ url: URL, if enabled: Bool) -> some View {
         if enabled {
