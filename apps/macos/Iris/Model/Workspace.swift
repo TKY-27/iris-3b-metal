@@ -43,6 +43,7 @@ final class Workspace {
     var selectedEntry: UUID?
     /// Filters the gallery by prompt or seed.
     var searchText = ""
+    private(set) var searchFocusRequests = 0
     /// Counts requests to put the cursor in the prompt field.
     private(set) var promptFocusRequests = 0
     /// A name being asked for, and a deletion being confirmed; the window shows the dialogs.
@@ -95,6 +96,10 @@ final class Workspace {
 
     func focusPrompt() {
         promptFocusRequests += 1
+    }
+
+    func focusSearch() {
+        searchFocusRequests += 1
     }
 
     /// File > New Image: back from an attached image to a prompt, with the cursor in it.

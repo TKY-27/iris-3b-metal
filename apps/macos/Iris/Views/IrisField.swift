@@ -108,8 +108,10 @@ private struct IrisFieldView: NSViewRepresentable {
         guard let view = view as? FieldMTKView else { return }
         let renderer = context.coordinator
         let needsFrame = renderer.target != parameters || renderer.animated != animated
+            || renderer.engineBusy != engineBusy
         renderer.target = parameters
         renderer.animated = animated
+        renderer.engineBusy = engineBusy
         view.preferredFramesPerSecond = engineBusy ? 30 : 60
         if needsFrame { view.wake() }
     }
@@ -121,7 +123,7 @@ private struct IrisFieldView: NSViewRepresentable {
 }
 
 /// Draws at half the backing resolution (the field is soft) and lets clicks through.
-private final class FieldMTKView: MTKView {
+final class FieldMTKView: MTKView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidMoveToWindow() {
@@ -169,9 +171,10 @@ private final class FieldMTKView: MTKView {
 }
 
 @MainActor
-private final class FieldRenderer: NSObject, MTKViewDelegate {
+final class FieldRenderer: NSObject, MTKViewDelegate {
     var target = FieldParameters()
     var animated = true
+    var engineBusy = false
     var lastInteraction = CACurrentMediaTime()
 
     private let pointer: FieldPointer
@@ -236,7 +239,7 @@ private final class FieldRenderer: NSObject, MTKViewDelegate {
         commands.addCompletedHandler { [inFlight] _ in inFlight.signal() }
         commands.commit()
         submitted = true
-        if !animated || (target.energy == 0 && now - lastInteraction > 3) {
+        if !animated || (!engineBusy && target.energy == 0 && now - lastInteraction > 3) {
             view.isPaused = true
             view.enableSetNeedsDisplay = true
         }

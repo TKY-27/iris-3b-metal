@@ -39,7 +39,6 @@ struct ContentView: View {
             .acceptsImageDrops()
             .navigationTitle(title(scope))
             .navigationSubtitle(subtitle(items))
-            .searchable(text: $workspace.searchText, placement: .toolbar, prompt: "Search images")
             .toolbarTitleMenu {
                 if case let .project(id) = scope {
                     Button("Rename…") { workspace.naming = .project(id) }
@@ -53,6 +52,10 @@ struct ContentView: View {
                     .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
             }
             .toolbar {
+                ToolbarItem(placement: .automatic) {
+                    GallerySearchField(text: $workspace.searchText, focusRequests: workspace.searchFocusRequests)
+                        .frame(minWidth: 160, idealWidth: 220, maxWidth: 320)
+                }
                 if let release = updates.available {
                     ToolbarItem(placement: .primaryAction) {
                         Button { openWindow(id: "updates") } label: {
@@ -101,5 +104,54 @@ struct ContentView: View {
     private func subtitle(_ items: [GalleryItem]) -> String {
         let images = items.filter(\.entry.isDone).count
         return images == 1 ? "1 image" : "\(images) images"
+    }
+}
+
+/// Handles the native clear action even when the search field is no longer editing.
+struct GallerySearchField: NSViewRepresentable {
+    @Binding var text: String
+    var focusRequests = 0
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text, focusRequests: focusRequests) }
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = "Search images"
+        field.setAccessibilityLabel("Search images")
+        field.sendsSearchStringImmediately = true
+        field.sendsWholeSearchString = false
+        field.delegate = context.coordinator
+        field.target = context.coordinator
+        field.action = #selector(Coordinator.searchChanged(_:))
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        context.coordinator.text = $text
+        if field.stringValue != text { field.stringValue = text }
+        if context.coordinator.focusRequests != focusRequests {
+            context.coordinator.focusRequests = focusRequests
+            field.window?.makeFirstResponder(field)
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var text: Binding<String>
+        var focusRequests: Int
+
+        init(text: Binding<String>, focusRequests: Int) {
+            self.text = text
+            self.focusRequests = focusRequests
+        }
+
+        @objc func searchChanged(_ field: NSSearchField) {
+            text.wrappedValue = field.stringValue
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            searchChanged(field)
+        }
     }
 }

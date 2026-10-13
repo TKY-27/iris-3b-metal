@@ -1,9 +1,27 @@
+import SwiftUI
 import XCTest
 
 @testable import Iris
 
 /// What the gallery lists, in what order and under which day, and how the arrow keys move.
 final class GalleryTests: XCTestCase {
+    @MainActor
+    func testSearchCancelUpdatesBindingWithoutAnEditor() throws {
+        var query = "fox"
+        let binding = Binding(get: { query }, set: { query = $0 })
+        let coordinator = GallerySearchField.Coordinator(text: binding, focusRequests: 0)
+        let field = NSSearchField()
+        field.stringValue = query
+        field.target = coordinator
+        field.action = #selector(GallerySearchField.Coordinator.searchChanged(_:))
+        XCTAssertNil(field.currentEditor())
+        let cell = try XCTUnwrap(field.cell as? NSSearchFieldCell)
+        let cancel = try XCTUnwrap(cell.cancelButtonCell)
+        cancel.performClick(field)
+        XCTAssertEqual(field.stringValue, "")
+        XCTAssertEqual(query, "")
+    }
+
     private let start = Date(timeIntervalSinceReferenceDate: 813_000_000)
 
     private func entry(

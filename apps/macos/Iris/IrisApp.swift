@@ -29,6 +29,10 @@ struct IrisApp: App {
                 Button("New Project…") { delegate.workspace.naming = .newProject(moving: nil) }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
             }
+            CommandGroup(after: .textEditing) {
+                Button("Find Images…") { delegate.workspace.focusSearch() }
+                    .keyboardShortcut("f")
+            }
         }
 
         WindowGroup("Compare", id: ComparisonWindow.id, for: UUID.self) { $entry in

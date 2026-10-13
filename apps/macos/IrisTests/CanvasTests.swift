@@ -1,10 +1,52 @@
 import Metal
+import MetalKit
 import XCTest
 
 @testable import Iris
 
 @MainActor
 final class CanvasTests: XCTestCase {
+    func testBackgroundKeepsDrawingWhileEngineIsBusy() async throws {
+        let pipeline = try XCTUnwrap(FieldPipeline.shared)
+        let view = FieldMTKView(frame: NSRect(x: 0, y: 0, width: 128, height: 128), device: pipeline.device)
+        let renderer = FieldRenderer(pointer: FieldPointer())
+        view.delegate = renderer
+        view.colorPixelFormat = .bgra8Unorm
+        let window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = view
+        window.orderFrontRegardless()
+        defer { view.stop(); window.orderOut(nil) }
+        // Window-server visibility arrives after ordering the test window.
+        let deadline = Date().addingTimeInterval(2)
+        while !window.occlusionState.contains(.visible), Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(window.occlusionState.contains(.visible))
+        func draw() throws {
+            renderer.draw(in: view)
+            let completed = try XCTUnwrap(pipeline.queue.makeCommandBuffer())
+            completed.commit()
+            completed.waitUntilCompleted()
+            XCTAssertEqual(completed.status, .completed)
+        }
+
+        renderer.lastInteraction = CACurrentMediaTime() - 5
+        renderer.engineBusy = true
+        view.isPaused = false
+        try draw()
+        XCTAssertFalse(view.isPaused)
+
+        renderer.engineBusy = false
+        try draw()
+        XCTAssertTrue(view.isPaused)
+
+        renderer.engineBusy = true
+        renderer.animated = false
+        view.isPaused = false
+        try draw()
+        XCTAssertTrue(view.isPaused)
+    }
+
     /// The canvas shader is compiled at runtime, so the build cannot catch a mistake in it.
     func testCanvasShaderCompiles() throws {
         let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
