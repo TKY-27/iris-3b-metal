@@ -18,11 +18,14 @@ class FakePipeline:
     cfg = SimpleNamespace(sample=SimpleNamespace(steps=100, cfg_scale=3.0, negative_prompt=""))
     loaded = True
 
-    def __init__(self, step_seconds: float, load_seconds: float):
+    def __init__(self, step_seconds: float, load_seconds: float, model="original"):
         self.step_seconds = step_seconds
         self.load_seconds = load_seconds
+        self.model = model
 
-    def __call__(self, prompts, height, width, steps, on_step, seed=0, **kwargs):
+    def __call__(self, prompts, height, width, steps=None, on_step=None, seed=0, **kwargs):
+        self.loaded = True
+        steps = 4 if self.model == "turbo" else (steps or 100)
         time.sleep(self.load_seconds)  # the app shows this as preparing
         for step in range(1, steps + 1):
             time.sleep(self.step_seconds)
@@ -68,6 +71,7 @@ def main() -> None:
     models = Models(
         FakePipeline(args.step_seconds, args.load_seconds),
         lambda task: fake_depth if task == "depth" else FakeRestorer(args.step_seconds * 10),
+        lambda model: FakePipeline(args.step_seconds, args.load_seconds, model),
     )
     server = LocalServer(("127.0.0.1", args.port), make_handler(JobRunner(models, 8)))
     print(f"fake engine on http://127.0.0.1:{args.port}", flush=True)

@@ -16,6 +16,7 @@ import torch
 from PIL import Image
 
 from iris_metal.pipeline import IrisPipeline
+from iris_metal.turbo import TURBO_REVISION, checkpoint_revision, png_info
 
 REPO_ID = "speridlabs/iris-3b"
 # the checkpoint revision this engine was validated against
@@ -23,27 +24,50 @@ REVISION = "7445443349bc9abe3c96f01ff793e2098ca012b3"
 MAX_SEED = 2**63  # the CPU generator's seed range
 
 
-def resolve_checkpoint(name: str, revision: str | None) -> Path:
+def resolve_checkpoint(name: str, revision: str | None, model: str = "original") -> Path:
     """A local checkpoint directory, or the text-to-image files of a Hugging Face repo.
 
     Without an explicit revision, the official repo resolves to the validated one.
     """
+    if model not in ("original", "turbo"):
+        raise ValueError("model must be original or turbo")
     if Path(name).is_dir():
-        return Path(name)
+        root = Path(name)
+        if model == "original" and (root / "distill.yaml").exists():
+            raise ValueError("this is a Turbo checkpoint; select --model turbo or --turbo-checkpoint")
+        selected = root / "turbo" if model == "turbo" and not (root / "distill.yaml").exists() else root
+        if model == "turbo" and not (selected / "distill.yaml").is_file():
+            raise ValueError("Turbo checkpoint is incomplete: distill.yaml is required")
+        return selected
     if revision is None and name == REPO_ID:
-        revision = REVISION
+        revision = TURBO_REVISION if model == "turbo" else REVISION
+    if name == REPO_ID and model == "turbo":
+        # Reuse a complete official local-dir download before creating another
+        # multi-GB Hub-cache copy. Its recorded immutable revision must match.
+        local = Path(__file__).resolve().parents[2] / "iris-3b/turbo"
+        required = ("config.yaml", "distill.yaml", "model.safetensors")
+        if checkpoint_revision(local) == revision and all(
+            (local / filename).is_file() and (local / filename).stat().st_size for filename in required
+        ):
+            return local
     from huggingface_hub import snapshot_download
 
     from iris_metal.cache import cached_snapshot
 
-    cached = cached_snapshot(name, revision)
+    cached = (
+        cached_snapshot(name, revision, turbo=True) if model == "turbo" else cached_snapshot(name, revision)
+    )
     if cached is not None:
         return cached
 
     # the repo also hosts the depth and upscaler fine-tunes (12 GB each)
-    return Path(
-        snapshot_download(name, revision=revision, allow_patterns=["config.yaml", "model.safetensors"])
+    patterns = (
+        ["turbo/config.yaml", "turbo/distill.yaml", "turbo/model.safetensors"]
+        if model == "turbo"
+        else ["config.yaml", "model.safetensors"]
     )
+    root = Path(snapshot_download(name, revision=revision, allow_patterns=patterns))
+    return root / "turbo" if model == "turbo" else root
 
 
 def parse_size(text: str) -> tuple[int, int]:
@@ -177,14 +201,41 @@ def serve_main(argv: list[str]) -> None:
     parser.add_argument("--queue", type=int_range(1), default=8, help="maximum queued requests")
     parser.add_argument("--checkpoint", default=REPO_ID, help="local directory or Hugging Face repo")
     parser.add_argument("--revision", help="Hugging Face revision of --checkpoint (default: validated)")
+    parser.add_argument(
+        "--turbo-checkpoint", help="optional local Turbo export or Hugging Face repo; loaded lazily"
+    )
+    parser.add_argument("--turbo-revision", help="Turbo Hub revision (default: validated official revision)")
     parser.add_argument("--weights", default=REPO_ID, help="depth and upscaling: local export or repo")
     parser.add_argument("--weights-revision", help="Hugging Face revision of --weights (default: validated)")
     args = parser.parse_args(argv)
     if not torch.backends.mps.is_available():
         parser.error("no Apple GPU (MPS) available")
-    pipe = IrisPipeline(resolve_checkpoint(args.checkpoint, args.revision))
+    # Resolve weights lazily on the serial worker.
+    defaults = None
+    local = Path(args.checkpoint)
+    if local.is_dir():
+        if (local / "distill.yaml").exists():
+            parser.error("--checkpoint must select Original; use --turbo-checkpoint for Turbo")
+        if (local / "config.yaml").is_file():
+            from iris_metal.loading import load_config
+
+            defaults = load_config(local).sample
     tasks = functools.partial(load_task, source=args.weights, revision=args.weights_revision)
-    serve(Models(pipe, tasks), args.host, args.port, args.queue)
+
+    def load_generation(model):
+        if model == "original":
+            source, revision = args.checkpoint, args.revision
+        else:
+            source, revision = args.turbo_checkpoint or args.checkpoint, args.turbo_revision
+            if args.turbo_checkpoint is None and not Path(source).is_dir():
+                source = REPO_ID
+        checkpoint = resolve_checkpoint(source, revision, model=model)
+        pipe = IrisPipeline(checkpoint)
+        if pipe.model != model:
+            raise ValueError(f"checkpoint is {pipe.model}; requested {model}")
+        return pipe
+
+    serve(Models(None, tasks, load_generation, defaults=defaults), args.host, args.port, args.queue)
 
 
 def task_main(task: str, argv: list[str]) -> None:
@@ -273,6 +324,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--size", type=parse_size, default=(1024, 1024), help="WIDTHxHEIGHT, default 1024x1024"
     )
+    parser.add_argument("--model", choices=("original", "turbo"), default="original")
     parser.add_argument("--steps", type=int_range(1), help="default: the checkpoint's (100)")
     parser.add_argument("--cfg-scale", type=finite_float, help="default: the checkpoint's (3)")
     parser.add_argument("--seed", type=int_range(0, MAX_SEED), default=0)
@@ -282,10 +334,14 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--attention",
         choices=("float16", "bfloat16"),
-        default="float16",
-        help="attention input precision; bfloat16 is what the upstream CUDA recipe uses",
+        default=None,
+        help="Original attention precision (default float16); Turbo uses official BF16",
     )
     args = parser.parse_args(argv)
+    if args.model == "turbo" and any(
+        v is not None for v in (args.steps, args.cfg_scale, args.negative_prompt, args.attention)
+    ):
+        parser.error("Turbo has fixed steps and embedded guidance; sampling controls do not apply")
     if not torch.backends.mps.is_available():
         parser.error("no Apple GPU (MPS) available")
     paths = output_paths(
@@ -294,9 +350,15 @@ def main(argv: list[str] | None = None) -> None:
     for path in paths:
         check_output(parser, path)
 
-    pipe = IrisPipeline(
-        resolve_checkpoint(args.checkpoint, args.revision), attention_dtype=getattr(torch, args.attention)
-    )
+    try:
+        pipe = IrisPipeline(
+            resolve_checkpoint(args.checkpoint, args.revision, args.model),
+            attention_dtype=getattr(torch, args.attention or "float16"),
+        )
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
+    if pipe.model != args.model:
+        parser.error(f"checkpoint is {pipe.model}; requested {args.model}")
     width, height = args.size
     for prompt, path in zip(args.prompts, paths, strict=True):
         start = time.perf_counter()
@@ -323,10 +385,14 @@ def main(argv: list[str] | None = None) -> None:
         )[0]
         path.parent.mkdir(parents=True, exist_ok=True)
         if args.output is not None:
-            image.save(path)
+            image.save(path, pnginfo=png_info(image) if path.suffix.lower() == ".png" else None)
         else:  # another run may have taken the name while this one generated
             fmt = Image.registered_extensions()[path.suffix.lower()]
-            path = save_new(path, functools.partial(image.save, format=fmt), numbered(Path("iris.png")))
+            path = save_new(
+                path,
+                functools.partial(image.save, format=fmt, pnginfo=png_info(image)),
+                numbered(Path("iris.png")),
+            )
         print(f"\r{path}: {width}x{height}, {time.perf_counter() - start:.0f}s", file=sys.stderr)
 
 

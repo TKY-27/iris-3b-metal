@@ -7,8 +7,8 @@ enum UpdateFailure: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidMetadata: "GitHub returned invalid release information. Try again later."
-        case let .http(code): "GitHub could not complete the check (HTTP \(code)). Try again later."
+        case .invalidMetadata: String(localized: "GitHub returned invalid release information. Try again later.")
+        case let .http(code): String(localized: "GitHub could not complete the check (HTTP \(code)). Try again later.")
         }
     }
 }
@@ -17,8 +17,8 @@ enum UpdateFailure: LocalizedError {
 @Observable
 final class UpdateChecker {
     static let endpoint = URL(string: "https://api.github.com/repos/TKY-27/iris-3b-metal/releases?per_page=100")!
-    static let installedVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
-    static let installedBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
+    static let installedVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? String(localized: "Unknown")
+    static let installedBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? String(localized: "Unknown")
     static let cacheKey = "releaseCheckCache"
     static let automaticKey = "automaticallyCheckForUpdates"
     static let day: TimeInterval = 86_400
@@ -72,13 +72,13 @@ final class UpdateChecker {
         if let lastChecked, now.timeIntervalSince(lastChecked) >= 7 * Self.day { available = nil }
         guard !isChecking, manual || automatic else { return }
         if now < nextAttempt {
-            if manual { message = "Please try again after \(nextAttempt.formatted(date: .omitted, time: .shortened))." }
+            if manual { message = String(localized: "Please try again after \(nextAttempt.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(.iris))).") }
             return
         }
         guard manual || lastChecked.map({ now.timeIntervalSince($0) >= Self.day }) ?? true else { return }
         guard manual || lastFailure.map({ now.timeIntervalSince($0) >= 3600 }) ?? true else { return }
         guard ReleaseVersion(appVersion) != nil else {
-            message = "This app's version cannot be compared with published releases."
+            message = String(localized: "This app's version cannot be compared with published releases.")
             return
         }
         isChecking = true
@@ -99,7 +99,7 @@ final class UpdateChecker {
                 let proposed = retry ?? reset.map { $0 - now.timeIntervalSince1970 } ?? 3600
                 let delay = proposed.isFinite ? proposed : 3600
                 deferAttempt(until: now.addingTimeInterval(max(60, min(delay, Self.day))))
-                message = "GitHub's request limit was reached. Try again after \(nextAttempt.formatted(date: .omitted, time: .shortened))."
+                message = String(localized: "GitHub's request limit was reached. Try again after \(nextAttempt.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(.iris))).")
                 return
             }
             let releases: [AppRelease]
@@ -126,7 +126,7 @@ final class UpdateChecker {
             return
         } catch {
             lastFailure = now
-            message = error is URLError ? "Could not reach GitHub. Check your connection and try again later." : error.localizedDescription
+            message = error is URLError ? String(localized: "Could not reach GitHub. Check your connection and try again later.") : error.localizedDescription
         }
     }
 

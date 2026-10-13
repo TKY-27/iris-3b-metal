@@ -1,7 +1,5 @@
 import SwiftUI
 
-/// The engine's state as a dot and a word, in the sidebar footer; when it is not running,
-/// a click opens its settings.
 struct EngineStatus: View {
     @Environment(EngineController.self) private var engine
     @Environment(\.openSettings) private var openSettings
@@ -9,21 +7,21 @@ struct EngineStatus: View {
     var body: some View {
         switch engine.state {
         case .ready:
-            status(Text("Engine ready"), dot: .green)
+            status(Text(String(localized: "Engine ready")), dot: .green)
         case .starting:
             HStack(spacing: 6) {
                 ProgressView().controlSize(.mini)
-                Text("Starting engine")
+                Text(String(localized: "Starting engine"))
             }
             .font(.caption)
             .foregroundStyle(.secondary)
             .accessibilityElement(children: .combine)
         case .stopped, .failed:
             Button { openSettings() } label: {
-                status(Text("Engine offline"), dot: .orange)
+                status(Text(String(localized: "Engine offline")), dot: .orange)
             }
             .buttonStyle(.plain)
-            .help("Open the engine settings")
+            .help(String(localized: "Open the engine settings"))
         }
     }
 
@@ -38,7 +36,6 @@ struct EngineStatus: View {
     }
 }
 
-/// Above the composer while the engine is starting or has failed, with what to do about it.
 struct EngineBanner: View {
     @Environment(EngineController.self) private var engine
     @Environment(\.openSettings) private var openSettings
@@ -51,8 +48,8 @@ struct EngineBanner: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 ProgressView().controlSize(.small)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Starting the engine")
-                    Text("The first start downloads the Iris-3B and Qwen3-VL weights, about 21 GB.")
+                    Text(String(localized: "Starting the engine"))
+                    Text(String(localized: "Model weights download when first used."))
                         .foregroundStyle(.secondary)
                     if let line = engine.logTail.last {
                         Text(line)
@@ -70,7 +67,7 @@ struct EngineBanner: View {
                 Label(failure, systemImage: "exclamationmark.triangle")
                     .fixedSize(horizontal: false, vertical: true)
                 if !engine.logTail.isEmpty {
-                    DisclosureGroup("Details") {
+                    DisclosureGroup(String(localized: "Details")) {
                         Text(engine.logTail.suffix(6).joined(separator: "\n"))
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
@@ -79,10 +76,10 @@ struct EngineBanner: View {
                             .padding(.top, 4)
                     }
                 }
-                HStack {
-                    Button("Try Again") { Task { await engine.restart() } }
-                        .disabled(engine.isRestarting)
-                    Button("Engine Settings…") { openSettings() }
+                ViewThatFits(in: .horizontal) {
+                    HStack { recoveryButtons }
+                        .fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading) { recoveryButtons }
                 }
                 .controlSize(.small)
             }
@@ -90,8 +87,15 @@ struct EngineBanner: View {
         }
     }
 
+    @ViewBuilder
+    private var recoveryButtons: some View {
+        Button(String(localized: "Try Again")) { Task { await engine.restart() } }
+            .disabled(engine.isRestarting)
+        Button(String(localized: "Engine Settings…")) { openSettings() }
+    }
+
     private var failure: String {
-        if case let .failed(message) = engine.state { message } else { "The engine is not running." }
+        if case let .failed(message) = engine.state { message } else { String(localized: "The engine is not running.") }
     }
 }
 

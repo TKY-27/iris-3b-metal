@@ -6,8 +6,9 @@ struct IrisApp: App {
     @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system
 
     var body: some Scene {
-        Window("Iris", id: "main") {
+        Window(String(localized: "Iris"), id: "main") {
             ContentView()
+                .environment(\.locale, .iris)
                 .environment(delegate.engine)
                 .environment(delegate.library)
                 .environment(delegate.generator)
@@ -24,16 +25,26 @@ struct IrisApp: App {
                 CheckForUpdatesButton().environment(delegate.updates)
             }
             CommandGroup(replacing: .newItem) {
-                Button("New Chat") { delegate.workspace.newConversationHere(library: delegate.library) }
+                Button(String(localized: "New Image")) { delegate.workspace.newImage() }
                     .keyboardShortcut("n")
-                Button("New Project…") { delegate.workspace.naming = .newProject(moving: nil) }
+                Button(String(localized: "New Project…")) { delegate.workspace.naming = .newProject(moving: nil) }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
+            }
+            CommandGroup(after: .sidebar) {
+                GalleryVisibilityButton()
+                    .environment(delegate.workspace)
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+            }
+            CommandGroup(after: .textEditing) {
+                Button(String(localized: "Find Images…")) { delegate.workspace.focusSearch() }
+                    .keyboardShortcut("f")
             }
         }
 
-        WindowGroup("Compare", id: ComparisonWindow.id, for: UUID.self) { $entry in
+        WindowGroup(String(localized: "Compare"), id: ComparisonWindow.id, for: UUID.self) { $entry in
             if let entry {
                 ComparisonWindow(entryID: entry)
+                    .environment(\.locale, .iris)
                     .environment(delegate.library)
             }
         }
@@ -41,8 +52,9 @@ struct IrisApp: App {
         .commandsRemoved()  // opened from a result, never from File > New
         .restorationBehavior(.disabled)
 
-        Window("Software Update", id: "updates") {
+        Window(String(localized: "Software Update"), id: "updates") {
             UpdateView()
+                .environment(\.locale, .iris)
                 .environment(delegate.updates)
                 .environment(delegate.generator)
         }
@@ -51,6 +63,7 @@ struct IrisApp: App {
 
         Settings {
             SettingsView()
+                .environment(\.locale, .iris)
                 .environment(delegate.updates)
                 .environment(delegate.engine)
                 .environment(delegate.library)
@@ -72,8 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         root: isTestHost ? .temporaryDirectory.appending(path: "IrisTestHost-\(UUID().uuidString)") : LibraryStore.defaultRoot
     ))
     @MainActor let generator = Generator()
-    @MainActor lazy var workspace = Workspace(
-        library: library, defaults: Self.isTestHost ? UserDefaults(suiteName: "IrisTestHost") ?? .standard : .standard
+    @MainActor let workspace = Workspace(
+        defaults: isTestHost ? UserDefaults(suiteName: "IrisTestHost") ?? .standard : .standard
     )
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -84,12 +97,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated {
             guard generator.isBusy else { return .terminateNow }
             let alert = NSAlert()
-            alert.messageText = "Stop the current request and quit?"
+            alert.messageText = String(localized: "Stop the current request and quit?")
             alert.informativeText = generator.queued.isEmpty
-                ? "The image in progress will not be finished."
-                : "The image in progress will not be finished, and the \(generator.queued.count) queued after it will not be made."
-            alert.addButton(withTitle: "Quit")
-            alert.addButton(withTitle: "Cancel")
+                ? String(localized: "The image in progress will not be finished.")
+                : String(localized: "The image in progress will not be finished, and the \(generator.queued.count) queued after it will not be made.")
+            alert.addButton(withTitle: String(localized: "Quit"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
             guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
             Task {
                 await generator.cancelAndWait(engine: engine)

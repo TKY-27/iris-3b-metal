@@ -112,6 +112,8 @@ def test_health_reports_engine_and_api_versions(server):
         "queued": 0,
         "engine_version": __version__,
         "api_version": 1,
+        "supported_models": ["original"],
+        "loaded_model": "original",
     }
 
 
@@ -387,3 +389,83 @@ def test_upload_intake_is_bounded_without_blocking_polling(server, monkeypatch):
         assert [future.result() for future in futures] == [202, 202]
     monkeypatch.setattr(api, "decode_upload", decode)
     assert upload(base, "/v1/depth", (16, 16)) == 202
+
+
+def test_turbo_http_selects_model_and_reports_fixed_progress_and_metadata(server):
+    pipe, base = server
+
+    class Turbo(FakePipeline):
+        model = "turbo"
+        last_metadata = {"model": "turbo", "sampler": "deterministic-flow-euler"}
+
+        def __call__(self, prompts, height, width, on_step, **kwargs):
+            assert "steps" not in kwargs and "cfg_scale" not in kwargs and "negative_prompt" not in kwargs
+            self.loaded = True
+            return super().__call__(prompts, height, width, 4, on_step, **kwargs)
+
+    turbo = Turbo()
+    pipe.runner.models._load_generation = lambda model: turbo
+    status, body = request(f"{base}/v1/images", "POST", {"prompt": "cat", "model": "turbo", "steps": 4})
+    assert status == 400
+    status, body = request(
+        f"{base}/v1/images", "POST", {"prompt": "cat", "model": "turbo", "width": 16, "height": 16}
+    )
+    assert status == 202
+    done = wait_for(base, json.loads(body)["id"], "done")
+    assert (done["step"], done["steps"]) == (4, 4)
+    assert done["metadata"] == turbo.last_metadata
+    _, body = request(f"{base}/v1/health")
+    assert json.loads(body)["loaded_model"] == "turbo"
+    assert not pipe.loaded
+    request(f"{base}/v1/images", "POST", {"prompt": "cat", "steps": 1, "width": 16, "height": 16})
+    wait_for(base, "2", "done")
+    assert pipe.runner.models.pipe is pipe
+    assert not turbo.loaded
+
+
+def test_turbo_load_error_does_not_poison_original_queue(server):
+    pipe, base = server
+
+    def fail(model):
+        raise FileNotFoundError("Turbo checkpoint missing")
+
+    pipe.runner.models._load_generation = fail
+    status, body = request(
+        f"{base}/v1/images", "POST", {"prompt": "cat", "model": "turbo", "width": 16, "height": 16}
+    )
+    assert status == 202
+    failed = wait_for(base, json.loads(body)["id"], "failed")
+    assert "Turbo checkpoint missing" in failed["error"]
+    status, body = request(
+        f"{base}/v1/images", "POST", {"prompt": "cat", "steps": 1, "width": 16, "height": 16}
+    )
+    assert status == 202
+    assert wait_for(base, json.loads(body)["id"], "done")["error"] is None
+
+
+def test_remote_original_omitted_controls_use_checkpoint_defaults_on_cold_and_warm(server):
+    pipe, base = server
+    custom = SimpleNamespace(steps=2, cfg_scale=5.0, negative_prompt="custom-negative")
+    pipe.cfg.sample = custom
+    seen = []
+
+    class Custom(FakePipeline):
+        def __init__(self):
+            super().__init__()
+            self.cfg.sample = custom
+
+        def __call__(self, prompts, height, width, steps, on_step, **kwargs):
+            seen.append((steps, kwargs["cfg_scale"], kwargs["negative_prompt"]))
+            return super().__call__(prompts, height, width, steps, on_step, **kwargs)
+
+    models = pipe.runner.models
+    models.pipe = None
+    models._generation.clear()
+    models._load_generation = lambda model: Custom()
+    jobs = []
+    for _ in range(2):
+        status, body = request(f"{base}/v1/images", "POST", {"prompt": "cat", "width": 16, "height": 16})
+        assert status == 202
+        jobs.append(wait_for(base, json.loads(body)["id"], "done"))
+    assert seen == [(2, 5.0, "custom-negative"), (2, 5.0, "custom-negative")]
+    assert all(j["params"]["steps"] == 2 and j["params"]["cfg_scale"] == 5.0 for j in jobs)

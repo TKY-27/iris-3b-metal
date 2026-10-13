@@ -1,5 +1,9 @@
 # Benchmarks
 
+The [v0.5.0 measurements](release-0.5.0.md) cover Original 10/20 steps and
+official Turbo 4 steps, including the previous BF16 and current Metal FP16
+paths. The records below retain the October 11 Original comparisons.
+
 Release measurements of Python engine 0.3.0, taken on 2026-10-11. The
 repository and macOS app release tag is `v0.4.0`; the engine remained
 separately versioned. The engine code is the same in every comparison run

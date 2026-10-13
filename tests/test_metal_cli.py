@@ -7,6 +7,21 @@ from PIL import Image
 from iris_metal import cli
 
 
+@pytest.mark.parametrize(
+    "control",
+    [["--steps", "4"], ["--cfg-scale", "1"], ["--negative-prompt", ""], ["--attention", "bfloat16"]],
+)
+def test_turbo_rejects_sampling_overrides_before_loading(control, monkeypatch, capsys):
+    def unexpected_load(*args):
+        pytest.fail("Unsupported controls must not load weights")
+
+    monkeypatch.setattr(cli, "resolve_checkpoint", unexpected_load)
+    with pytest.raises(SystemExit) as error:
+        cli.main(["fox", "--model", "turbo", *control])
+    assert error.value.code == 2
+    assert "sampling controls do not apply" in capsys.readouterr().err
+
+
 def test_task_outputs_never_share_a_name():
     inputs = [
         Path("a/photo.jpg"),

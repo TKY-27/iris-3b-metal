@@ -25,27 +25,13 @@ final class Library {
         projects = loaded.snapshot.projects
         conversations = loaded.snapshot.conversations
         isReadOnly = loaded.readOnly
-        problem = lock != nil ? loaded.problem : "Iris is already running with this library, so this window shows it read-only."
+        problem = lock != nil ? loaded.problem : String(localized: "Iris is already running with this library, so this window shows it read-only.")
     }
 
     // MARK: - Queries
 
     func conversation(_ id: UUID?) -> Conversation? {
         conversations.first { $0.id == id }
-    }
-
-    func conversations(in project: UUID?) -> [Conversation] {
-        conversations.filter { $0.projectID == project }.sorted { $0.updated > $1.updated }
-    }
-
-    /// Pinned chats from anywhere, most recently pinned first.
-    var pinnedConversations: [Conversation] {
-        conversations.filter { $0.pinned != nil }.sorted { ($0.pinned ?? .distantPast) > ($1.pinned ?? .distantPast) }
-    }
-
-    /// Unfiled chats that are not pinned: the sidebar's recent list.
-    var recentConversations: [Conversation] {
-        conversations(in: nil).filter { $0.pinned == nil }
     }
 
     func project(_ id: UUID?) -> Project? {
@@ -59,15 +45,18 @@ final class Library {
         return nil
     }
 
-    /// Finished results, newest first.
-    var finishedEntries: [(conversation: UUID, entry: Entry)] {
-        conversations
-            .flatMap { c in c.entries.filter(\.isDone).map { (conversation: c.id, entry: $0) } }
-            .sorted { $0.entry.created > $1.entry.created }
-    }
-
     func imageURL(_ entry: UUID) -> URL { store.imageURL(entry) }
     func inputURL(_ entry: UUID) -> URL { store.inputURL(entry) }
+
+    /// Find a dragged result in the library.
+    func entryID(forImage url: URL) -> UUID? {
+        guard url.isFileURL,
+              url.deletingLastPathComponent().standardizedFileURL == store.imagesDirectory.standardizedFileURL,
+              let id = UUID(uuidString: url.deletingPathExtension().lastPathComponent),
+              entry(id) != nil
+        else { return nil }
+        return id
+    }
 
     // MARK: - Conversations
 
@@ -87,53 +76,53 @@ final class Library {
         return created.id
     }
 
-    func rename(conversation id: UUID, to title: String) {
-        guard !isReadOnly else { return }
-        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty, let index = conversations.firstIndex(where: { $0.id == id }) else { return }
-        conversations[index].title = title
-        save()
-    }
-
-    func move(conversation id: UUID, to project: UUID?) {
-        guard !isReadOnly else { return }
-        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
-        conversations[index].projectID = project
-        save()
-    }
-
-    func setPinned(_ pinned: Bool, conversation id: UUID) {
-        guard !isReadOnly, let index = conversations.firstIndex(where: { $0.id == id }) else { return }
-        guard (conversations[index].pinned != nil) != pinned else { return }
-        conversations[index].pinned = pinned ? .now : nil
-        save()
-    }
-
-    func delete(conversation id: UUID) {
-        guard !isReadOnly else { return }
-        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
-        let removed = conversations.remove(at: index).entries.map(\.id)
-        save(thenRemoveFilesOf: removed)
-    }
-
     // MARK: - Entries
 
-    func setOutcome(_ outcome: Entry.Outcome, of id: UUID) {
+    func setOutcome(_ outcome: Entry.Outcome, of id: UUID, metadata: GenerationMetadata? = nil) {
         guard !isReadOnly else { return }
         for c in conversations.indices {
             if let e = conversations[c].entries.firstIndex(where: { $0.id == id }) {
                 conversations[c].entries[e].outcome = outcome
+                if let metadata { conversations[c].entries[e].metadata = metadata }
                 save()
                 return
             }
         }
     }
 
+    func setMetadata(_ metadata: GenerationMetadata?, of id: UUID) {
+        guard let metadata, let found = entry(id) else { return }
+        setOutcome(found.entry.outcome, of: id, metadata: metadata)
+    }
+
+    /// Delete an entry and empty conversation.
+    /// Running entries remain owned by the generator.
     func delete(entry id: UUID) {
-        guard !isReadOnly else { return }
-        guard let c = conversations.firstIndex(where: { $0.entries.contains { $0.id == id } }) else { return }
+        guard !isReadOnly,
+              let c = conversations.firstIndex(where: { $0.entries.contains { $0.id == id } }),
+              conversations[c].entries.contains(where: { $0.id == id && $0.outcome != .running })
+        else { return }
         conversations[c].entries.removeAll { $0.id == id }
+        if conversations[c].entries.isEmpty { conversations.remove(at: c) }
         save(thenRemoveFilesOf: [id])
+    }
+
+    /// Move one entry, leaving other images intact.
+    /// Preserve running entries at their original location.
+    func move(entry id: UUID, to project: UUID?) {
+        guard !isReadOnly,
+              let c = conversations.firstIndex(where: { $0.entries.contains { $0.id == id } }),
+              conversations[c].projectID != project,
+              let entry = conversations[c].entries.first(where: { $0.id == id }),
+              entry.outcome != .running
+        else { return }
+        if conversations[c].entries.count == 1 {
+            conversations[c].projectID = project
+        } else {
+            conversations[c].entries.removeAll { $0.id == id }
+            conversations.append(Conversation(title: Conversation.title(for: entry), projectID: project, entries: [entry]))
+        }
+        save()
     }
 
     /// Writes an entry's result or input PNG off the main thread.
@@ -184,6 +173,9 @@ final class Library {
 
     var entryCount: Int { conversations.reduce(0) { $0 + $1.entries.count } }
 
+    /// Finished results, which have an image.
+    var imageCount: Int { conversations.reduce(0) { $0 + $1.entries.filter(\.isDone).count } }
+
     /// Bytes of all result and input images.
     func byteCount() async -> Int64 {
         let directories = [store.imagesDirectory, store.inputsDirectory]
@@ -199,11 +191,14 @@ final class Library {
         }.value
     }
 
-    /// Deletes every conversation, keeping projects and any running entry's conversation.
-    func deleteAllConversations(except running: UUID?) {
+    /// Delete finished entries, preserving projects and jobs.
+    func deleteAllImages() {
         guard !isReadOnly else { return }
-        let removed = conversations.filter { $0.id != running }.flatMap { $0.entries.map(\.id) }
-        conversations.removeAll { $0.id != running }
+        let removed = conversations.flatMap { $0.entries.filter { $0.outcome != .running }.map(\.id) }
+        for index in conversations.indices {
+            conversations[index].entries.removeAll { $0.outcome != .running }
+        }
+        conversations.removeAll { $0.entries.isEmpty }
         save(thenRemoveFilesOf: removed)
     }
 
@@ -220,7 +215,7 @@ final class Library {
                 store.removeFiles(of: removed)
             } catch {
                 logger.error("Saving the library failed: \(error.localizedDescription, privacy: .public)")
-                let message = "Iris could not save the library: \(error.localizedDescription)"
+                let message = String(localized: "Iris could not save the library: \(error.localizedDescription)")
                 Task { @MainActor in self?.problem = message }
             }
         }

@@ -1,0 +1,408 @@
+{
+  "environment": {
+    "chip": "Apple M5",
+    "memory_gb": 25.769803776,
+    "macos": "27.0.1",
+    "python": "3.14.8",
+    "torch": "2.14.1",
+    "transformers": "5.19.0",
+    "mps_environment": {},
+    "power": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=36175971)\t95%; AC attached; not charging present: true",
+    "power_modes": "Battery Power:\n Sleep On Power Button 1\n lowpowermode         0\n standby              1\n ttyskeepawake        1\n hibernatemode        3\n powernap             1\n hibernatefile        /var/vm/sleepimage\n displaysleep         0\n womp                 1\n networkoversleep     0\n sleep                1\n lessbright           1\n tcpkeepalive         1\n disksleep            0\nAC Power:\n Sleep On Power Button 1\n lowpowermode         0\n standby              1\n ttyskeepawake        1\n hibernatemode        3\n powernap             1\n hibernatefile        /var/vm/sleepimage\n displaysleep         10\n womp                 1\n networkoversleep     0\n sleep                0\n tcpkeepalive         1\n disksleep            0",
+    "commit": "d95c179-dirty"
+  },
+  "background_gpu_before_percent": 5.1,
+  "requests": [
+    {
+      "seconds": 87.10904904198833,
+      "steps": [
+        [
+          1,
+          20,
+          14.350250500021502
+        ],
+        [
+          2,
+          20,
+          17.992790417047217
+        ],
+        [
+          3,
+          20,
+          21.636641124961898
+        ],
+        [
+          4,
+          20,
+          25.380170625052415
+        ],
+        [
+          5,
+          20,
+          29.09486570802983
+        ],
+        [
+          6,
+          20,
+          32.79730350000318
+        ],
+        [
+          7,
+          20,
+          36.60455858299974
+        ],
+        [
+          8,
+          20,
+          40.8415245419601
+        ],
+        [
+          9,
+          20,
+          44.67014504200779
+        ],
+        [
+          10,
+          20,
+          48.49987195804715
+        ],
+        [
+          11,
+          20,
+          52.339449999970384
+        ],
+        [
+          12,
+          20,
+          56.188239542068914
+        ],
+        [
+          13,
+          20,
+          60.03436083300039
+        ],
+        [
+          14,
+          20,
+          63.889040749985725
+        ],
+        [
+          15,
+          20,
+          67.74728470796254
+        ],
+        [
+          16,
+          20,
+          71.65797083301004
+        ],
+        [
+          17,
+          20,
+          75.52881391707342
+        ],
+        [
+          18,
+          20,
+          79.39048941701185
+        ],
+        [
+          19,
+          20,
+          83.24836637498811
+        ],
+        [
+          20,
+          20,
+          87.09325741697103
+        ]
+      ],
+      "physical_peak_gib": 10.010621704161167,
+      "physical_current_gib": 10.001695312559605,
+      "allocated_bytes": 6102094592,
+      "driver_bytes": 9801203712,
+      "png_sha256": "41c9fb23616578ba4b0cb1a4a399bbed7c483ce5b9b716ab27557a34394b733d",
+      "pixel_sha256": "1b1488cb81cae7fda454830036779b27a5090262db02a508ab8df59b504e1a5e"
+    },
+    {
+      "seconds": 76.54450516600627,
+      "steps": [
+        [
+          1,
+          20,
+          3.8959642079425976
+        ],
+        [
+          2,
+          20,
+          7.768294250010513
+        ],
+        [
+          3,
+          20,
+          11.604814124992117
+        ],
+        [
+          4,
+          20,
+          15.452920124982484
+        ],
+        [
+          5,
+          20,
+          19.3163734159898
+        ],
+        [
+          6,
+          20,
+          23.151249040965922
+        ],
+        [
+          7,
+          20,
+          26.96933374996297
+        ],
+        [
+          8,
+          20,
+          30.803006374975666
+        ],
+        [
+          9,
+          20,
+          34.62002920801751
+        ],
+        [
+          10,
+          20,
+          38.43141179101076
+        ],
+        [
+          11,
+          20,
+          42.24167170794681
+        ],
+        [
+          12,
+          20,
+          46.05713758303318
+        ],
+        [
+          13,
+          20,
+          49.87499675003346
+        ],
+        [
+          14,
+          20,
+          53.68828079092782
+        ],
+        [
+          15,
+          20,
+          57.501100415945984
+        ],
+        [
+          16,
+          20,
+          61.30123400001321
+        ],
+        [
+          17,
+          20,
+          65.10920333303511
+        ],
+        [
+          18,
+          20,
+          68.91004779096693
+        ],
+        [
+          19,
+          20,
+          72.73044329101685
+        ],
+        [
+          20,
+          20,
+          76.5369132909691
+        ]
+      ],
+      "physical_peak_gib": 10.017610229551792,
+      "physical_current_gib": 10.00569311529398,
+      "allocated_bytes": 6102094592,
+      "driver_bytes": 9801203712,
+      "png_sha256": "41c9fb23616578ba4b0cb1a4a399bbed7c483ce5b9b716ab27557a34394b733d",
+      "pixel_sha256": "1b1488cb81cae7fda454830036779b27a5090262db02a508ab8df59b504e1a5e"
+    },
+    {
+      "seconds": 76.43199212499894,
+      "steps": [
+        [
+          1,
+          20,
+          3.8104911249829456
+        ],
+        [
+          2,
+          20,
+          7.602496707928367
+        ],
+        [
+          3,
+          20,
+          11.993492332985625
+        ],
+        [
+          4,
+          20,
+          15.844504458014853
+        ],
+        [
+          5,
+          20,
+          19.67084816598799
+        ],
+        [
+          6,
+          20,
+          23.458767290925607
+        ],
+        [
+          7,
+          20,
+          27.267824165988714
+        ],
+        [
+          8,
+          20,
+          31.073440750013106
+        ],
+        [
+          9,
+          20,
+          34.86968095798511
+        ],
+        [
+          10,
+          20,
+          38.670445124967955
+        ],
+        [
+          11,
+          20,
+          42.47606833302416
+        ],
+        [
+          12,
+          20,
+          46.265086540952325
+        ],
+        [
+          13,
+          20,
+          50.058900207979605
+        ],
+        [
+          14,
+          20,
+          53.81680454092566
+        ],
+        [
+          15,
+          20,
+          57.59134645794984
+        ],
+        [
+          16,
+          20,
+          61.351528957951814
+        ],
+        [
+          17,
+          20,
+          65.11285870801657
+        ],
+        [
+          18,
+          20,
+          68.88370541599579
+        ],
+        [
+          19,
+          20,
+          72.65717591601424
+        ],
+        [
+          20,
+          20,
+          76.42548170802183
+        ]
+      ],
+      "physical_peak_gib": 10.021531738340855,
+      "physical_current_gib": 10.00569311529398,
+      "allocated_bytes": 6102094592,
+      "driver_bytes": 9801203712,
+      "png_sha256": "41c9fb23616578ba4b0cb1a4a399bbed7c483ce5b9b716ab27557a34394b733d",
+      "pixel_sha256": "1b1488cb81cae7fda454830036779b27a5090262db02a508ab8df59b504e1a5e"
+    }
+  ],
+  "paging_before": {
+    "Pageouts": 492807,
+    "Swapouts": 218707103
+  },
+  "swap_before_mb": 2404.19,
+  "init_seconds": 0.029555083019658923,
+  "unloaded": {
+    "loaded": false,
+    "allocated_bytes": 0,
+    "driver_bytes": 1769472
+  },
+  "stages": [
+    {
+      "phase": "qwen_tokenizer_setup",
+      "seconds": 0.7925328749697655
+    },
+    {
+      "phase": "qwen_encode_including_streamed_layer_transfer",
+      "seconds": 3.066084041958675
+    },
+    {
+      "phase": "dit_load",
+      "seconds": 6.3900366249727085
+    }
+  ],
+  "metadata": {
+    "model": "original",
+    "checkpoint": "iris-3b",
+    "config_sha256": "077ce19156d9425a7e665a0059be02b3c5a1fcd7aea7607047b4f7486efa6cd5",
+    "hf_revision": "7445443349bc9abe3c96f01ff793e2098ca012b3",
+    "checkpoint_sha256": "a90e1f4c197bac8491f82078def68884b6a3527ea7fc97a693e3e367372aa80f",
+    "prompt": [
+      "A red fox sleeping in fresh snow, golden hour"
+    ],
+    "width": 1024,
+    "height": 1024,
+    "seed": 0,
+    "noise": "torch-cpu-fp32",
+    "steps": 20,
+    "cfg_scale": 3.0,
+    "negative_prompt": "",
+    "sampler": "flow-dpm-solver++",
+    "precision": "mixed-fp16-bf16-fp32",
+    "attention_dtype": "torch.float16",
+    "order": 2,
+    "shift": 4.0,
+    "cfg_interval": [
+      0.0,
+      1.0
+    ]
+  },
+  "paging_after": {
+    "Pageouts": 492893,
+    "Swapouts": 218742754
+  },
+  "swap_after_mb": 2561.25,
+  "background_gpu_after_percent": 14.5,
+  "implementation": "v0.5.0 release working tree"
+}

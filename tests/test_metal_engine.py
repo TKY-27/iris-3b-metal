@@ -91,6 +91,61 @@ def test_non_square_grid_matches_upstream():
     torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-5)
 
 
+@pytest.mark.parametrize("batch", [1, 2])
+@pytest.mark.parametrize("device", ["cpu", pytest.param("mps", marks=requires_mps)])
+def test_prepared_conditioning_is_exact_and_request_local(batch, device):
+    model = _randomized_model().to(device)
+    x, t, states, mask = (value.to(device) for value in _inputs(batch=batch))
+    x = x[..., :16]
+    adapter_calls = []
+    core_calls = {name: [] for name in model.modulation_cores}
+    handles = [model.y_embedder.register_forward_hook(lambda *_: adapter_calls.append(1))]
+    for name, core in model.modulation_cores.items():
+        handles.append(core.register_forward_hook(lambda *_, name=name: core_calls[name].append(1)))
+    try:
+        with torch.no_grad(), torch.autocast(device, dtype=torch.bfloat16, enabled=device == "mps"):
+            prepared = model.embed_text(states, mask)
+            original = prepared.clone()
+            for timestep in (t, t + 63):
+                adapter_calls.clear()
+                for calls in core_calls.values():
+                    calls.clear()
+                actual = model(
+                    x,
+                    timestep,
+                    states,
+                    y_mask=mask,
+                    prepared_text=prepared,
+                    precompute_modulation=True,
+                ).x
+                assert not adapter_calls
+                assert all(len(calls) == 1 for calls in core_calls.values())
+                expected = model(x, timestep, states, y_mask=mask).x
+                torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+                torch.testing.assert_close(prepared, original, rtol=0, atol=0)
+            # Equal shapes must not alias different prompts.
+            changed_states = states + 0.25
+            changed = model.embed_text(changed_states, mask)
+            assert not torch.equal(changed, prepared)
+            actual = model(
+                x, t, changed_states, y_mask=mask, prepared_text=changed, precompute_modulation=True
+            ).x
+            expected = model(x, t, changed_states, y_mask=mask).x
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    finally:
+        for handle in handles:
+            handle.remove()
+
+
+def test_prepared_conditioning_rejects_training_and_gradients():
+    model = _randomized_model()
+    x, t, states, mask = _inputs()
+    with pytest.raises(ValueError, match="no-grad inference"):
+        model(x, t, states, y_mask=mask, precompute_modulation=True)
+    with torch.no_grad(), pytest.raises(ValueError, match="no-grad inference"):
+        model.train()(x, t, states, y_mask=mask, precompute_modulation=True)
+
+
 DTYPES = [torch.float32, torch.bfloat16, torch.float16]
 
 
@@ -186,6 +241,40 @@ def test_pixel_kernels_match_reference():
         rtol=1e-2,
         atol=1e-2,
     )
+
+
+@requires_mps
+@pytest.mark.parametrize("parameter", ["rms_gain", "norm_gain", "next_gain", "fc1_bias", "fc2_bias"])
+def test_pixel_kernels_reject_short_parameter_buffers(parameter, monkeypatch):
+    import iris_metal.kernels as kernels
+
+    def forbidden():
+        pytest.fail("invalid buffers reached Metal compilation")
+
+    monkeypatch.setattr(kernels, "_library", forbidden)
+    pixels = torch.zeros(1, 1, 16, device="mps", dtype=torch.bfloat16)
+    gain = torch.ones(16, device="mps")
+    if parameter == "rms_gain":
+        with pytest.raises(ValueError, match="gain width"):
+            pixel_rms_norm(pixels, gain[:1], 1e-6)
+        return
+    mods = torch.zeros(1, 1, 64, device="mps", dtype=torch.bfloat16)
+    fc1 = torch.nn.Linear(16, 64, device="mps", dtype=torch.bfloat16)
+    fc2 = torch.nn.Linear(64, 16, device="mps", dtype=torch.bfloat16)
+    if parameter in ("fc1_bias", "fc2_bias"):
+        layer = fc1 if parameter == "fc1_bias" else fc2
+        layer.bias = torch.nn.Parameter(layer.bias[:1])
+    with pytest.raises(ValueError, match="gain width|pixel-stage widths"):
+        pixel_mlp_(
+            pixels,
+            pixels.clone(),
+            mods,
+            gain[:1] if parameter == "norm_gain" else gain,
+            fc1,
+            fc2,
+            gain[:1] if parameter == "next_gain" else gain,
+            1e-6,
+        )
 
 
 def _relative_error(actual: torch.Tensor, expected: torch.Tensor) -> float:

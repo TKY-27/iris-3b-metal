@@ -1,0 +1,2009 @@
+[
+  {
+    "fixture": "fox1024",
+    "prompt": "A red fox sleeping in fresh snow, golden hour",
+    "seed": 0,
+    "official_and_previous_local_bitwise_equal": true,
+    "fixture_sha256": "d426ee8cbcccc30bc02a35f77efca4d2479b6801a749fbae93cb932878221535",
+    "image_metrics": {
+      "official_vs_fp32": {
+        "psnr_db": 22.04,
+        "lpips": 0.0978,
+        "mean_abs_255": 7.83
+      },
+      "metal_vs_fp32": {
+        "psnr_db": 32.3,
+        "lpips": 0.0142,
+        "mean_abs_255": 2.15
+      },
+      "metal_vs_official": {
+        "psnr_db": 21.43,
+        "lpips": 0.1051,
+        "mean_abs_255": 8.63
+      }
+    },
+    "modes": {
+      "fp32": {
+        "pixel_sha256": "d105761d9dc22719eea5086f9b36e5772c2827034640d4bdce1c4da47c22180c",
+        "measurements": {
+          "mode": "fp32",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float32",
+          "attention_dtype": "fp32",
+          "torch": "2.14.1",
+          "load_seconds": 5.512250624946319,
+          "adapter_seconds": 0.0027152500115334988,
+          "recorded_seconds": 34.85509600001387,
+          "warm_seconds": [
+            34.04274683305994,
+            35.221036083996296
+          ],
+          "allocated_bytes": 12193457920,
+          "driver_bytes": 16161374208,
+          "png_sha256": "bcec5636ff8a23dd62e0aa487c57bc7563d73432892cf7059d0130c946b4571c",
+          "deltas": [
+            {
+              "max_abs": 1.3383091688156128,
+              "rmse": 0.09969131648540497,
+              "relative_l2": 0.08721370249986649
+            },
+            {
+              "max_abs": 2.0069799423217773,
+              "rmse": 0.1747482419013977,
+              "relative_l2": 0.1551864743232727
+            },
+            {
+              "max_abs": 2.0169897079467773,
+              "rmse": 0.16749735176563263,
+              "relative_l2": 0.1488218605518341
+            },
+            {
+              "max_abs": 2.0273361206054688,
+              "rmse": 0.16526421904563904,
+              "relative_l2": 0.14684273302555084
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.739454984664917,
+            "rmse": 0.15803533792495728,
+            "relative_l2": 0.30026766657829285
+          }
+        }
+      },
+      "upstream-bf16": {
+        "pixel_sha256": "bf9f0d316cc110fc0de4ab3c9d7924c48b98cc64e6b3cdad33a3bd233052ece3",
+        "measurements": {
+          "mode": "upstream-bf16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.bfloat16",
+          "attention_dtype": "bf16-autocast",
+          "torch": "2.14.1",
+          "load_seconds": 2.889137458987534,
+          "adapter_seconds": 3.3329706639051437e-06,
+          "recorded_seconds": 12.838463917025365,
+          "warm_seconds": [
+            12.608818084001541,
+            12.57485895906575
+          ],
+          "allocated_bytes": 6111030016,
+          "driver_bytes": 9805398016,
+          "png_sha256": "49ec66ba10156693389aefd4cf3b96e1e30e448b7efb75284629f2a0cc643fe8",
+          "deltas": [
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            }
+          ],
+          "final_delta": {
+            "max_abs": 0.0,
+            "rmse": 0.0,
+            "relative_l2": 0.0
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 1.3383091688156128,
+              "rmse": 0.09969131648540497,
+              "relative_l2": 0.08740046620368958
+            },
+            {
+              "max_abs": 2.0069799423217773,
+              "rmse": 0.1747482419013977,
+              "relative_l2": 0.15549150109291077
+            },
+            {
+              "max_abs": 2.0169897079467773,
+              "rmse": 0.16749735176563263,
+              "relative_l2": 0.1490287184715271
+            },
+            {
+              "max_abs": 2.0273361206054688,
+              "rmse": 0.16526421904563904,
+              "relative_l2": 0.14706633985042572
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.739454984664917,
+            "rmse": 0.15803533792495728,
+            "relative_l2": 0.30306217074394226
+          }
+        }
+      },
+      "metal-fp16": {
+        "pixel_sha256": "1b42f0fc77da2bc9eeb12038b86bed88d53edba300fa9d65d0e03572cd7afa2b",
+        "measurements": {
+          "mode": "metal-fp16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float16",
+          "attention_dtype": "torch.float16",
+          "torch": "2.14.1",
+          "load_seconds": 2.943724083015695,
+          "adapter_seconds": 0.19246670801658183,
+          "recorded_seconds": 8.491067999973893,
+          "warm_seconds": [
+            8.481326999957673,
+            8.525881250039674
+          ],
+          "allocated_bytes": 6113563392,
+          "driver_bytes": 7594999808,
+          "png_sha256": "7f4f2920fb7e5050854a6afb7aca0ed9288d2bde870109e84d5c2fb1b5fb681d",
+          "deltas": [
+            {
+              "max_abs": 1.78125,
+              "rmse": 0.12753640115261078,
+              "relative_l2": 0.11159215122461319
+            },
+            {
+              "max_abs": 2.05029296875,
+              "rmse": 0.188222736120224,
+              "relative_l2": 0.1671479195356369
+            },
+            {
+              "max_abs": 1.8046875,
+              "rmse": 0.17801949381828308,
+              "relative_l2": 0.1582028865814209
+            },
+            {
+              "max_abs": 1.9296875,
+              "rmse": 0.17624759674072266,
+              "relative_l2": 0.15663368999958038
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.7509238719940186,
+            "rmse": 0.1696765273809433,
+            "relative_l2": 0.3224122226238251
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 0.8273963332176208,
+              "rmse": 0.04142821580171585,
+              "relative_l2": 0.03632749989628792
+            },
+            {
+              "max_abs": 1.6121195554733276,
+              "rmse": 0.054298557341098785,
+              "relative_l2": 0.048315707594156265
+            },
+            {
+              "max_abs": 1.9558217525482178,
+              "rmse": 0.05251418426632881,
+              "relative_l2": 0.04672567918896675
+            },
+            {
+              "max_abs": 2.0234298706054688,
+              "rmse": 0.05185270681977272,
+              "relative_l2": 0.04614582657814026
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.6465890407562256,
+            "rmse": 0.04841320589184761,
+            "relative_l2": 0.09284356981515884
+          }
+        }
+      }
+    }
+  },
+  {
+    "fixture": "typography1024",
+    "prompt": "A bakery storefront with one sign reading \"FRESH BREAD\" in large clear letters, morning sunlight, documentary photograph",
+    "seed": 1,
+    "official_and_previous_local_bitwise_equal": true,
+    "fixture_sha256": "9503ad952d026fae05cafe20b96c58f171b43766ecf70cca7fcd6353b05af5c5",
+    "image_metrics": {
+      "official_vs_fp32": {
+        "psnr_db": 24.21,
+        "lpips": 0.1514,
+        "mean_abs_255": 7.78
+      },
+      "metal_vs_fp32": {
+        "psnr_db": 24.74,
+        "lpips": 0.1343,
+        "mean_abs_255": 6.44
+      },
+      "metal_vs_official": {
+        "psnr_db": 22.4,
+        "lpips": 0.1659,
+        "mean_abs_255": 9.37
+      }
+    },
+    "modes": {
+      "fp32": {
+        "pixel_sha256": "49b98b74e4eb96ff272715879038e742da562a9f698ca6b50619b9bff9dbb67c",
+        "measurements": {
+          "mode": "fp32",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float32",
+          "attention_dtype": "fp32",
+          "torch": "2.14.1",
+          "load_seconds": 4.6440240000374615,
+          "adapter_seconds": 9.042094461619854e-06,
+          "recorded_seconds": 34.616902375011705,
+          "warm_seconds": [
+            34.01389033300802
+          ],
+          "allocated_bytes": 12193457920,
+          "driver_bytes": 16161374208,
+          "png_sha256": "7a86ffd84378f4501e7423deeed1ea1d58ee821aebb4234c69a50f6399e70fcc",
+          "deltas": [
+            {
+              "max_abs": 0.5632036924362183,
+              "rmse": 0.052582450211048126,
+              "relative_l2": 0.04440188780426979
+            },
+            {
+              "max_abs": 1.6593565940856934,
+              "rmse": 0.134957954287529,
+              "relative_l2": 0.11598712205886841
+            },
+            {
+              "max_abs": 1.9004065990447998,
+              "rmse": 0.13635176420211792,
+              "relative_l2": 0.1171826422214508
+            },
+            {
+              "max_abs": 2.098855972290039,
+              "rmse": 0.14186851680278778,
+              "relative_l2": 0.12193887680768967
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.7626409530639648,
+            "rmse": 0.12312522530555725,
+            "relative_l2": 0.20316581428050995
+          }
+        }
+      },
+      "upstream-bf16": {
+        "pixel_sha256": "e478e758bba40a7cf8b9cef97c812b576eda82592ab489a8e44d6fdcbd201a20",
+        "measurements": {
+          "mode": "upstream-bf16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.bfloat16",
+          "attention_dtype": "bf16-autocast",
+          "torch": "2.14.1",
+          "load_seconds": 1.6044576670974493,
+          "adapter_seconds": 1.291045919060707e-06,
+          "recorded_seconds": 12.748996042064391,
+          "warm_seconds": [
+            12.771636832971126,
+            12.753607915947214
+          ],
+          "allocated_bytes": 6111030016,
+          "driver_bytes": 9805398016,
+          "png_sha256": "2cfb4ea80c0a9164af6f47cdd19c6ec3b1be206e4e2a5644bfe5982b95b3c7f5",
+          "deltas": [
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            }
+          ],
+          "final_delta": {
+            "max_abs": 0.0,
+            "rmse": 0.0,
+            "relative_l2": 0.0
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 0.5632036924362183,
+              "rmse": 0.052582450211048126,
+              "relative_l2": 0.04437945783138275
+            },
+            {
+              "max_abs": 1.6593565940856934,
+              "rmse": 0.134957954287529,
+              "relative_l2": 0.11595308035612106
+            },
+            {
+              "max_abs": 1.9004065990447998,
+              "rmse": 0.13635176420211792,
+              "relative_l2": 0.11715013533830643
+            },
+            {
+              "max_abs": 2.098855972290039,
+              "rmse": 0.14186851680278778,
+              "relative_l2": 0.12184194475412369
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.7626409530639648,
+            "rmse": 0.12312522530555725,
+            "relative_l2": 0.20281842350959778
+          }
+        }
+      },
+      "metal-fp16": {
+        "pixel_sha256": "5d46a637aa605ae712c4b80b68bfc1b69e680f66a9f0a899950b8fa49fe3775e",
+        "measurements": {
+          "mode": "metal-fp16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float16",
+          "attention_dtype": "torch.float16",
+          "torch": "2.14.1",
+          "load_seconds": 2.9292923340108246,
+          "adapter_seconds": 0.1272133750608191,
+          "recorded_seconds": 7.755672041093931,
+          "warm_seconds": [
+            7.748695167014375,
+            7.784094249946065
+          ],
+          "allocated_bytes": 6113563392,
+          "driver_bytes": 7594999808,
+          "png_sha256": "bbdfcca964ddaa32d0d74d2788e6b76742a2fb322cd691801052cc1803854e7e",
+          "deltas": [
+            {
+              "max_abs": 0.66796875,
+              "rmse": 0.055318813771009445,
+              "relative_l2": 0.04669392853975296
+            },
+            {
+              "max_abs": 1.84375,
+              "rmse": 0.17436881363391876,
+              "relative_l2": 0.14987801015377045
+            },
+            {
+              "max_abs": 1.74609375,
+              "rmse": 0.16733232140541077,
+              "relative_l2": 0.14383213222026825
+            },
+            {
+              "max_abs": 2.17578125,
+              "rmse": 0.16979368031024933,
+              "relative_l2": 0.14596495032310486
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.694941520690918,
+            "rmse": 0.15172593295574188,
+            "relative_l2": 0.2503466308116913
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 0.3310684561729431,
+              "rmse": 0.024311630055308342,
+              "relative_l2": 0.020519157871603966
+            },
+            {
+              "max_abs": 1.8841753005981445,
+              "rmse": 0.1291036456823349,
+              "relative_l2": 0.11090758442878723
+            },
+            {
+              "max_abs": 2.015587091445923,
+              "rmse": 0.1275462955236435,
+              "relative_l2": 0.10957182943820953
+            },
+            {
+              "max_abs": 2.03944730758667,
+              "rmse": 0.1352907419204712,
+              "relative_l2": 0.116179920732975
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.5984019041061401,
+            "rmse": 0.11581577360630035,
+            "relative_l2": 0.1907777339220047
+          }
+        }
+      }
+    }
+  },
+  {
+    "fixture": "portrait1024",
+    "prompt": "Photographic portrait of an elderly violin maker holding a small violin in both hands in a warmly lit workshop, natural skin texture, detailed hands",
+    "seed": 2,
+    "official_and_previous_local_bitwise_equal": true,
+    "fixture_sha256": "2ceab0939f7db887f2794002ac9449d958b990ab6927d2e1eba95cbeba79960a",
+    "image_metrics": {
+      "official_vs_fp32": {
+        "psnr_db": 22.71,
+        "lpips": 0.0854,
+        "mean_abs_255": 8.04
+      },
+      "metal_vs_fp32": {
+        "psnr_db": 27.61,
+        "lpips": 0.039,
+        "mean_abs_255": 3.65
+      },
+      "metal_vs_official": {
+        "psnr_db": 21.97,
+        "lpips": 0.1065,
+        "mean_abs_255": 9.25
+      }
+    },
+    "modes": {
+      "fp32": {
+        "pixel_sha256": "873bcd0c7f4078b90a660426fc931e5927aeda84df528e16d150f8b4cc56d3fc",
+        "measurements": {
+          "mode": "fp32",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float32",
+          "attention_dtype": "fp32",
+          "torch": "2.14.1",
+          "load_seconds": 4.326956875040196,
+          "adapter_seconds": 7.4160052463412285e-06,
+          "recorded_seconds": 34.89021824998781,
+          "warm_seconds": [
+            34.01338904094882
+          ],
+          "allocated_bytes": 12193457920,
+          "driver_bytes": 16161374208,
+          "png_sha256": "4569c7ac23e4de094e05a1fa14319c7b05cbf04606b9ad4ea1072003dec52a41",
+          "deltas": [
+            {
+              "max_abs": 0.9276938438415527,
+              "rmse": 0.06272506713867188,
+              "relative_l2": 0.05501025915145874
+            },
+            {
+              "max_abs": 2.109513759613037,
+              "rmse": 0.17753402888774872,
+              "relative_l2": 0.15733717381954193
+            },
+            {
+              "max_abs": 2.0261893272399902,
+              "rmse": 0.16158568859100342,
+              "relative_l2": 0.14393939077854156
+            },
+            {
+              "max_abs": 2.3494324684143066,
+              "rmse": 0.15661820769309998,
+              "relative_l2": 0.13957078754901886
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.772242546081543,
+            "rmse": 0.1463974416255951,
+            "relative_l2": 0.28474631905555725
+          }
+        }
+      },
+      "upstream-bf16": {
+        "pixel_sha256": "36d0ffcf06761296af8aa377bde1fa200c7a2d957709921d7f7674e97947f0c8",
+        "measurements": {
+          "mode": "upstream-bf16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.bfloat16",
+          "attention_dtype": "bf16-autocast",
+          "torch": "2.14.1",
+          "load_seconds": 1.4318818749161437,
+          "adapter_seconds": 1.00000761449337e-06,
+          "recorded_seconds": 12.90399262495339,
+          "warm_seconds": [
+            12.77818337501958,
+            12.74606383300852
+          ],
+          "allocated_bytes": 6111030016,
+          "driver_bytes": 9805398016,
+          "png_sha256": "3ae2e58f51f477b4c49434662db0c763c7e4796ff864aa017a0a774a6f954188",
+          "deltas": [
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            }
+          ],
+          "final_delta": {
+            "max_abs": 0.0,
+            "rmse": 0.0,
+            "relative_l2": 0.0
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 0.9276938438415527,
+              "rmse": 0.06272506713867188,
+              "relative_l2": 0.05502188950777054
+            },
+            {
+              "max_abs": 2.109513759613037,
+              "rmse": 0.17753402888774872,
+              "relative_l2": 0.15745700895786285
+            },
+            {
+              "max_abs": 2.0261893272399902,
+              "rmse": 0.16158568859100342,
+              "relative_l2": 0.1439516842365265
+            },
+            {
+              "max_abs": 2.3494324684143066,
+              "rmse": 0.15661820769309998,
+              "relative_l2": 0.1396287977695465
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.772242546081543,
+            "rmse": 0.1463974416255951,
+            "relative_l2": 0.28565195202827454
+          }
+        }
+      },
+      "metal-fp16": {
+        "pixel_sha256": "7d42c6ba7813826322316c482b9a87bf3603680410908c0c59ef5ba1bdc298a1",
+        "measurements": {
+          "mode": "metal-fp16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float16",
+          "attention_dtype": "torch.float16",
+          "torch": "2.14.1",
+          "load_seconds": 2.8930826659779996,
+          "adapter_seconds": 0.14094808301888406,
+          "recorded_seconds": 8.053117583040148,
+          "warm_seconds": [
+            7.888000625069253,
+            7.9213805419858545
+          ],
+          "allocated_bytes": 6113563392,
+          "driver_bytes": 7594999808,
+          "png_sha256": "8a5a194bf19d0b711bc7f33ca6f52dded24f95f2841e9ba1498c9c083fb8c8ee",
+          "deltas": [
+            {
+              "max_abs": 0.98828125,
+              "rmse": 0.07181937992572784,
+              "relative_l2": 0.06297878921031952
+            },
+            {
+              "max_abs": 2.1875,
+              "rmse": 0.1941397488117218,
+              "relative_l2": 0.17209705710411072
+            },
+            {
+              "max_abs": 2.0625,
+              "rmse": 0.17663876712322235,
+              "relative_l2": 0.15736478567123413
+            },
+            {
+              "max_abs": 2.545654296875,
+              "rmse": 0.1698896735906601,
+              "relative_l2": 0.1514309197664261
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.8641588687896729,
+            "rmse": 0.1593717336654663,
+            "relative_l2": 0.31000393629074097
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 0.5982367992401123,
+              "rmse": 0.028397029265761375,
+              "relative_l2": 0.02490972727537155
+            },
+            {
+              "max_abs": 2.102860689163208,
+              "rmse": 0.10239440947771072,
+              "relative_l2": 0.09080615639686584
+            },
+            {
+              "max_abs": 2.073305130004883,
+              "rmse": 0.09554446488618851,
+              "relative_l2": 0.08509549498558044
+            },
+            {
+              "max_abs": 2.122836112976074,
+              "rmse": 0.09147469699382782,
+              "relative_l2": 0.08152731508016586
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.8006278276443481,
+            "rmse": 0.08320259302854538,
+            "relative_l2": 0.1622949242591858
+          }
+        }
+      }
+    }
+  },
+  {
+    "fixture": "hands-pottery",
+    "prompt": "A potter's hands shaping wet clay on a spinning wheel, close-up, studio lighting",
+    "seed": 3,
+    "official_and_previous_local_bitwise_equal": true,
+    "fixture_sha256": "337e59834568bceb7172c2b80739f073f0551d900541677e65fa96883bfc8921",
+    "image_metrics": {
+      "official_vs_fp32": {
+        "psnr_db": 26.24,
+        "lpips": 0.0601,
+        "mean_abs_255": 5.46
+      },
+      "metal_vs_fp32": {
+        "psnr_db": 39.08,
+        "lpips": 0.0073,
+        "mean_abs_255": 1.2
+      },
+      "metal_vs_official": {
+        "psnr_db": 25.85,
+        "lpips": 0.0637,
+        "mean_abs_255": 5.78
+      }
+    },
+    "modes": {
+      "fp32": {
+        "pixel_sha256": "0317aa638e81940db4dec8964715ec9794b01e155acabc7714697dc7e86ca06d",
+        "measurements": {
+          "mode": "fp32",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float32",
+          "attention_dtype": "fp32",
+          "torch": "2.14.1",
+          "load_seconds": 5.293524665990844,
+          "adapter_seconds": 3.7909485399723053e-06,
+          "recorded_seconds": 38.57007158303168,
+          "warm_seconds": [],
+          "allocated_bytes": 12193457920,
+          "driver_bytes": 16161374208,
+          "png_sha256": "8e0f4882547b0bbf6429baac643a99d337cb355c7d3a8c4f759e81b397b6458f",
+          "deltas": [
+            {
+              "max_abs": 1.0601840019226074,
+              "rmse": 0.06115834787487984,
+              "relative_l2": 0.054574545472860336
+            },
+            {
+              "max_abs": 1.6683766841888428,
+              "rmse": 0.11023301631212234,
+              "relative_l2": 0.09990881383419037
+            },
+            {
+              "max_abs": 1.5533761978149414,
+              "rmse": 0.10457146167755127,
+              "relative_l2": 0.09495490044355392
+            },
+            {
+              "max_abs": 1.600417137145996,
+              "rmse": 0.10368514806032181,
+              "relative_l2": 0.09409428387880325
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.5019276142120361,
+            "rmse": 0.09742356836795807,
+            "relative_l2": 0.2094116508960724
+          }
+        }
+      },
+      "upstream-bf16": {
+        "pixel_sha256": "44855497d38d07280006098ca8bfc95aeec9f877fa4746883191e13dd9c76022",
+        "measurements": {
+          "mode": "upstream-bf16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.bfloat16",
+          "attention_dtype": "bf16-autocast",
+          "torch": "2.14.1",
+          "load_seconds": 3.1277726250700653,
+          "adapter_seconds": 1.08394306153059e-06,
+          "recorded_seconds": 15.686361665953882,
+          "warm_seconds": [
+            15.464545458904468
+          ],
+          "allocated_bytes": 6111030016,
+          "driver_bytes": 9805398016,
+          "png_sha256": "2b000c55191a76d0d2ebc90f38d5fb4d3fcbd08d921d69316840774fbbfbf81b",
+          "deltas": [
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            }
+          ],
+          "final_delta": {
+            "max_abs": 0.0,
+            "rmse": 0.0,
+            "relative_l2": 0.0
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 1.0601840019226074,
+              "rmse": 0.06115834787487984,
+              "relative_l2": 0.05459587275981903
+            },
+            {
+              "max_abs": 1.6683766841888428,
+              "rmse": 0.11023301631212234,
+              "relative_l2": 0.09991778433322906
+            },
+            {
+              "max_abs": 1.5533761978149414,
+              "rmse": 0.10457146167755127,
+              "relative_l2": 0.09493879228830338
+            },
+            {
+              "max_abs": 1.600417137145996,
+              "rmse": 0.10368514806032181,
+              "relative_l2": 0.09410089254379272
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.5019276142120361,
+            "rmse": 0.09742356836795807,
+            "relative_l2": 0.20978695154190063
+          }
+        }
+      },
+      "metal-fp16": {
+        "pixel_sha256": "e851d40d469161c4f588caf4bdf988824ccbd9c52cf5eee2ccf4fcaf0a618cec",
+        "measurements": {
+          "mode": "metal-fp16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float16",
+          "attention_dtype": "torch.float16",
+          "torch": "2.14.1",
+          "load_seconds": 1.9763501250417903,
+          "adapter_seconds": 0.14464166690595448,
+          "recorded_seconds": 9.234103915980086,
+          "warm_seconds": [
+            9.506341582979076
+          ],
+          "allocated_bytes": 6113563392,
+          "driver_bytes": 7594999808,
+          "png_sha256": "fe2bca46876ca3bbbbee52732fcd200509ec75529c22ed216aa3841ac9248b43",
+          "deltas": [
+            {
+              "max_abs": 1.1328125,
+              "rmse": 0.06284552067518234,
+              "relative_l2": 0.05606745928525925
+            },
+            {
+              "max_abs": 1.673828125,
+              "rmse": 0.11489643156528473,
+              "relative_l2": 0.10414992272853851
+            },
+            {
+              "max_abs": 1.568359375,
+              "rmse": 0.109461709856987,
+              "relative_l2": 0.09941195696592331
+            },
+            {
+              "max_abs": 1.685546875,
+              "rmse": 0.10854979604482651,
+              "relative_l2": 0.09852200001478195
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.4867607355117798,
+            "rmse": 0.1019430011510849,
+            "relative_l2": 0.21913987398147583
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 0.15097951889038086,
+              "rmse": 0.010835827328264713,
+              "relative_l2": 0.009676334448158741
+            },
+            {
+              "max_abs": 0.5128979682922363,
+              "rmse": 0.02105426788330078,
+              "relative_l2": 0.01909135840833187
+            },
+            {
+              "max_abs": 1.1503047943115234,
+              "rmse": 0.026655035093426704,
+              "relative_l2": 0.024206381291151047
+            },
+            {
+              "max_abs": 1.3740798234939575,
+              "rmse": 0.025554649531841278,
+              "relative_l2": 0.023199688643217087
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.0889893770217896,
+            "rmse": 0.021989235654473305,
+            "relative_l2": 0.047359686344861984
+          }
+        }
+      }
+    }
+  },
+  {
+    "fixture": "chalkboard-menu",
+    "prompt": "A chalkboard menu that says \"TODAY'S SPECIAL: TOMATO SOUP\" in neat handwriting",
+    "seed": 4,
+    "official_and_previous_local_bitwise_equal": true,
+    "fixture_sha256": "8f43d1005d3d20604cd26d05c01528e67c18b1fa07ad3ee40e3c7e4c243e2c1c",
+    "image_metrics": {
+      "official_vs_fp32": {
+        "psnr_db": 34.01,
+        "lpips": 0.0085,
+        "mean_abs_255": 1.35
+      },
+      "metal_vs_fp32": {
+        "psnr_db": 42.43,
+        "lpips": 0.0018,
+        "mean_abs_255": 0.65
+      },
+      "metal_vs_official": {
+        "psnr_db": 35.0,
+        "lpips": 0.0073,
+        "mean_abs_255": 1.34
+      }
+    },
+    "modes": {
+      "fp32": {
+        "pixel_sha256": "7d0f24dfc32102c8b5e8a17e1d11222621f7aa9f7abbb292461302909ed367ed",
+        "measurements": {
+          "mode": "fp32",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float32",
+          "attention_dtype": "fp32",
+          "torch": "2.14.1",
+          "load_seconds": 4.452905874932185,
+          "adapter_seconds": 8.165952749550343e-06,
+          "recorded_seconds": 38.82881916698534,
+          "warm_seconds": [],
+          "allocated_bytes": 12193457920,
+          "driver_bytes": 16161374208,
+          "png_sha256": "07767e723761d48289c61c501fc45a578be89905ee622363ba3d5dc2b7c63687",
+          "deltas": [
+            {
+              "max_abs": 0.541145384311676,
+              "rmse": 0.02832004800438881,
+              "relative_l2": 0.02296665869653225
+            },
+            {
+              "max_abs": 1.0700547695159912,
+              "rmse": 0.036579228937625885,
+              "relative_l2": 0.03032650053501129
+            },
+            {
+              "max_abs": 1.7983423471450806,
+              "rmse": 0.042415086179971695,
+              "relative_l2": 0.03528552129864693
+            },
+            {
+              "max_abs": 1.8936721086502075,
+              "rmse": 0.046442992985248566,
+              "relative_l2": 0.03881020471453667
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.5541224479675293,
+            "rmse": 0.03974303975701332,
+            "relative_l2": 0.05865766853094101
+          }
+        }
+      },
+      "upstream-bf16": {
+        "pixel_sha256": "7ec19edc9fd67948480e2bb327d5285a69be03dc5cacf51be8ade9f1cad7117f",
+        "measurements": {
+          "mode": "upstream-bf16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.bfloat16",
+          "attention_dtype": "bf16-autocast",
+          "torch": "2.14.1",
+          "load_seconds": 3.023757165996358,
+          "adapter_seconds": 1.500011421740055e-06,
+          "recorded_seconds": 15.049100250005722,
+          "warm_seconds": [
+            14.769450582913123
+          ],
+          "allocated_bytes": 6111030016,
+          "driver_bytes": 9805398016,
+          "png_sha256": "0b463c6e5982574711f1d9e6408941d32347cf8ca7bab35ddf007c29d2fc9abc",
+          "deltas": [
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            }
+          ],
+          "final_delta": {
+            "max_abs": 0.0,
+            "rmse": 0.0,
+            "relative_l2": 0.0
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 0.541145384311676,
+              "rmse": 0.02832004800438881,
+              "relative_l2": 0.02296769618988037
+            },
+            {
+              "max_abs": 1.0700547695159912,
+              "rmse": 0.036579228937625885,
+              "relative_l2": 0.030319252982735634
+            },
+            {
+              "max_abs": 1.7983423471450806,
+              "rmse": 0.042415086179971695,
+              "relative_l2": 0.03525933250784874
+            },
+            {
+              "max_abs": 1.8936721086502075,
+              "rmse": 0.046442992985248566,
+              "relative_l2": 0.038793835788965225
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.5541224479675293,
+            "rmse": 0.03974303975701332,
+            "relative_l2": 0.05862532928586006
+          }
+        }
+      },
+      "metal-fp16": {
+        "pixel_sha256": "3b6c50c9481e62f617c5eec7e9a4b36bda2052028eadb8f4e5340d5465f10a30",
+        "measurements": {
+          "mode": "metal-fp16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float16",
+          "attention_dtype": "torch.float16",
+          "torch": "2.14.1",
+          "load_seconds": 1.6534009590977803,
+          "adapter_seconds": 0.12812304205726832,
+          "recorded_seconds": 9.251461083069444,
+          "warm_seconds": [
+            9.151243833941408
+          ],
+          "allocated_bytes": 6113563392,
+          "driver_bytes": 7594999808,
+          "png_sha256": "5f2591833aba415f4e896d2753d34819472678e8adf9364629796816b619fdf0",
+          "deltas": [
+            {
+              "max_abs": 0.470703125,
+              "rmse": 0.025929655879735947,
+              "relative_l2": 0.021024292334914207
+            },
+            {
+              "max_abs": 1.078125,
+              "rmse": 0.033462416380643845,
+              "relative_l2": 0.027743224054574966
+            },
+            {
+              "max_abs": 1.8515625,
+              "rmse": 0.03860700875520706,
+              "relative_l2": 0.03211628273129463
+            },
+            {
+              "max_abs": 1.8154296875,
+              "rmse": 0.04194151610136032,
+              "relative_l2": 0.035041872411966324
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.5418522357940674,
+            "rmse": 0.03541678935289383,
+            "relative_l2": 0.05228966847062111
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 0.26364749670028687,
+              "rmse": 0.011380989104509354,
+              "relative_l2": 0.009232229553163052
+            },
+            {
+              "max_abs": 0.41914358735084534,
+              "rmse": 0.012630169279873371,
+              "relative_l2": 0.010472220368683338
+            },
+            {
+              "max_abs": 0.7981430292129517,
+              "rmse": 0.015382015146315098,
+              "relative_l2": 0.012791398912668228
+            },
+            {
+              "max_abs": 1.925264835357666,
+              "rmse": 0.018742896616458893,
+              "relative_l2": 0.015661127865314484
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.2780132293701172,
+            "rmse": 0.01477884128689766,
+            "relative_l2": 0.021807875484228134
+          }
+        }
+      }
+    }
+  },
+  {
+    "fixture": "cat-window",
+    "prompt": "A tabby cat sitting on a windowsill, raindrops on the glass, soft daylight",
+    "seed": 5,
+    "official_and_previous_local_bitwise_equal": true,
+    "fixture_sha256": "89f6c8a610873ed5ccd387b44256cfa283871dad6b02dd9255521e7b2019d6af",
+    "image_metrics": {
+      "official_vs_fp32": {
+        "psnr_db": 33.63,
+        "lpips": 0.0173,
+        "mean_abs_255": 2.16
+      },
+      "metal_vs_fp32": {
+        "psnr_db": 38.14,
+        "lpips": 0.0066,
+        "mean_abs_255": 1.2
+      },
+      "metal_vs_official": {
+        "psnr_db": 35.55,
+        "lpips": 0.0133,
+        "mean_abs_255": 1.82
+      }
+    },
+    "modes": {
+      "fp32": {
+        "pixel_sha256": "31892a260deadcd0cc77d53accfd56b28475fcbb1a284ef54a28b31feee67304",
+        "measurements": {
+          "mode": "fp32",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float32",
+          "attention_dtype": "fp32",
+          "torch": "2.14.1",
+          "load_seconds": 4.572513499995694,
+          "adapter_seconds": 5.541020072996616e-06,
+          "recorded_seconds": 38.408691167016514,
+          "warm_seconds": [],
+          "allocated_bytes": 12193457920,
+          "driver_bytes": 16161374208,
+          "png_sha256": "cabdcfa16a30776e5ebaf5ad8b4d19230d5a8b0d0da34124cbde64d80bf6343d",
+          "deltas": [
+            {
+              "max_abs": 0.5918127298355103,
+              "rmse": 0.03163186460733414,
+              "relative_l2": 0.02867896854877472
+            },
+            {
+              "max_abs": 1.271949052810669,
+              "rmse": 0.04463038593530655,
+              "relative_l2": 0.04118305444717407
+            },
+            {
+              "max_abs": 1.348251223564148,
+              "rmse": 0.045131463557481766,
+              "relative_l2": 0.04178343713283539
+            },
+            {
+              "max_abs": 1.5111687183380127,
+              "rmse": 0.04634653031826019,
+              "relative_l2": 0.04302728548645973
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.361803412437439,
+            "rmse": 0.041533298790454865,
+            "relative_l2": 0.09867746382951736
+          }
+        }
+      },
+      "upstream-bf16": {
+        "pixel_sha256": "b40f2788fc71c73475fc35cd241bea1b67429f85734eb14f0fa86bd4762b0d12",
+        "measurements": {
+          "mode": "upstream-bf16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.bfloat16",
+          "attention_dtype": "bf16-autocast",
+          "torch": "2.14.1",
+          "load_seconds": 2.812917875009589,
+          "adapter_seconds": 1.1670636013150215e-06,
+          "recorded_seconds": 13.911054291995242,
+          "warm_seconds": [
+            14.076623833971098
+          ],
+          "allocated_bytes": 6111030016,
+          "driver_bytes": 9805398016,
+          "png_sha256": "11479b10656f84813bbe54f54b4bf1c22ef080c7e26b0280065b008606b41f04",
+          "deltas": [
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            }
+          ],
+          "final_delta": {
+            "max_abs": 0.0,
+            "rmse": 0.0,
+            "relative_l2": 0.0
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 0.5918127298355103,
+              "rmse": 0.03163186460733414,
+              "relative_l2": 0.028677374124526978
+            },
+            {
+              "max_abs": 1.271949052810669,
+              "rmse": 0.04463038593530655,
+              "relative_l2": 0.041172973811626434
+            },
+            {
+              "max_abs": 1.348251223564148,
+              "rmse": 0.045131463557481766,
+              "relative_l2": 0.041758570820093155
+            },
+            {
+              "max_abs": 1.5111687183380127,
+              "rmse": 0.04634653031826019,
+              "relative_l2": 0.04301674664020538
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.361803412437439,
+            "rmse": 0.041533298790454865,
+            "relative_l2": 0.09854932874441147
+          }
+        }
+      },
+      "metal-fp16": {
+        "pixel_sha256": "81862832e962f15f3ca7e256f86b595ef392ceb2e773433477a6c0f010dfc484",
+        "measurements": {
+          "mode": "metal-fp16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float16",
+          "attention_dtype": "torch.float16",
+          "torch": "2.14.1",
+          "load_seconds": 1.8954992910148576,
+          "adapter_seconds": 0.14110466605052352,
+          "recorded_seconds": 9.146795707987621,
+          "warm_seconds": [
+            9.02862150000874
+          ],
+          "allocated_bytes": 6113563392,
+          "driver_bytes": 7594999808,
+          "png_sha256": "c511f924feff3d31690e6aa439c276d5ed8a064586e7a9fbe55eff10cd6a25f4",
+          "deltas": [
+            {
+              "max_abs": 0.453125,
+              "rmse": 0.028075339272618294,
+              "relative_l2": 0.02544768527150154
+            },
+            {
+              "max_abs": 1.279296875,
+              "rmse": 0.03541233763098717,
+              "relative_l2": 0.03267825022339821
+            },
+            {
+              "max_abs": 1.357421875,
+              "rmse": 0.035810355097055435,
+              "relative_l2": 0.033154573291540146
+            },
+            {
+              "max_abs": 1.490234375,
+              "rmse": 0.03809035196900368,
+              "relative_l2": 0.03535439819097519
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.3496718406677246,
+            "rmse": 0.03322162851691246,
+            "relative_l2": 0.07894429564476013
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 0.18397140502929688,
+              "rmse": 0.012111828662455082,
+              "relative_l2": 0.010982408188283443
+            },
+            {
+              "max_abs": 0.7068259716033936,
+              "rmse": 0.024714695289731026,
+              "relative_l2": 0.022805018350481987
+            },
+            {
+              "max_abs": 1.0271947383880615,
+              "rmse": 0.027838172391057014,
+              "relative_l2": 0.025763044133782387
+            },
+            {
+              "max_abs": 1.099954605102539,
+              "rmse": 0.027984486892819405,
+              "relative_l2": 0.02597815915942192
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 0.8665962815284729,
+            "rmse": 0.024569489061832428,
+            "relative_l2": 0.058306410908699036
+          }
+        }
+      }
+    }
+  },
+  {
+    "fixture": "watches-gears",
+    "prompt": "Antique pocket watches, brass keys and tiny gears arranged on dark velvet, tabletop still life",
+    "seed": 6,
+    "official_and_previous_local_bitwise_equal": true,
+    "fixture_sha256": "1615428e200e15906056f65c9226a9098bb3c257adb3fbdccf421279eea38cd9",
+    "image_metrics": {
+      "official_vs_fp32": {
+        "psnr_db": 21.05,
+        "lpips": 0.1034,
+        "mean_abs_255": 10.03
+      },
+      "metal_vs_fp32": {
+        "psnr_db": 26.6,
+        "lpips": 0.044,
+        "mean_abs_255": 3.78
+      },
+      "metal_vs_official": {
+        "psnr_db": 20.5,
+        "lpips": 0.1165,
+        "mean_abs_255": 10.59
+      }
+    },
+    "modes": {
+      "fp32": {
+        "pixel_sha256": "a5a5de2feaaf3c7b939e0a92b8bedc267ed4c70c32c34d906d1eb1fa95088191",
+        "measurements": {
+          "mode": "fp32",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float32",
+          "attention_dtype": "fp32",
+          "torch": "2.14.1",
+          "load_seconds": 4.599928082898259,
+          "adapter_seconds": 5.209003575146198e-06,
+          "recorded_seconds": 39.03710875008255,
+          "warm_seconds": [],
+          "allocated_bytes": 12193457920,
+          "driver_bytes": 16161374208,
+          "png_sha256": "365d3ce0d439b7c4e29c0d7d45686de5cb28c2236840164b7ec05ebe6e81e1e5",
+          "deltas": [
+            {
+              "max_abs": 1.2344530820846558,
+              "rmse": 0.07324151694774628,
+              "relative_l2": 0.05962829291820526
+            },
+            {
+              "max_abs": 2.8326783180236816,
+              "rmse": 0.21651704609394073,
+              "relative_l2": 0.1775331199169159
+            },
+            {
+              "max_abs": 2.0157508850097656,
+              "rmse": 0.19390705227851868,
+              "relative_l2": 0.15908364951610565
+            },
+            {
+              "max_abs": 2.086616039276123,
+              "rmse": 0.18894298374652863,
+              "relative_l2": 0.15483467280864716
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.9121156930923462,
+            "rmse": 0.1771647185087204,
+            "relative_l2": 0.2506662905216217
+          }
+        }
+      },
+      "upstream-bf16": {
+        "pixel_sha256": "9886186ebc42a85e2436d0aa178a97d24791fad101a0bae8f26f56fb0d29e7b6",
+        "measurements": {
+          "mode": "upstream-bf16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.bfloat16",
+          "attention_dtype": "bf16-autocast",
+          "torch": "2.14.1",
+          "load_seconds": 2.9198725830065086,
+          "adapter_seconds": 1.2919772416353226e-06,
+          "recorded_seconds": 14.910337749985047,
+          "warm_seconds": [
+            14.432104750070721
+          ],
+          "allocated_bytes": 6111030016,
+          "driver_bytes": 9805398016,
+          "png_sha256": "647a46a1aaeebdf9091a2eab05fd1f37f60fbacefd7e64b77774167dc2f2b39f",
+          "deltas": [
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            }
+          ],
+          "final_delta": {
+            "max_abs": 0.0,
+            "rmse": 0.0,
+            "relative_l2": 0.0
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 1.2344530820846558,
+              "rmse": 0.07324151694774628,
+              "relative_l2": 0.059585534036159515
+            },
+            {
+              "max_abs": 2.8326783180236816,
+              "rmse": 0.21651704609394073,
+              "relative_l2": 0.1770976036787033
+            },
+            {
+              "max_abs": 2.0157508850097656,
+              "rmse": 0.19390705227851868,
+              "relative_l2": 0.15873996913433075
+            },
+            {
+              "max_abs": 2.086616039276123,
+              "rmse": 0.18894298374652863,
+              "relative_l2": 0.15452775359153748
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.9121156930923462,
+            "rmse": 0.1771647185087204,
+            "relative_l2": 0.24944496154785156
+          }
+        }
+      },
+      "metal-fp16": {
+        "pixel_sha256": "19489a108cd5a69014e7363d693f224bb56e3b65d91e54d64e783b3c28e5a322",
+        "measurements": {
+          "mode": "metal-fp16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float16",
+          "attention_dtype": "torch.float16",
+          "torch": "2.14.1",
+          "load_seconds": 1.8045724589610472,
+          "adapter_seconds": 0.14035074994899333,
+          "recorded_seconds": 9.054292374989018,
+          "warm_seconds": [
+            8.936382208019495
+          ],
+          "allocated_bytes": 6113563392,
+          "driver_bytes": 7594999808,
+          "png_sha256": "7b0b2215915ae58574ba3add77e88aa181813cb9ef693a2cc48a9e846d15b490",
+          "deltas": [
+            {
+              "max_abs": 1.234375,
+              "rmse": 0.0764312669634819,
+              "relative_l2": 0.06221255660057068
+            },
+            {
+              "max_abs": 2.82421875,
+              "rmse": 0.23205456137657166,
+              "relative_l2": 0.1903240978717804
+            },
+            {
+              "max_abs": 2.1142578125,
+              "rmse": 0.2055426687002182,
+              "relative_l2": 0.16866183280944824
+            },
+            {
+              "max_abs": 2.125,
+              "rmse": 0.20147384703159332,
+              "relative_l2": 0.16514526307582855
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.9137167930603027,
+            "rmse": 0.18869498372077942,
+            "relative_l2": 0.26699164509773254
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 0.30523204803466797,
+              "rmse": 0.02148570865392685,
+              "relative_l2": 0.017484266310930252
+            },
+            {
+              "max_abs": 2.3138267993927,
+              "rmse": 0.11506087332963943,
+              "relative_l2": 0.09409766644239426
+            },
+            {
+              "max_abs": 2.1539266109466553,
+              "rmse": 0.10321541130542755,
+              "relative_l2": 0.08448126167058945
+            },
+            {
+              "max_abs": 2.1402688026428223,
+              "rmse": 0.10221593081951141,
+              "relative_l2": 0.08358723670244217
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.8874387741088867,
+            "rmse": 0.09353844076395035,
+            "relative_l2": 0.1316826343536377
+          }
+        }
+      }
+    }
+  },
+  {
+    "fixture": "hands-piano",
+    "prompt": "Two hands playing a grand piano, close-up of the fingers on the keys",
+    "seed": 7,
+    "official_and_previous_local_bitwise_equal": true,
+    "fixture_sha256": "3de68674016db74949140c7923d358591c5a7d11ca2b86d415528dc100f85cf4",
+    "image_metrics": {
+      "official_vs_fp32": {
+        "psnr_db": 25.38,
+        "lpips": 0.1041,
+        "mean_abs_255": 6.94
+      },
+      "metal_vs_fp32": {
+        "psnr_db": 36.2,
+        "lpips": 0.0128,
+        "mean_abs_255": 1.75
+      },
+      "metal_vs_official": {
+        "psnr_db": 25.41,
+        "lpips": 0.0991,
+        "mean_abs_255": 6.86
+      }
+    },
+    "modes": {
+      "fp32": {
+        "pixel_sha256": "124aed851452440c961dfe254bfe84ec6d96e33122add03ea4cdaf50b9b5895c",
+        "measurements": {
+          "mode": "fp32",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float32",
+          "attention_dtype": "fp32",
+          "torch": "2.14.1",
+          "load_seconds": 5.022759292041883,
+          "adapter_seconds": 5.207955837249756e-06,
+          "recorded_seconds": 39.85702537500765,
+          "warm_seconds": [],
+          "allocated_bytes": 12193457920,
+          "driver_bytes": 16161374208,
+          "png_sha256": "e3257b4e084eb02b6c7115a49318d0d6540c3f2ae1d24318c5f3c3691a601c51",
+          "deltas": [
+            {
+              "max_abs": 0.7214522361755371,
+              "rmse": 0.039362914860248566,
+              "relative_l2": 0.033471301198005676
+            },
+            {
+              "max_abs": 1.8667051792144775,
+              "rmse": 0.13356155157089233,
+              "relative_l2": 0.11527516692876816
+            },
+            {
+              "max_abs": 1.64678955078125,
+              "rmse": 0.12087468802928925,
+              "relative_l2": 0.10472636669874191
+            },
+            {
+              "max_abs": 1.8128777742385864,
+              "rmse": 0.11548470705747604,
+              "relative_l2": 0.09993509203195572
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.5476120710372925,
+            "rmse": 0.10755601525306702,
+            "relative_l2": 0.1853199452161789
+          }
+        }
+      },
+      "upstream-bf16": {
+        "pixel_sha256": "2ae3f79f695f4acbd851846f924c0e56f631f546eecd06d364d4098fe1d4ed6b",
+        "measurements": {
+          "mode": "upstream-bf16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.bfloat16",
+          "attention_dtype": "bf16-autocast",
+          "torch": "2.14.1",
+          "load_seconds": 2.8936226250370964,
+          "adapter_seconds": 9.159557521343231e-07,
+          "recorded_seconds": 13.638730208040215,
+          "warm_seconds": [
+            13.5080352909863
+          ],
+          "allocated_bytes": 6111030016,
+          "driver_bytes": 9805398016,
+          "png_sha256": "5afc4a5b24a402652ef29b72f92abd80db721416803e24189d54eab1f26ce588",
+          "deltas": [
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            },
+            {
+              "max_abs": 0.0,
+              "rmse": 0.0,
+              "relative_l2": 0.0
+            }
+          ],
+          "final_delta": {
+            "max_abs": 0.0,
+            "rmse": 0.0,
+            "relative_l2": 0.0
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 0.7214522361755371,
+              "rmse": 0.039362914860248566,
+              "relative_l2": 0.03345026075839996
+            },
+            {
+              "max_abs": 1.8667051792144775,
+              "rmse": 0.13356155157089233,
+              "relative_l2": 0.11515316367149353
+            },
+            {
+              "max_abs": 1.64678955078125,
+              "rmse": 0.12087468802928925,
+              "relative_l2": 0.10460168868303299
+            },
+            {
+              "max_abs": 1.8128777742385864,
+              "rmse": 0.11548470705747604,
+              "relative_l2": 0.09983962774276733
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.5476120710372925,
+            "rmse": 0.10755601525306702,
+            "relative_l2": 0.18473166227340698
+          }
+        }
+      },
+      "metal-fp16": {
+        "pixel_sha256": "6d5e434a74e80bae5bd35d860e16c4fa211c3c72c5979d459537c9cc1e4503f4",
+        "measurements": {
+          "mode": "metal-fp16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float16",
+          "attention_dtype": "torch.float16",
+          "torch": "2.14.1",
+          "load_seconds": 1.4867150830104947,
+          "adapter_seconds": 0.118539750110358,
+          "recorded_seconds": 8.124600832932629,
+          "warm_seconds": [
+            8.139364374917932
+          ],
+          "allocated_bytes": 6113563392,
+          "driver_bytes": 7594999808,
+          "png_sha256": "df5be21249bce5ec6a1487d8289de25cd63cb3d7990f77322432c72fdf1512af",
+          "deltas": [
+            {
+              "max_abs": 0.7265625,
+              "rmse": 0.042668238282203674,
+              "relative_l2": 0.03626485913991928
+            },
+            {
+              "max_abs": 1.8125,
+              "rmse": 0.13418465852737427,
+              "relative_l2": 0.11584015190601349
+            },
+            {
+              "max_abs": 1.6796875,
+              "rmse": 0.1203714981675148,
+              "relative_l2": 0.10430346429347992
+            },
+            {
+              "max_abs": 1.8408203125,
+              "rmse": 0.11509045958518982,
+              "relative_l2": 0.0996035560965538
+            }
+          ],
+          "final_delta": {
+            "max_abs": 1.5459777116775513,
+            "rmse": 0.10726860910654068,
+            "relative_l2": 0.18482747673988342
+          },
+          "fp32_deltas": [
+            {
+              "max_abs": 0.15662002563476562,
+              "rmse": 0.014508434571325779,
+              "relative_l2": 0.012330340221524239
+            },
+            {
+              "max_abs": 1.1473383903503418,
+              "rmse": 0.03988422080874443,
+              "relative_l2": 0.03439125791192055
+            },
+            {
+              "max_abs": 1.1142821311950684,
+              "rmse": 0.03565378114581108,
+              "relative_l2": 0.030858002603054047
+            },
+            {
+              "max_abs": 1.1054728031158447,
+              "rmse": 0.034722574055194855,
+              "relative_l2": 0.030024731531739235
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 0.8861677646636963,
+            "rmse": 0.03081658110022545,
+            "relative_l2": 0.052936993539333344
+          }
+        }
+      }
+    }
+  },
+  {
+    "fixture": "typography-8",
+    "prompt": "A bakery storefront with one sign reading \"FRESH BREAD\" in large clear letters, morning sunlight, documentary photograph",
+    "seed": 8,
+    "fixture_sha256": "3b9b36bdc862e63031989259c3bc7b61c2a187ec23728aa3ab19587679b8bba9",
+    "visual_sign_text": {
+      "fp32": "FRESH BREAD",
+      "upstream-bf16": "FRESH BREAD",
+      "metal-fp16": "FRESH BREAD"
+    },
+    "modes": {
+      "fp32": {
+        "pixel_sha256": "fb9159ab5cd61200c59a924634cf3daffd2c2907dd37e84b3b7b6091c8e62ef5",
+        "measurements": {
+          "mode": "fp32",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float32",
+          "attention_dtype": "fp32",
+          "torch": "2.14.1",
+          "load_seconds": 4.9083669579122216,
+          "adapter_seconds": 4.958012141287327e-06,
+          "recorded_seconds": 34.04459287505597,
+          "warm_seconds": [],
+          "allocated_bytes": 12193457920,
+          "driver_bytes": 16161374208,
+          "png_sha256": "ae4240da88d2d17089267f58577648f6f7335132eef8e5cf766ada7adfcd4f7a"
+        }
+      },
+      "upstream-bf16": {
+        "pixel_sha256": "b4e673b5f428d5837f38232d655d34e254f020a655c5c1ec4ec2f0f5a9ccaf67",
+        "measurements": {
+          "mode": "upstream-bf16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.bfloat16",
+          "attention_dtype": "bf16-autocast",
+          "torch": "2.14.1",
+          "load_seconds": 3.053074458031915,
+          "adapter_seconds": 9.579816833138466e-07,
+          "recorded_seconds": 12.616695667034946,
+          "warm_seconds": [],
+          "allocated_bytes": 6111030016,
+          "driver_bytes": 9805398016,
+          "png_sha256": "213ec4b072482d62e05b40d08c2764db00e59614a8e78947f908016a44525a9f",
+          "fp32_deltas": [
+            {
+              "max_abs": 0.9769742488861084,
+              "rmse": 0.056709229946136475,
+              "relative_l2": 0.04772844910621643
+            },
+            {
+              "max_abs": 2.833402633666992,
+              "rmse": 0.15402179956436157,
+              "relative_l2": 0.1317019760608673
+            },
+            {
+              "max_abs": 1.9873380661010742,
+              "rmse": 0.16223640739917755,
+              "relative_l2": 0.13869908452033997
+            },
+            {
+              "max_abs": 2.2619786262512207,
+              "rmse": 0.17282356321811676,
+              "relative_l2": 0.14770233631134033
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.718473196029663,
+            "rmse": 0.14999814331531525,
+            "relative_l2": 0.24343585968017578
+          }
+        }
+      },
+      "metal-fp16": {
+        "pixel_sha256": "318912e3b7466801befe482e45f212009a90bf34dad8a8be440f0282bed554cf",
+        "measurements": {
+          "mode": "metal-fp16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float16",
+          "attention_dtype": "torch.float16",
+          "torch": "2.14.1",
+          "load_seconds": 1.6944630410289392,
+          "adapter_seconds": 0.11354412499349564,
+          "recorded_seconds": 7.445147832971998,
+          "warm_seconds": [],
+          "allocated_bytes": 6113563392,
+          "driver_bytes": 7594999808,
+          "png_sha256": "bb53c95fb3873c6a13289ea5bbd2d867def380618ede03d1c7f57c591f9b2fb9",
+          "fp32_deltas": [
+            {
+              "max_abs": 0.23731470108032227,
+              "rmse": 0.01548501942306757,
+              "relative_l2": 0.013034533709287643
+            },
+            {
+              "max_abs": 1.1213434934616089,
+              "rmse": 0.05139055848121643,
+              "relative_l2": 0.04394456744194031
+            },
+            {
+              "max_abs": 1.6005874872207642,
+              "rmse": 0.0701594278216362,
+              "relative_l2": 0.05998332053422928
+            },
+            {
+              "max_abs": 1.9599838256835938,
+              "rmse": 0.07639224082231522,
+              "relative_l2": 0.06529268622398376
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.4208210706710815,
+            "rmse": 0.06178070977330208,
+            "relative_l2": 0.10023879259824753
+          }
+        }
+      }
+    }
+  },
+  {
+    "fixture": "typography-9",
+    "prompt": "A bakery storefront with one sign reading \"FRESH BREAD\" in large clear letters, morning sunlight, documentary photograph",
+    "seed": 9,
+    "fixture_sha256": "58f0fc34074711301b3937c269cc132d6502b3b2fdca598c5518b4b1b61666f3",
+    "visual_sign_text": {
+      "fp32": "FRESH BREAD",
+      "upstream-bf16": "FRESH BREAD",
+      "metal-fp16": "FRESH BREAD"
+    },
+    "modes": {
+      "fp32": {
+        "pixel_sha256": "1b24188fc350771711c237915117ab4264882c805039c4b25fb3dd568aeeb1ad",
+        "measurements": {
+          "mode": "fp32",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float32",
+          "attention_dtype": "fp32",
+          "torch": "2.14.1",
+          "load_seconds": 4.297563332947902,
+          "adapter_seconds": 8.834060281515121e-06,
+          "recorded_seconds": 34.25188116694335,
+          "warm_seconds": [],
+          "allocated_bytes": 12193457920,
+          "driver_bytes": 16161374208,
+          "png_sha256": "2aac7f25ef0b048060b21867e2ec7631cf7ac00a2145ca7966edc52e495f027c"
+        }
+      },
+      "upstream-bf16": {
+        "pixel_sha256": "9a2a3e70b1507da3cd4161963d2a48e817ce06c47bc8065318e3d2b685a26df7",
+        "measurements": {
+          "mode": "upstream-bf16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.bfloat16",
+          "attention_dtype": "bf16-autocast",
+          "torch": "2.14.1",
+          "load_seconds": 3.1452862500445917,
+          "adapter_seconds": 1.375097781419754e-06,
+          "recorded_seconds": 12.78206166694872,
+          "warm_seconds": [],
+          "allocated_bytes": 6111030016,
+          "driver_bytes": 9805398016,
+          "png_sha256": "af80e48089ff860b91cf257eb8ea2076902427559107ffb76988dc66d1b84bfe",
+          "fp32_deltas": [
+            {
+              "max_abs": 0.8286076784133911,
+              "rmse": 0.05916714668273926,
+              "relative_l2": 0.04939477518200874
+            },
+            {
+              "max_abs": 1.5537469387054443,
+              "rmse": 0.14298222959041595,
+              "relative_l2": 0.12070456147193909
+            },
+            {
+              "max_abs": 1.8631584644317627,
+              "rmse": 0.14958924055099487,
+              "relative_l2": 0.1263783872127533
+            },
+            {
+              "max_abs": 1.9135048389434814,
+              "rmse": 0.14863373339176178,
+              "relative_l2": 0.12547443807125092
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.5747756958007812,
+            "rmse": 0.13243021070957184,
+            "relative_l2": 0.2065262645483017
+          }
+        }
+      },
+      "metal-fp16": {
+        "pixel_sha256": "0d46a4835e9cbe6051ac213212f4fa207da51ffa618eb67b2ac17388259ae37b",
+        "measurements": {
+          "mode": "metal-fp16",
+          "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+          "checkpoint_dtype": "BF16",
+          "linear_storage_dtype": "torch.float16",
+          "attention_dtype": "torch.float16",
+          "torch": "2.14.1",
+          "load_seconds": 1.6506433329777792,
+          "adapter_seconds": 0.12139595800545067,
+          "recorded_seconds": 7.777712082955986,
+          "warm_seconds": [],
+          "allocated_bytes": 6113563392,
+          "driver_bytes": 7594999808,
+          "png_sha256": "3b2b654d2ce02c99b0f926b43267bb7e6550d17d66bd0c22850919ec34289a9f",
+          "fp32_deltas": [
+            {
+              "max_abs": 0.5277590751647949,
+              "rmse": 0.025627998635172844,
+              "relative_l2": 0.02139662392437458
+            },
+            {
+              "max_abs": 1.2371909618377686,
+              "rmse": 0.06958849728107452,
+              "relative_l2": 0.05874038487672806
+            },
+            {
+              "max_abs": 1.7101173400878906,
+              "rmse": 0.08570834994316101,
+              "relative_l2": 0.07240287214517593
+            },
+            {
+              "max_abs": 1.9830236434936523,
+              "rmse": 0.09155847877264023,
+              "relative_l2": 0.07727867364883423
+            }
+          ],
+          "fp32_final_delta": {
+            "max_abs": 1.5568963289260864,
+            "rmse": 0.07680552452802658,
+            "relative_l2": 0.11977625638246536
+          }
+        }
+      }
+    }
+  }
+]

@@ -9,9 +9,9 @@ enum Workflow: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .create: "Create Image"
-        case .depth: "Estimate Depth"
-        case .upscale: "Restore and Upscale"
+        case .create: String(localized: "Create Image")
+        case .depth: String(localized: "Estimate Depth")
+        case .upscale: String(localized: "Restore and Upscale")
         }
     }
 
@@ -63,10 +63,10 @@ enum Upscaling {
     /// and one larger than the result would only come out smaller.
     static func refusal(for input: CGSize) -> String? {
         guard accepts(input) else {
-            return "Too long and thin to upscale: the long side may be at most \(maxAspect) times the short side (this is \(input.pixelLabel))."
+            return String(localized: "Too long and thin to upscale: the long side may be at most \(maxAspect) times the short side (this is \(input.pixelLabel)).")
         }
         guard output(for: input).width > input.width else {
-            return "Already larger than an upscale (\(output(for: input).pixelLabel)): the restorer works on a copy reduced to \(workingSize(for: input).pixelLabel)."
+            return String(localized: "Already larger than an upscale (\(output(for: input).pixelLabel)): the restorer works on a copy reduced to \(workingSize(for: input).pixelLabel).")
         }
         return nil
     }
@@ -80,8 +80,8 @@ extension CGSize {
 extension String {
     /// The caption as VoiceOver should say it: "896 by 1152 to 2048 by 2632, 43 sec".
     var spokenSizes: String {
-        replacingOccurrences(of: " × ", with: " by ")
-            .replacingOccurrences(of: " → ", with: " to ")
+        replacingOccurrences(of: " × ", with: String(localized: " by "))
+            .replacingOccurrences(of: " → ", with: String(localized: " to "))
             .replacingOccurrences(of: " · ", with: ", ")
     }
 }
@@ -131,11 +131,11 @@ enum QualityPreset: Int, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .draft: "Draft"
-        case .fast: "Fast"
-        case .standard: "Standard"
-        case .high: "High"
-        case .maximum: "Maximum"
+        case .draft: String(localized: "Draft")
+        case .fast: String(localized: "Fast")
+        case .standard: String(localized: "Standard")
+        case .high: String(localized: "High")
+        case .maximum: String(localized: "Maximum")
         }
     }
 
@@ -166,11 +166,11 @@ enum AdherencePreset: Int, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .creative: "Creative"
-        case .loose: "Loose"
-        case .balanced: "Balanced"
-        case .close: "Close"
-        case .literal: "Literal"
+        case .creative: String(localized: "Creative")
+        case .loose: String(localized: "Loose")
+        case .balanced: String(localized: "Balanced")
+        case .close: String(localized: "Close")
+        case .literal: String(localized: "Literal")
         }
     }
 
@@ -198,13 +198,14 @@ struct GenerationSettings: Codable, Equatable, Sendable {
     var seed = 0
     var randomizeSeed = true
     var negativePrompt = ""
+    var model: GenerationModel = .original
 
     var quality: QualityPreset? { QualityPreset(steps: steps) }
     var adherence: AdherencePreset? { AdherencePreset(cfgScale: cfgScale) }
 
     /// "Standard", or "48 steps" for a number typed in by hand.
-    var qualityTitle: String { quality?.title ?? "\(steps) steps" }
-    var adherenceTitle: String { adherence?.title ?? "Guidance \(cfgScale.formatted(.number.precision(.fractionLength(0...2))))" }
+    var qualityTitle: String { quality?.title ?? String(localized: "\(steps) steps") }
+    var adherenceTitle: String { adherence?.title ?? String(localized: "Guidance \(cfgScale.formatted(.number.precision(.fractionLength(0...2))))") }
 
     /// `count` requests for `prompt`: each with a new seed when randomizing, otherwise the
     /// seed and the ones after it, so a batch can be made again exactly.
@@ -224,32 +225,42 @@ struct GenerationSettings: Codable, Equatable, Sendable {
         if randomizeSeed { seed = Int.random(in: Self.seedRange) }
         return GenerationRequest(
             prompt: prompt, width: size.width, height: size.height,
-            steps: steps.clamped(to: Self.stepRange),
-            cfgScale: cfgScale.clamped(to: Self.guidanceRange),
+            steps: model == .turbo ? 4 : steps.clamped(to: Self.stepRange),
+            cfgScale: model == .turbo ? 1 : cfgScale.clamped(to: Self.guidanceRange),
             seed: seed.clamped(to: Self.seedRange),
-            negativePrompt: negativePrompt
+            negativePrompt: model == .turbo ? "" : negativePrompt,
+            model: model
         )
     }
 
     /// Quality, adherence, seed and negative prompt back to their defaults; the size stays.
     mutating func restoreDefaults() {
-        self = GenerationSettings(size: size)
+        if model == .turbo {
+            seed = 0
+            randomizeSeed = true
+        } else {
+            self = GenerationSettings(size: size, model: model)
+        }
     }
 
     /// Whether `restoreDefaults()` would change anything (a drawn seed does not count).
     var hasDefaultTuning: Bool {
-        var defaults = GenerationSettings(size: size)
+        if model == .turbo { return randomizeSeed }
+        var defaults = GenerationSettings(size: size, model: model)
         if randomizeSeed { defaults.seed = seed }
         return self == defaults
     }
 
     mutating func reuse(_ request: GenerationRequest) {
         size = ImageSize(width: request.width, height: request.height)
-        steps = request.steps
-        cfgScale = request.cfgScale
+        model = request.model
+        if model == .original {
+            steps = request.steps
+            cfgScale = request.cfgScale
+            negativePrompt = request.negativePrompt
+        }
         seed = request.seed
         randomizeSeed = false
-        negativePrompt = request.negativePrompt
     }
 
     // MARK: - Persistence
@@ -257,6 +268,26 @@ struct GenerationSettings: Codable, Equatable, Sendable {
     private static let defaultsKey = "generationSettings.v2"
     /// Iris 0.2 saved its settings, including its 100-step default, here.
     private static let legacyKey = "generationSettings"
+
+    private enum CodingKeys: String, CodingKey {
+        case size, steps, cfgScale, seed, randomizeSeed, negativePrompt, model
+    }
+
+    init(size: ImageSize = .square, model: GenerationModel = .original) {
+        self.size = size
+        self.model = model
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        size = try values.decode(ImageSize.self, forKey: .size)
+        steps = try values.decode(Int.self, forKey: .steps)
+        cfgScale = try values.decode(Double.self, forKey: .cfgScale)
+        seed = try values.decode(Int.self, forKey: .seed)
+        randomizeSeed = try values.decode(Bool.self, forKey: .randomizeSeed)
+        negativePrompt = try values.decode(String.self, forKey: .negativePrompt)
+        model = try values.decodeIfPresent(GenerationModel.self, forKey: .model) ?? .original
+    }
 
     static func load(from defaults: UserDefaults = .standard) -> GenerationSettings {
         if let data = defaults.data(forKey: defaultsKey) {

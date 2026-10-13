@@ -4,9 +4,12 @@ options:
   deploymentTarget:
     macOS: "15.0"
   createIntermediateGroups: true
+  developmentLanguage: en
+  knownRegions: [en, ja]
 settings:
   base:
     SWIFT_VERSION: "6.0"
+    SWIFT_EMIT_LOC_STRINGS: YES
     SWIFT_STRICT_CONCURRENCY: complete
     MACOSX_DEPLOYMENT_TARGET: "15.0"
     ARCHS: arm64
@@ -30,17 +33,12 @@ targets:
         # the engine is a local process on 127.0.0.1
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
-        # a chat dragged onto a project in the sidebar
-        UTExportedTypeDeclarations:
-          - UTTypeIdentifier: io.github.tky27.iris.chat
-            UTTypeDescription: Iris chat
-            UTTypeConformsTo: [public.data]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.tky27.iris
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
-        MARKETING_VERSION: "0.4.0"
+        MARKETING_VERSION: "0.5.0"
         CURRENT_PROJECT_VERSION: "1"
   IrisTests:
     type: bundle.unit-test

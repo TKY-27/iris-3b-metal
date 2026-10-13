@@ -88,13 +88,13 @@ final class EngineController {
         guard !Task.isCancelled else { stop(); return }
         if let process {
             guard !process.isRunning else {
-                state = .failed("The engine is still running but did not answer. Restart it in Settings.")
+                state = .failed(String(localized: "The engine is still running but did not answer. Restart it in Settings."))
                 return
             }
             self.process = nil
         }
         guard let executable = resolvedExecutable() else {
-            state = .failed("Could not find iris-metal. Install it (see the README) or set its location in Settings.")
+            state = .failed(String(localized: "Could not find iris-metal. Install it (see the README) or set its location in Settings."))
             return
         }
         launch(executable)
@@ -107,7 +107,7 @@ final class EngineController {
     func connectionLost() {
         guard state == .ready else { return }
         connectionID = nil
-        state = .failed("The engine stopped responding.")
+        state = .failed(String(localized: "The engine stopped responding."))
     }
 
     func stop() {
@@ -186,7 +186,7 @@ final class EngineController {
             try process.run()
             self.process = process
         } catch {
-            state = .failed("Could not start \(executable.path): \(error.localizedDescription)")
+            state = .failed(String(localized: "Could not start \(executable.path): \(error.localizedDescription)"))
         }
     }
 
@@ -233,6 +233,6 @@ final class EngineController {
         guard let process, ObjectIdentifier(process) == exited else { return }
         self.process = nil
         guard !stopping else { return }
-        state = .failed("The engine stopped unexpectedly (exit code \(code)).")
+        state = .failed(String(localized: "The engine stopped unexpectedly (exit code \(code))."))
     }
 }

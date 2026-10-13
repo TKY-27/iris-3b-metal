@@ -30,8 +30,14 @@ inference-only default dependencies, a "train" extra for the upstream training
 stack, the iris-metal command), and .gitignore. Upstream Python sources,
 scripts and tests use consistent formatting; src/iris3b/data/datasets.py
 also keeps corrupt-sample retries within the batch's shape bucket.
+src/iris3b/sampling.py includes the official deterministic Turbo sampler from
+Speridlabs revision cee0c130a62a9c288ad8918f1f7cdf23cc228d69.
+src/iris3b/models/dit.py and models/blocks/{mmdit,single_stream}.py support
+exact, request-local conditioning reuse during Turbo inference.
+Turbo validation utilities: scripts/validate_turbo.py,
+scripts/pair_turbo_storage.py and scripts/profile_generation.py.
 
 No model weights are included. At runtime the engine downloads the unmodified
-Iris-3B checkpoint (https://huggingface.co/speridlabs/iris-3b) and
+Iris-3B Original or Turbo checkpoint (https://huggingface.co/speridlabs/iris-3b) and
 Qwen3-VL-4B-Instruct (https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct), both
 under the Apache License 2.0, at the revisions it was validated against.

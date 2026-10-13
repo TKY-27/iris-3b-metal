@@ -5,7 +5,7 @@ struct CheckForUpdatesButton: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Check for Updates…") {
+        Button(String(localized: "Check for Updates…")) {
             openWindow(id: "updates")
             Task { await updates.check(manual: true) }
         }
@@ -20,10 +20,10 @@ struct UpdateView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title).font(.title2).fontWeight(.semibold)
-            Text("Installed: Iris \(updates.appVersion) (\(UpdateChecker.installedBuild))")
+            Text(String(localized: "Installed: Iris \(updates.appVersion) (\(UpdateChecker.installedBuild))"))
                 .foregroundStyle(.secondary)
             if updates.isChecking {
-                ProgressView("Checking GitHub Releases…").controlSize(.small)
+                ProgressView(String(localized: "Checking GitHub Releases…")).controlSize(.small)
             }
             if let release = updates.available {
                 if !release.notes.isEmpty {
@@ -34,20 +34,20 @@ struct UpdateView: View {
                     }
                     .frame(maxHeight: 160)
                 }
-                Text("This build supports release checking. Download and installation are managed separately.")
+                Text(String(localized: "This build supports release checking. Download and installation are managed separately."))
                 if generator.isBusy {
-                    Text("Wait for generation to finish before replacing the app.")
+                    Text(String(localized: "Wait for generation to finish before replacing the app."))
                         .foregroundStyle(.secondary)
                 }
-                Link("View Release", destination: release.url)
+                Link(String(localized: "View Release"), destination: release.url)
             } else if !updates.isChecking, updates.message == nil {
-                Text(updates.lastChecked == nil ? "Check for published macOS releases." : "No newer compatible macOS release was found.")
+                Text(updates.lastChecked == nil ? String(localized: "Check for published macOS releases.") : String(localized: "No newer compatible macOS release was found."))
             }
             if let message = updates.message {
                 Text(message).foregroundStyle(.secondary)
             }
             if let checked = updates.lastChecked {
-                Text("Last checked: \(checked.formatted(date: .abbreviated, time: .shortened))")
+                Text(String(localized: "Last checked: \(checked.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(.iris)))"))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Divider()
@@ -63,6 +63,6 @@ struct UpdateView: View {
     }
 
     private var title: String {
-        updates.available.map { "Iris \($0.displayVersion) is available" } ?? "Software Update"
+        updates.available.map { String(localized: "Iris \($0.displayVersion) is available") } ?? String(localized: "Software Update")
     }
 }

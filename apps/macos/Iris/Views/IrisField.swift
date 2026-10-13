@@ -2,15 +2,11 @@ import MetalKit
 import SwiftUI
 import os
 
-/// A faint glow behind a view that the pointer stirs like liquid; while an image is made, an iris of
-/// fibers whose aperture opens with the engine's progress.
-///
-/// Rendered by a small Metal shader at half resolution, so it costs little next to the engine; with
-/// Reduce Motion (or the setting off) it is a single still frame that ignores the pointer.
+/// Decorative canvas respecting reduced motion.
 struct IrisCanvas<Content: View>: View {
     /// 0 idle, 1 generating.
     var energy: Double = 0
-    /// Sampling progress in 0...1, which opens the aperture; nil when unknown.
+    /// Sampling progress in 0...1; nil when unknown.
     var progress: Double?
     /// Draws on its own dark base, as the generation canvas does, instead of over the window.
     var opaque = false
@@ -42,6 +38,7 @@ struct IrisCanvas<Content: View>: View {
             // the readout over an opaque field is white: keep it legible before the first frame
             .background(opaque ? Color.black : Color.clear)
             .onGeometryChange(for: CGSize.self, of: \.size) { pointer.size = $0 }
+            .contentShape(Rectangle())
             .onContinuousHover { phase in
                 switch phase {
                 case let .active(location): pointer.location = location
@@ -58,8 +55,9 @@ enum FieldSettings {
 /// The pointer, outside SwiftUI's observation so that moving it redraws only the shader.
 @MainActor
 final class FieldPointer {
-    var location: CGPoint?
+    var location: CGPoint? { didSet { if location != oldValue { changed?() } } }
     var size = CGSize(width: 1, height: 1)
+    var changed: (() -> Void)?
 
     /// The pointer in unit coordinates, origin top left.
     var unitLocation: SIMD2<Float>? {
@@ -95,31 +93,64 @@ private struct IrisFieldView: NSViewRepresentable {
         view.layer?.isOpaque = false
         view.framebufferOnly = true
         view.autoResizeDrawable = false
+        view.isPaused = true
+        view.enableSetNeedsDisplay = true
         view.delegate = context.coordinator
+        pointer.changed = { [weak view] in
+            guard let view, (view.delegate as? FieldRenderer)?.animated == true else { return }
+            view.wake()
+        }
         return view
     }
 
     func updateNSView(_ view: NSView, context: Context) {
         guard let view = view as? FieldMTKView else { return }
         let renderer = context.coordinator
+        let needsFrame = renderer.target != parameters || renderer.animated != animated
+            || renderer.engineBusy != engineBusy
         renderer.target = parameters
         renderer.animated = animated
-        // leave the GPU to the engine while it works, whichever chat shows
+        renderer.engineBusy = engineBusy
         view.preferredFramesPerSecond = engineBusy ? 30 : 60
-        view.isPaused = !animated
-        view.enableSetNeedsDisplay = !animated
-        if !animated { view.needsDisplay = true }
+        if needsFrame { view.wake() }
     }
 
     static func dismantleNSView(_ view: NSView, coordinator: FieldRenderer) {
-        (view as? MTKView)?.isPaused = true
-        (view as? MTKView)?.delegate = nil
+        coordinator.stop()
+        (view as? FieldMTKView)?.stop()
     }
 }
 
 /// Draws at half the backing resolution (the field is soft) and lets clicks through.
-private final class FieldMTKView: MTKView {
+final class FieldMTKView: MTKView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self)
+        if let window {
+            NotificationCenter.default.addObserver(self, selector: #selector(visibilityChanged),
+                name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        }
+        wake()
+    }
+
+    @objc private func visibilityChanged(_ notification: Notification) { wake() }
+
+    func wake() {
+        guard let renderer = delegate as? FieldRenderer else { return }
+        renderer.lastInteraction = CACurrentMediaTime()
+        let running = renderer.animated && window?.occlusionState.contains(.visible) == true
+        enableSetNeedsDisplay = !running
+        isPaused = !running
+        if !running { needsDisplay = true }
+    }
+
+    func stop() {
+        isPaused = true
+        delegate = nil
+        NotificationCenter.default.removeObserver(self)
+    }
 
     override func layout() {
         super.layout()
@@ -132,16 +163,18 @@ private final class FieldMTKView: MTKView {
     }
 
     private func resizeDrawable() {
-        let scale = (window?.backingScaleFactor ?? 2) * 0.5
+        let scale = min(window?.backingScaleFactor ?? 2, 2) * 0.5
         drawableSize = CGSize(width: max(1, (bounds.width * scale).rounded()), height: max(1, (bounds.height * scale).rounded()))
         if enableSetNeedsDisplay { needsDisplay = true }
     }
 }
 
 @MainActor
-private final class FieldRenderer: NSObject, MTKViewDelegate {
+final class FieldRenderer: NSObject, MTKViewDelegate {
     var target = FieldParameters()
     var animated = true
+    var engineBusy = false
+    var lastInteraction = CACurrentMediaTime()
 
     private let pointer: FieldPointer
     private var current = FieldParameters()
@@ -151,14 +184,20 @@ private final class FieldRenderer: NSObject, MTKViewDelegate {
     private var wasInside = false
     private var lastFrame: CFTimeInterval?
     private let start = CACurrentMediaTime()
+    private let inFlight = DispatchSemaphore(value: 2)
 
     init(pointer: FieldPointer) {
         self.pointer = pointer
     }
 
+    func stop() { pointer.changed = nil }
+
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     func draw(in view: MTKView) {
+        guard inFlight.wait(timeout: .now()) == .success else { return }
+        var submitted = false
+        defer { if !submitted { inFlight.signal() } }
         guard let pipeline = FieldPipeline.shared,
               !animated || view.window?.occlusionState.contains(.visible) == true,  // a still frame is drawn once
               let pass = view.currentRenderPassDescriptor,
@@ -175,7 +214,7 @@ private final class FieldRenderer: NSObject, MTKViewDelegate {
         } else {
             current = target
             touch = 0
-            time = 12  // a settled moment of the flow
+            time = 0
         }
         lastFrame = now
 
@@ -196,7 +235,13 @@ private final class FieldRenderer: NSObject, MTKViewDelegate {
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
         commands.present(drawable)
+        commands.addCompletedHandler { [inFlight] _ in inFlight.signal() }
         commands.commit()
+        submitted = true
+        if !animated || (!engineBusy && target.energy == 0 && now - lastInteraction > 3) {
+            view.isPaused = true
+            view.enableSetNeedsDisplay = true
+        }
     }
 
     /// Eases toward the requested state and lets the trail follow the pointer like a liquid.
@@ -275,6 +320,33 @@ vertex VOut field_vertex(uint id [[vertex_id]]) {
     return out;
 }
 
+// Six curved petals form the iris.
+static float4 petal(float2 p, float2 axis, float extent, float width,
+                    float bend, float3 hue, float light, float time) {
+    axis = normalize(axis);
+    float2 side = float2(-axis.y, axis.x);
+    float t = dot(p, axis) / extent;
+    float v = clamp(t, 0.0, 1.0);
+    float w = width * pow(max(sin(M_PI_F * v), 0.0), 0.65);
+    float x = dot(p, side) - bend * sin(M_PI_F * v);
+    float edge = abs(x) - w;
+    float aa = max(fwidth(edge), 0.0008);
+    float coverage = (1.0 - smoothstep(-aa, aa, edge))
+        * smoothstep(-0.01, 0.015, t) * (1.0 - smoothstep(0.985, 1.01, t));
+    float fold = x / max(w, 0.001);
+    float ridge = exp(-pow((fold - 0.25 * sin(v * 5.0 + time)) / 0.3, 2.0));
+    float rim = exp(-abs(edge) / 0.004);
+    float veins = pow(0.5 + 0.5 * cos(fold * 24.0 + v * 8.0), 12.0) * (1.0 - v);
+    float3 color = hue * (0.67 + 0.33 * v) + ridge * float3(0.22, 0.18, 0.3);
+    color = mix(color, float3(0.91, 0.91, 1.0), saturate(rim * 0.8 + veins * 0.45));
+    color += light * (1.0 - v) * float3(0.20, 0.12, 0.03);
+    return float4(color * coverage, coverage);
+}
+
+static float4 over(float4 front, float4 back) {
+    return front + back * (1.0 - front.a);
+}
+
 static float hash21(float2 p) {
     p = fract(p * float2(123.34, 456.21));
     p += dot(p, p + 45.32);
@@ -336,21 +408,32 @@ fragment float4 field_fragment(VOut in [[stage_in]], constant float4 *u [[buffer
     float fibers = fbm(dir * 6.5 + float2(rad * 1.7 - flow, flow * 0.6));
     fibers = fbm(dir * 4.5 + fibers * 1.9 + float2(-flow * 0.5, rad * 1.3));
 
-    // the aperture opens as sampling progresses, leaving room for the readout
-    float opening = progress < 0.0 ? 0.2 : progress;
-    float pupil = mix(0.1, 0.18, opening);
-    float outer = 0.37 * (1.0 + 0.015 * sin(time * 0.9) * energy);
-    float ring = smoothstep(pupil - 0.012, pupil + 0.04, rad) * (1.0 - smoothstep(outer * 0.6, outer * 1.25, rad));
-    float iris = ring * (0.25 + 1.25 * fibers * fibers);
-    float rim = exp(-pow((rad - pupil - 0.018) / 0.02, 2.0)) * energy;
-    float halo = exp(-pow((rad - 0.34) / 0.2, 2.0)) * (0.35 + fbm(q * 2.2 + float2(flow, -flow)));
-    float shape = mix(halo * 0.42, iris, energy);
+    float2 flowerPoint = q * mix(1.0, 1.35, opaque);
+    flowerPoint /= 1.0 + max(progress, 0.0) * 0.06;
+    float4 flower = petal(flowerPoint, float2(0.0, -1.0), 0.34, 0.10, 0.01,
+                         float3(0.48, 0.43, 0.87), energy, flow);
+    flower = over(petal(flowerPoint, float2(-0.91, 0.40), 0.40, 0.105, -0.025,
+                       float3(0.46, 0.29, 0.88), energy, flow), flower);
+    flower = over(petal(flowerPoint, float2(0.91, 0.40), 0.40, 0.105, 0.025,
+                       float3(0.30, 0.40, 0.90), energy, flow), flower);
+    flower = over(petal(flowerPoint, float2(-0.28, -0.96), 0.37, 0.095, -0.032,
+                       float3(0.54, 0.43, 0.92), energy, flow), flower);
+    flower = over(petal(flowerPoint, float2(0.28, -0.96), 0.37, 0.095, 0.032,
+                       float3(0.39, 0.52, 0.94), energy, flow), flower);
+    flower = over(petal(flowerPoint, float2(0.0, 1.0), 0.34, 0.14, 0.012,
+                       float3(0.50, 0.39, 0.88), energy, flow), flower);
+    float throat = 1.0 - smoothstep(0.7, 1.0, length((flowerPoint - float2(0.0, 0.012)) / float2(0.023, 0.068)));
+    flower = over(float4(float3(1.0, 0.84, 0.34) * throat, throat), flower);
+
+    float shape = flower.a * (0.2 + 0.9 * fibers * fibers);
+    float rim = flower.a * pow(fibers, 3.0) * energy;
 
     float3 indigo = float3(0.36, 0.31, 1.0), violet = float3(0.62, 0.40, 1.0);
     float3 azure = float3(0.22, 0.70, 1.0), ember = float3(1.0, 0.66, 0.40);
     float a1 = 0.5 + 0.5 * sin(theta * 2.0 + flow * 2.0 + fibers * 3.0);
     float a2 = 0.5 + 0.5 * sin(theta * 3.0 - flow * 1.3);
     float3 color = mix(mix(indigo, azure, a1), violet, a2 * 0.6);
+    color = mix(color, flower.rgb / max(flower.a, 0.001), flower.a * 0.35);
     color = mix(color, ember, saturate(rim * 0.85));
 
     // a spectral sheen where the liquid lies, and a thin bright edge around it

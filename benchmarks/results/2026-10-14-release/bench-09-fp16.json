@@ -1,0 +1,139 @@
+{
+  "environment": {
+    "chip": "Apple M5",
+    "memory_gb": 25.769803776,
+    "macos": "27.0.1",
+    "python": "3.14.8",
+    "torch": "2.14.1",
+    "transformers": "5.19.0",
+    "mps_environment": {},
+    "power": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=36175971)\t95%; AC attached; not charging present: true",
+    "power_modes": "Battery Power:\n Sleep On Power Button 1\n lowpowermode         0\n standby              1\n ttyskeepawake        1\n hibernatemode        3\n powernap             1\n hibernatefile        /var/vm/sleepimage\n displaysleep         0\n womp                 1\n networkoversleep     0\n sleep                1\n lessbright           1\n tcpkeepalive         1\n disksleep            0\nAC Power:\n Sleep On Power Button 1\n lowpowermode         0\n standby              1\n ttyskeepawake        1\n hibernatemode        3\n powernap             1\n hibernatefile        /var/vm/sleepimage\n displaysleep         10\n womp                 1\n networkoversleep     0\n sleep                0\n tcpkeepalive         1\n disksleep            0",
+    "commit": "d95c179-dirty"
+  },
+  "background_gpu_before_percent": 4.9,
+  "requests": [
+    {
+      "seconds": 13.821518083917908,
+      "steps": [
+        [
+          1,
+          4,
+          8.311613125028089
+        ],
+        [
+          2,
+          4,
+          10.144383999984711
+        ],
+        [
+          3,
+          4,
+          11.975284833926708
+        ],
+        [
+          4,
+          4,
+          13.810675667016767
+        ]
+      ],
+      "physical_peak_gib": 7.910814009606838,
+      "physical_current_gib": 7.907212935388088,
+      "allocated_bytes": 6102160128,
+      "driver_bytes": 7569833984,
+      "png_sha256": "546024d11846217a6fecd9791f35ae82bd4a12ad1cd3b5113cd72da8ed8ed6fb",
+      "pixel_sha256": "1b42f0fc77da2bc9eeb12038b86bed88d53edba300fa9d65d0e03572cd7afa2b"
+    },
+    {
+      "seconds": 7.518987332936376,
+      "steps": [
+        [
+          1,
+          4,
+          1.901741624926217
+        ],
+        [
+          2,
+          4,
+          3.789883707999252
+        ],
+        [
+          3,
+          4,
+          5.648434125003405
+        ],
+        [
+          4,
+          4,
+          7.513465750031173
+        ]
+      ],
+      "physical_peak_gib": 7.923982344567776,
+      "physical_current_gib": 7.914369307458401,
+      "allocated_bytes": 6105240320,
+      "driver_bytes": 7569833984,
+      "png_sha256": "546024d11846217a6fecd9791f35ae82bd4a12ad1cd3b5113cd72da8ed8ed6fb",
+      "pixel_sha256": "1b42f0fc77da2bc9eeb12038b86bed88d53edba300fa9d65d0e03572cd7afa2b"
+    }
+  ],
+  "paging_before": {
+    "Pageouts": 495669,
+    "Swapouts": 218835484
+  },
+  "swap_before_mb": 2656.06,
+  "init_seconds": 0.03280983306467533,
+  "unloaded": {
+    "loaded": false,
+    "allocated_bytes": 0,
+    "driver_bytes": 1769472
+  },
+  "stages": [
+    {
+      "phase": "qwen_tokenizer_setup",
+      "seconds": 0.7815162499900907
+    },
+    {
+      "phase": "qwen_encode_including_streamed_layer_transfer",
+      "seconds": 3.0131067080656067
+    },
+    {
+      "phase": "dit_load",
+      "seconds": 2.465485249995254
+    }
+  ],
+  "metadata": {
+    "model": "turbo",
+    "checkpoint": "iris-3b/turbo",
+    "config_sha256": "077ce19156d9425a7e665a0059be02b3c5a1fcd7aea7607047b4f7486efa6cd5",
+    "hf_revision": "adc05b909fb05d4276d26aae5a52b36406b2ef26",
+    "checkpoint_sha256": "7148dbba3117567e34c86fadaae6e10325feb2c0ff3f43fe4938c15c75b356e1",
+    "prompt": [
+      "A red fox sleeping in fresh snow, golden hour"
+    ],
+    "width": 1024,
+    "height": 1024,
+    "seed": 0,
+    "noise": "torch-cpu-fp32",
+    "steps": 4,
+    "cfg_scale": 1.0,
+    "negative_prompt": "",
+    "sampler": "deterministic-flow-euler",
+    "precision": "mixed-fp16-bf16-fp32",
+    "attention_dtype": "torch.float16",
+    "sigmas": [
+      1.0,
+      0.938,
+      0.833,
+      0.625
+    ],
+    "upstream_revision": "cee0c130a62a9c288ad8918f1f7cdf23cc228d69",
+    "distill_sha256": "7c6f607c7b9eb3d42c0caac9c3e5acfcacf71f8c89d7174a32079eb4d3a6b74f"
+  },
+  "paging_after": {
+    "Pageouts": 495743,
+    "Swapouts": 218835484
+  },
+  "swap_after_mb": 2608.06,
+  "background_gpu_after_percent": 13.6,
+  "implementation": "v0.5.0 release working tree"
+}

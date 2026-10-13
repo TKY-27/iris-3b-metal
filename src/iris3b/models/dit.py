@@ -255,42 +255,9 @@ class IrisDiT(nn.Module):
         return self._rope_pix[key]
 
     # -- forward ---------------------------------------------------------------
-    def forward(
-        self,
-        x: torch.Tensor,
-        t: torch.Tensor,
-        y: torch.Tensor,
-        capture: tuple[int, ...] = (),
-        y_mask: torch.Tensor | None = None,
-    ) -> IrisOutput:
-        """Predict flow velocity.
-
-        Args:
-            x: noisy image, [B, C, H, W], H and W divisible by patch_size.
-            t: model time in [0, 1000] (shifted flow level x 1000), [B].
-            y: text encoder states, [B, T, text_dim], or selected layer states
-                [B, T, L, text_dim] for ``text_adapter="lap_blocks2"``.
-            capture: 1-based block indices whose output patch tokens to return.
-            y_mask: encoder attention mask, [B, T] (1 = real token). Ignored by
-                ``text_adapter="linear"``; REQUIRED by the masked transformer
-                adapters, which raise rather than run maskless. The trunk's
-                joint attention never consumes it.
-        """
+    def embed_text(self, y: torch.Tensor, y_mask: torch.Tensor | None = None) -> torch.Tensor:
+        """Adapt encoder states, including the learned position table."""
         cfg = self.cfg
-        p = cfg.patch_size
-        batch, _, height, width = x.shape
-        if height % p or width % p:
-            # unfold and fold both floor, so they agree and the DiT-unpatchify
-            # head would silently emit a zero band on the remainder rows
-            raise ValueError(f"input {height}x{width} is not divisible by patch_size {p}")
-        grid = (height // p, width // p)
-        n_patches = grid[0] * grid[1]
-
-        patches = F.unfold(x, kernel_size=p, stride=p).transpose(1, 2)  # [B, L, p*p*C]
-        s = self.s_embedder(patches)
-        t_emb = self.t_embedder(t)  # [B, 1, D]
-        cond = F.silu(t_emb)
-
         y = y[:, : cfg.text_len]
         if self._adapter_needs_mask:
             if y_mask is None:
@@ -306,6 +273,58 @@ class IrisDiT(nn.Module):
         if self.y_pos_embedding is not None:
             y = y + self.y_pos_embedding[:, : y.shape[1]].to(y.dtype)
 
+        return y
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        t: torch.Tensor,
+        y: torch.Tensor,
+        capture: tuple[int, ...] = (),
+        y_mask: torch.Tensor | None = None,
+        *,
+        prepared_text: torch.Tensor | None = None,
+        precompute_modulation: bool = False,
+    ) -> IrisOutput:
+        """Predict flow velocity.
+
+        Args:
+            x: noisy image, [B, C, H, W], H and W divisible by patch_size.
+            t: model time in [0, 1000] (shifted flow level x 1000), [B].
+            y: text encoder states, [B, T, text_dim], or selected layer states
+                [B, T, L, text_dim] for ``text_adapter="lap_blocks2"``.
+            capture: 1-based block indices whose output patch tokens to return.
+            y_mask: encoder attention mask, [B, T] (1 = real token). Ignored by
+                ``text_adapter="linear"``; REQUIRED by the masked transformer
+                adapters, which raise rather than run maskless. The trunk's
+                joint attention never consumes it.
+            prepared_text: optional embed_text result for this exact ordered batch.
+                Reused only during no-grad inference; never cropped or approximated.
+            precompute_modulation: evaluate shared_bias cores once for this forward.
+        """
+        cfg = self.cfg
+        if (prepared_text is not None or precompute_modulation) and (
+            self.training or torch.is_grad_enabled()
+        ):
+            raise ValueError("prepared conditioning is only supported for no-grad inference")
+        if precompute_modulation and cfg.modulation != "shared_bias":
+            raise ValueError("precomputed modulation requires shared_bias")
+        p = cfg.patch_size
+        batch, _, height, width = x.shape
+        if height % p or width % p:
+            # unfold and fold both floor, so they agree and the DiT-unpatchify
+            # head would silently emit a zero band on the remainder rows
+            raise ValueError(f"input {height}x{width} is not divisible by patch_size {p}")
+        grid = (height // p, width // p)
+        n_patches = grid[0] * grid[1]
+
+        patches = F.unfold(x, kernel_size=p, stride=p).transpose(1, 2)  # [B, L, p*p*C]
+        s = self.s_embedder(patches)
+        t_emb = self.t_embedder(t)  # [B, 1, D]
+        cond = F.silu(t_emb)
+
+        y = self.embed_text(y, y_mask) if prepared_text is None else prepared_text
+
         rope_img = self._fetch_rope_img(grid, x.device)
         rope_txt = self._fetch_rope_txt(y.shape[1], x.device)
 
@@ -313,9 +332,15 @@ class IrisDiT(nn.Module):
         policy = self.activation_checkpointing if self.training else "none"
         every = self.ac_selective_every
 
+        shared = (
+            {core: core(cond) for core in self.modulation_cores.values()} if precompute_modulation else None
+        )
         features: dict[int, torch.Tensor] = {}
         for i, block in enumerate(self.blocks):
-            s, y = ac.run(block, (s, y, cond, rope_img, rope_txt), policy, i, every)
+            inputs = (s, y, cond, rope_img, rope_txt)
+            if shared is not None:
+                inputs += (shared,)
+            s, y = ac.run(block, inputs, policy, i, every)
             if i + 1 in capture:
                 features[i + 1] = s
 

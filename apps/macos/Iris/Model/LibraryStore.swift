@@ -23,6 +23,12 @@ struct LibraryStore: Sendable {
         if let path = arguments["libraryRoot"] as? String, !path.isEmpty {
             return URL(fileURLWithPath: NSString(string: path).expandingTildeInPath, isDirectory: true)
         }
+        #if DEBUG
+        // A development bundle may be relaunched by GUI automation without its arguments.
+        if let path = Bundle.main.object(forInfoDictionaryKey: "IrisDevelopmentLibraryRoot") as? String, !path.isEmpty {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        #endif
         return URL.applicationSupportDirectory.appending(path: "Iris", directoryHint: .isDirectory)
     }
 
@@ -71,7 +77,7 @@ struct LibraryStore: Sendable {
         do {
             try importLegacyHistory(into: &loaded.snapshot)
         } catch {
-            loaded.problem = loaded.problem ?? "Earlier images could not be imported: \(error.localizedDescription)"
+            loaded.problem = loaded.problem ?? String(localized: "Earlier images could not be imported: \(error.localizedDescription)")
         }
         return loaded
     }
@@ -119,7 +125,7 @@ struct LibraryStore: Sendable {
             if let version = try? JSONDecoder().decode(Version.self, from: data).version,
                version > LibrarySnapshot.currentVersion {
                 return Loaded(
-                    snapshot: LibrarySnapshot(), problem: "This library was saved by a newer version of Iris. Update Iris to open it; it was not changed.",
+                    snapshot: LibrarySnapshot(), problem: String(localized: "This library was saved by a newer version of Iris. Update Iris to open it; it was not changed."),
                     readOnly: true
                 )
             }
@@ -129,17 +135,17 @@ struct LibraryStore: Sendable {
         }
         // keep the file for recovery rather than overwrite it on the next save
         let aside = root.appending(path: "Library-unreadable-\(UUID().uuidString).json")
-        let images = "Images remain in \(imagesDirectory.path)."
+        let images = String(localized: "Images remain in \(imagesDirectory.path).")
         guard !readOnly, (try? FileManager.default.moveItem(at: indexURL, to: aside)) != nil else {
             return Loaded(
                 snapshot: LibrarySnapshot(),
-                problem: "The library could not be read (\(failure.localizedDescription)); it was left unchanged and Iris opened read-only. \(images)",
+                problem: String(localized: "The library could not be read (\(failure.localizedDescription)); it was left unchanged and Iris opened read-only. \(images)"),
                 readOnly: true
             )
         }
         return Loaded(
             snapshot: LibrarySnapshot(),
-            problem: "The library could not be read (\(failure.localizedDescription)). It was kept as \(aside.lastPathComponent). \(images)"
+            problem: String(localized: "The library could not be read (\(failure.localizedDescription)). It was kept as \(aside.lastPathComponent). \(images)")
         )
     }
 

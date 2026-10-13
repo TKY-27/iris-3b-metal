@@ -1,16 +1,21 @@
 import Foundation
 import Observation
 
-/// What the main window shows and what the composer holds.
+/// Window selection and the next generation request.
 @MainActor
 @Observable
 final class Workspace {
+    /// Gallery scope and destination for new images.
     enum Selection: Hashable {
-        /// A chat that exists once its first request is sent.
-        case newChat
         case allImages
         case project(UUID)
-        case conversation(UUID)
+
+        func contains(_ conversation: Conversation) -> Bool {
+            switch self {
+            case .allImages: true
+            case let .project(id): conversation.projectID == id
+            }
+        }
     }
 
     /// An image chosen for depth or upscaling.
@@ -21,51 +26,54 @@ final class Workspace {
         var pixelSize: CGSize?
     }
 
-    /// Optional only because a sidebar list may clear it; nil shows a new chat.
-    var selection: Selection? = .newChat {
+    /// Sidebar selection may temporarily become nil.
+    var selection: Selection? = .allImages {
         didSet {
-            // a click on the sidebar's empty space clears the list's selection; keep what is shown
+            // a click on the sidebar's empty space clears the list's selection; keep what is shown.
+            // Setting it here runs this again with a nil old value, which is not a change of images.
             if selection == nil {
-                selection = oldValue ?? .newChat
-                return
-            }
-            switch selection {
-            case let .conversation(id):
-                defaults.set(id.uuidString, forKey: Self.lastConversationKey)
-            case let .project(id):
-                draftProject = id  // its page starts chats in it
-            case .newChat, nil:
-                if oldValue != selection { draftProject = nil }
-            case .allImages:
-                draftProject = nil
+                selection = oldValue ?? .allImages
+            } else if let oldValue, selection != oldValue {
+                selectedEntry = nil
             }
         }
     }
 
-    /// The project a new chat goes into.
-    var draftProject: UUID?
-    /// An entry to scroll to once its conversation shows.
-    var focusedEntry: UUID?
+    /// The result shown in the inspector.
+    var selectedEntry: UUID?
+    /// Filters the gallery by prompt or seed.
+    var searchText = ""
+    private(set) var searchFocusRequests = 0
+    private(set) var searchFocusPending = false
+    /// Prompt focus request counter.
+    private(set) var promptFocusRequests = 0
     /// A name being asked for, and a deletion being confirmed; the window shows the dialogs.
     var naming: Naming?
     var deleting: Deletion?
 
     enum Naming: Equatable {
-        /// `moving`: a chat to file in the new project.
+        /// Move this image into the new project.
         case newProject(moving: UUID?)
-        /// From the composer of a new chat, which is then saved in it.
-        case newProjectForDraft
         case project(UUID)
-        case conversation(UUID)
     }
 
     enum Deletion: Equatable {
         case project(UUID)
-        case conversation(UUID)
+        case image(UUID)
+    }
+
+    static let galleryVisibilityKey = "showsGallery"
+    var showsGallery: Bool {
+        didSet { defaults.set(showsGallery, forKey: Self.galleryVisibilityKey) }
+    }
+
+    func toggleGallery() {
+        showsGallery.toggle()
+        if !showsGallery { focusPrompt() }
     }
 
     var prompt = ""
-    /// An attached image switches the composer from creating to processing it.
+    /// Attachments switch generation to image processing.
     var attachment: Attachment?
     /// What to do with an attached image.
     var imageWorkflow = Workflow.upscale
@@ -78,18 +86,19 @@ final class Workspace {
     }
 
     @ObservationIgnored private let defaults: UserDefaults
-    private static let lastConversationKey = "lastConversation"
 
-    init(library: Library, defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        showsGallery = defaults.object(forKey: Self.galleryVisibilityKey) as? Bool ?? true
         settings = GenerationSettings.load(from: defaults)
-        let last = defaults.string(forKey: Self.lastConversationKey).flatMap(UUID.init(uuidString:))
-        if let last, library.conversation(last) != nil {
-            selection = .conversation(last)
-        }
     }
 
-    /// What the composer will send.
+    /// Destination project for new images.
+    var project: UUID? {
+        if case let .project(id) = selection { id } else { nil }
+    }
+
+    /// What the prompt bar will send.
     var workflow: Workflow { attachment == nil ? .create : imageWorkflow }
 
     func attach(_ url: URL) {
@@ -97,35 +106,49 @@ final class Workspace {
         attachment = Attachment(url: url, name: url.lastPathComponent, pixelSize: ImageFiles.pixelSize(of: url))
     }
 
-    /// Puts a request's prompt and settings back into the composer.
+    func focusPrompt() {
+        promptFocusRequests += 1
+    }
+
+    func focusSearch() {
+        showsGallery = true
+        searchFocusPending = true
+        searchFocusRequests += 1
+    }
+
+    func didFocusSearch() {
+        searchFocusPending = false
+    }
+
+    /// Clear the attachment and focus the prompt.
+    func newImage() {
+        attachment = nil
+        focusPrompt()
+    }
+
+    /// Restore the request, including its seed.
     func reuse(_ request: GenerationRequest) {
         attachment = nil
         prompt = request.prompt
         settings.reuse(request)
+        focusPrompt()
     }
 
-    var conversationID: UUID? {
-        if case let .conversation(id) = selection { id } else { nil }
-    }
-
-    func newConversation(in project: UUID? = nil) {
-        selection = .newChat
-        draftProject = project
-        focusedEntry = nil
-    }
-
-    /// A new chat where the user is: in the shown project, or the project of the shown chat.
-    func newConversationHere(library: Library) {
-        switch selection {
-        case let .project(id): newConversation(in: id)
-        case let .conversation(id): newConversation(in: library.conversation(id)?.projectID)
-        default: newConversation(in: draftProject)
+    /// Reveal an entry in its gallery scope.
+    func reveal(_ entry: UUID, library: Library) {
+        showsGallery = true
+        if let found = library.entry(entry), selection.map({ !$0.contains(found.conversation) }) ?? true {
+            selection = found.conversation.projectID.map(Selection.project) ?? .allImages
         }
+        selectedEntry = entry
     }
 
-    func show(_ conversation: UUID, entry: UUID? = nil) {
-        selection = .conversation(conversation)
-        focusedEntry = entry
+    /// Select new work and clear obstructing filters.
+    func selectStarted(_ entry: UUID?, library: Library) {
+        guard let entry else { return }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty, library.entry(entry)?.entry.matches(query) == false { searchText = "" }
+        selectedEntry = entry
     }
 
     var canSubmit: Bool {
@@ -136,27 +159,22 @@ final class Workspace {
         }
     }
 
-    /// Sends the composer's request to a new entry of the current conversation.
+    /// Generate in the selected project, retaining prompts.
     func submit(generator: Generator, library: Library, engine: EngineController) {
         guard canSubmit, !generator.isBusy, engine.state == .ready else { return }
-        let conversation: UUID?
         switch workflow {
         case .create:
+            guard engine.health?.supports(settings.model) == true else { return }
             let requests = settings.requests(for: prompt.trimmingCharacters(in: .whitespacesAndNewlines), count: imageCount)
-            conversation = generator.generate(
-                requests, in: conversationID, project: draftProject, library: library, engine: engine
-            )
-            if conversation != nil { prompt = "" }
+            generator.generate(requests, in: nil, project: project, library: library, engine: engine)
         case .depth, .upscale:
             guard let attachment else { return }
-            conversation = generator.process(
-                workflow, image: attachment.url, named: attachment.name, in: conversationID,
-                project: draftProject, library: library, engine: engine
+            let started = generator.process(
+                workflow, image: attachment.url, named: attachment.name, in: nil,
+                project: project, library: library, engine: engine
             )
-            if conversation != nil { self.attachment = nil }
+            if started != nil { self.attachment = nil }
         }
-        if let conversation, conversationID != conversation {
-            show(conversation)
-        }
+        selectStarted(generator.active?.entry, library: library)
     }
 }

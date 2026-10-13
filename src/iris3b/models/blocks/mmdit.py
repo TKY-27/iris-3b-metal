@@ -88,6 +88,7 @@ class MMDiTBlock(nn.Module):
         cond: torch.Tensor,
         rope_img: torch.Tensor,
         rope_txt: torch.Tensor | None = None,
+        shared_modulation: dict[nn.Linear, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """``x``: [B, L, D] image tokens; ``y``: [B, T, D] text tokens.
 
@@ -95,8 +96,18 @@ class MMDiTBlock(nn.Module):
         text stream is the untouched input when the block was built with
         ``text_out=False``.
         """
-        (xs1, xc1, xg1, xs2, xc2, xg2) = self.adaln_img(cond).chunk(6, dim=-1)
-        (ys1, yc1, yg1, ys2, yc2, yg2) = self.adaln_txt(cond).chunk(6, dim=-1)
+        mods_x = (
+            self.adaln_img(cond)
+            if shared_modulation is None
+            else shared_modulation[self.adaln_img.core] + self.adaln_img.bias
+        )
+        mods_y = (
+            self.adaln_txt(cond)
+            if shared_modulation is None
+            else shared_modulation[self.adaln_txt.core] + self.adaln_txt.bias
+        )
+        (xs1, xc1, xg1, xs2, xc2, xg2) = mods_x.chunk(6, dim=-1)
+        (ys1, yc1, yg1, ys2, yc2, yg2) = mods_y.chunk(6, dim=-1)
         hx = modulate(self.norm_x1(x), xs1, xc1)
         hy = modulate(self.norm_y1(y), ys1, yc1)
         attn_x, attn_y = self.attn(

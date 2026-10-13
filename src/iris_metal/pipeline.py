@@ -3,15 +3,26 @@
 import gc
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import torch
 from PIL import Image
 
 from iris3b.flow.solver import FlowDPMSolver
+from iris3b.models.dit import IrisDiT
+from iris3b.sampling import generate_few_step
 from iris_metal.loading import load_config, load_dit
 from iris_metal.model import MetalIris, require_finite
 from iris_metal.text import StreamingQwen3VLEncoder
+from iris_metal.turbo import (
+    UPSTREAM_REVISION,
+    attach_metadata,
+    checkpoint_revision,
+    checkpoint_sha256,
+    load_sigmas,
+    recipe_hash,
+)
 
 Encoding = tuple[torch.Tensor, torch.Tensor]  # (states, mask)
 
@@ -87,10 +98,13 @@ class IrisPipeline:
     ):
         self.checkpoint = Path(checkpoint)
         self.cfg = load_config(self.checkpoint)
+        self.sigmas = load_sigmas(self.checkpoint)
+        self.model = "turbo" if self.sigmas is not None else "original"
+        self.last_metadata: dict | None = None
         self.device = torch.device(device)
         self.attention_dtype = attention_dtype
         self._text_encoder: StreamingQwen3VLEncoder | None = None
-        self._engine: MetalIris | None = None
+        self._engine: MetalIris | torch.nn.Module | None = None
         self._encodings: dict[str, Encoding] = {}
         self._adapted: dict[tuple[str, ...], tuple[tuple, torch.Tensor]] = {}
         self._conditioning_identity: tuple | None = None
@@ -109,10 +123,13 @@ class IrisPipeline:
             release_memory()
 
     @property
-    def engine(self) -> MetalIris:
+    def engine(self) -> MetalIris | torch.nn.Module:
         if self._engine is None:
-            dit = load_dit(self.checkpoint, self.cfg, self.device)
-            self._engine = MetalIris(dit, attention_dtype=self.attention_dtype)
+            if self.model == "turbo":
+                self._engine = load_dit(self.checkpoint, self.cfg, self.device, dtype=torch.bfloat16)
+            else:
+                dit = load_dit(self.checkpoint, self.cfg, self.device)
+                self._engine = MetalIris(dit, attention_dtype=self.attention_dtype)
         return self._engine
 
     def encode(self, texts: list[str]) -> list[Encoding]:
@@ -232,6 +249,13 @@ class IrisPipeline:
         negative_prompt: str | None = None,
         on_step: Callable[[int, int], None] | None = None,
     ) -> list[Image.Image]:
+        self.last_metadata = None
+        if self.model == "turbo":
+            if any(value is not None for value in (steps, cfg_scale, negative_prompt)):
+                raise ValueError(
+                    "Turbo uses its fixed four-step recipe; steps, CFG and negative prompt do not apply"
+                )
+            return self._turbo(prompts, height, width, seed, on_step)
         sample = self.cfg.sample
         steps = sample.steps if steps is None else steps
         cfg_scale = sample.cfg_scale if cfg_scale is None else cfg_scale
@@ -271,4 +295,104 @@ class IrisPipeline:
             shift=self.cfg.flow.shift,
         )
         reporter.finish()
-        return to_images(require_finite(x))
+        images = to_images(require_finite(x))
+        self._metadata(images, prompts, height, width, seed, steps, cfg_scale, negative_prompt)
+        return images
+
+    def _metadata(self, images, prompts, height, width, seed, steps, cfg_scale, negative_prompt):
+        metadata = {
+            "model": self.model,
+            "checkpoint": str(self.checkpoint.resolve()),
+            "config_sha256": recipe_hash(self.checkpoint, "config.yaml"),
+            "hf_revision": checkpoint_revision(self.checkpoint),
+            "checkpoint_sha256": checkpoint_sha256(self.checkpoint),
+            "prompt": prompts,
+            "width": width,
+            "height": height,
+            "seed": seed,
+            "noise": "torch-cpu-fp32",
+            "steps": steps,
+            "cfg_scale": cfg_scale,
+            "negative_prompt": negative_prompt,
+            "sampler": "deterministic-flow-euler" if self.model == "turbo" else "flow-dpm-solver++",
+            "precision": "bf16-linear-fp32-parameter-bf16-autocast"
+            if self.model == "turbo"
+            else "mixed-fp16-bf16-fp32",
+        }
+        if self.model == "turbo":
+            metadata.update(
+                {
+                    "sigmas": list(self.sigmas),
+                    "upstream_revision": UPSTREAM_REVISION,
+                    "distill_sha256": recipe_hash(self.checkpoint, "distill.yaml"),
+                }
+            )
+        else:
+            metadata.update(
+                {
+                    "order": self.cfg.sample.order,
+                    "shift": self.cfg.flow.shift,
+                    "cfg_interval": list(self.cfg.sample.cfg_interval),
+                    "attention_dtype": str(self.attention_dtype),
+                }
+            )
+        self.last_metadata = metadata
+        attach_metadata(images, metadata)
+
+    def _turbo(self, prompts, height, width, seed, on_step):
+        # Preserve official arithmetic: exported BF16 Linear weights have exactly
+        # the values the FP32-master recipe casts to under BF16 autocast.
+        # All non-linear parameters remain FP32.
+        # Metal FP16 failed the release typography gate.
+        encodings = self.encode(prompts)
+        model = self.engine
+        reporter = StepReporter(len(self.sigmas), on_step, self.device)
+
+        class CachedEncoder:
+            def encode(self, texts):
+                states, mask = (torch.cat(parts) for parts in zip(*encodings, strict=True))
+                return SimpleNamespace(embeddings=states, mask=mask)
+
+        class ReportingModel:
+            cfg = model.cfg
+            prepared_text = None
+
+            def parameters(self):
+                return model.parameters()
+
+            def __call__(self, x, t, y, y_mask):
+                if isinstance(model, IrisDiT):
+                    if self.prepared_text is None:
+                        self.prepared_text = model.embed_text(y, y_mask)
+                    out = model(
+                        x,
+                        t,
+                        y,
+                        y_mask=y_mask,
+                        prepared_text=self.prepared_text,
+                        precompute_modulation=model.cfg.modulation == "shared_bias",
+                    )
+                else:
+                    out = model(x, t, y, y_mask=y_mask)
+                reporter.queued()
+                return out
+
+        generator = torch.Generator().manual_seed(seed)
+        noise = torch.randn(len(prompts), 3, height, width, generator=generator)
+        with torch.autocast(self.device.type, dtype=torch.bfloat16):
+            x = generate_few_step(
+                ReportingModel(),
+                CachedEncoder(),
+                prompts,
+                height,
+                width,
+                list(self.sigmas),
+                device=self.device,
+                noise=noise,
+                num_train_timesteps=self.cfg.flow.num_train_timesteps,
+                prediction=self.cfg.flow.prediction,
+            )
+        reporter.finish()
+        images = to_images(require_finite(x))
+        self._metadata(images, prompts, height, width, seed, len(self.sigmas), 1.0, "")
+        return images

@@ -11,49 +11,61 @@ struct GenerationControls: View {
     var body: some View {
         @Bindable var workspace = workspace
         VStack(alignment: .leading, spacing: 16) {
-            PresetRow(
-                title: "Quality",
-                note: "More steps refine detail and take longer. Iris-3B was evaluated at \(GenerationSettings.evaluatedSteps).",
-                valueTitle: workspace.settings.qualityTitle,
-                presets: QualityPreset.allCases.map(\.title),
-                index: QualityPreset.allCases.firstIndex(of: QualityPreset.nearest(to: workspace.settings.steps)) ?? 2,
-                select: { workspace.settings.steps = QualityPreset.allCases[$0].steps },
-                expanded: $showsExactSteps
-            ) {
-                ExactNumber(title: "Steps", value: $workspace.settings.steps, range: GenerationSettings.stepRange)
-                Text("Fewer steps are faster but soften fine detail such as hands. Use \(GenerationSettings.evaluatedSteps) for final images.")
+            if workspace.settings.model == .original {
+                PresetRow(
+                    title: String(localized: "Quality"),
+                    note: String(localized: "More steps refine detail and take longer. Iris-3B was evaluated at \(GenerationSettings.evaluatedSteps)."),
+                    valueTitle: workspace.settings.qualityTitle,
+                    presets: QualityPreset.allCases.map(\.title),
+                    index: QualityPreset.allCases.firstIndex(of: QualityPreset.nearest(to: workspace.settings.steps)) ?? 2,
+                    select: { workspace.settings.steps = QualityPreset.allCases[$0].steps },
+                    expanded: $showsExactSteps
+                ) {
+                    ExactNumber(title: String(localized: "Steps"), value: $workspace.settings.steps, range: GenerationSettings.stepRange)
+                    Text(String(localized: "Fewer steps are faster but soften fine detail such as hands. Use \(GenerationSettings.evaluatedSteps) for final images."))
+                }
+                Divider()
+                PresetRow(
+                    title: String(localized: "Prompt Adherence"),
+                    note: String(localized: "How literally the image follows the prompt (guidance). Very high values can look harsh."),
+                    valueTitle: workspace.settings.adherenceTitle,
+                    presets: AdherencePreset.allCases.map(\.title),
+                    index: AdherencePreset.nearest(to: workspace.settings.cfgScale).rawValue,
+                    select: { workspace.settings.cfgScale = AdherencePreset.allCases[$0].cfgScale },
+                    expanded: $showsExactGuidance
+                ) {
+                    ExactGuidance(value: $workspace.settings.cfgScale)
+                    Text(String(localized: "\(AdherencePreset.balanced.cfgScale.formatted()) is the checkpoint's default."))
+                }
+                Divider()
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(String(localized: "Turbo")).fontWeight(.semibold)
+                    Text(String(localized: "The distilled Iris-3B checkpoint: four fixed steps with guidance built in, so quality, prompt adherence and the negative prompt are not adjustable. Each model downloads when first used, and switching models takes a moment."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            Divider()
-            PresetRow(
-                title: "Prompt Adherence",
-                note: "How literally the image follows the prompt (guidance). Very high values can look harsh.",
-                valueTitle: workspace.settings.adherenceTitle,
-                presets: AdherencePreset.allCases.map(\.title),
-                index: AdherencePreset.nearest(to: workspace.settings.cfgScale).rawValue,
-                select: { workspace.settings.cfgScale = AdherencePreset.allCases[$0].cfgScale },
-                expanded: $showsExactGuidance
-            ) {
-                ExactGuidance(value: $workspace.settings.cfgScale)
-                Text("\(AdherencePreset.balanced.cfgScale.formatted()) is the checkpoint's default.")
-            }
-            Divider()
             VStack(alignment: .leading, spacing: 8) {
-                Toggle("New seed for every image", isOn: $workspace.settings.randomizeSeed)
+                Toggle(String(localized: "New seed for every image"), isOn: $workspace.settings.randomizeSeed)
                 if !workspace.settings.randomizeSeed {
-                    LabeledContent("Seed") {
-                        TextField("Seed", value: $workspace.settings.seed, format: .number.grouping(.never))
+                    LabeledContent(String(localized: "Seed")) {
+                        TextField(String(localized: "Seed"), value: $workspace.settings.seed, format: .number.grouping(.never))
                             .labelsHidden()
                             .multilineTextAlignment(.trailing)
                             .frame(width: 110)
                     }
                 }
-                TextField("Avoid", text: $workspace.settings.negativePrompt, prompt: Text("Things to avoid (negative prompt)"), axis: .vertical)
-                    .lineLimit(1...3)
-                    .textFieldStyle(.roundedBorder)
+                if workspace.settings.model == .original {
+                    TextField(String(localized: "Avoid"), text: $workspace.settings.negativePrompt, prompt: Text(String(localized: "Things to avoid (negative prompt)")), axis: .vertical)
+                        .lineLimit(1...3)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
             HStack {
                 Spacer()
-                Button("Restore Defaults") { workspace.settings.restoreDefaults() }
+                Button(String(localized: "Restore Defaults")) { workspace.settings.restoreDefaults() }
                     .disabled(workspace.settings.hasDefaultTuning)
             }
         }
@@ -64,7 +76,7 @@ struct GenerationControls: View {
 
 /// A named preset slider; `>` reveals the exact control.
 private struct PresetRow<Exact: View>: View {
-    let title: LocalizedStringKey
+    let title: String
     let note: String
     let valueTitle: String
     let presets: [String]
@@ -91,8 +103,8 @@ private struct PresetRow<Exact: View>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
-                .help(expanded ? "Hide the exact value" : "Show the exact value")
-                .accessibilityLabel("\(valueTitle), exact value")
+                .help(expanded ? String(localized: "Hide the exact value") : String(localized: "Show the exact value"))
+                .accessibilityLabel(String(localized: "\(valueTitle), exact value"))
             }
             TickSlider(count: presets.count, index: index, valueTitles: presets, select: select)
                 .accessibilityLabel(Text(title))
@@ -157,12 +169,14 @@ struct TickSlider: NSViewRepresentable {
 }
 
 private struct ExactNumber: View {
-    let title: LocalizedStringKey
+    let title: String
     @Binding var value: Int
     let range: ClosedRange<Int>
 
     var body: some View {
-        LabeledContent(title) {
+        HStack {
+            Text(title)
+            Spacer()
             HStack(spacing: 4) {
                 TextField(title, value: $value, format: .number.grouping(.never))
                     .labelsHidden()
@@ -183,13 +197,15 @@ private struct ExactGuidance: View {
     @Binding var value: Double
 
     var body: some View {
-        LabeledContent("Guidance scale") {
+        HStack {
+            Text(String(localized: "Guidance scale"))
+            Spacer()
             HStack(spacing: 4) {
-                TextField("Guidance scale", value: $value, format: .number.precision(.fractionLength(1...2)))
+                TextField(String(localized: "Guidance scale"), value: $value, format: .number.precision(.fractionLength(1...2)))
                     .labelsHidden()
                     .multilineTextAlignment(.trailing)
                     .frame(width: 56)
-                Stepper("Guidance scale", value: $value, in: GenerationSettings.guidanceRange, step: 0.25)
+                Stepper(String(localized: "Guidance scale"), value: $value, in: GenerationSettings.guidanceRange, step: 0.25)
                     .labelsHidden()
             }
         }

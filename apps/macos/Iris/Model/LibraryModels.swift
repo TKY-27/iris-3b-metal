@@ -13,15 +13,14 @@ struct Project: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
-/// A sequence of independent requests. Iris-3B has no memory: every entry is
-/// generated on its own, never from earlier entries of the conversation.
+/// Stored batches and legacy chats within projects.
 struct Conversation: Codable, Identifiable, Hashable, Sendable {
     let id: UUID
     var title: String
     var projectID: UUID?
     let created: Date
     var updated: Date
-    /// When it was pinned to the top of the sidebar; nil when not pinned.
+    /// Preserve legacy chat pins without displaying them.
     var pinned: Date?
     var entries: [Entry]
 
@@ -36,14 +35,14 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
 
     /// A short title from a request: the start of its prompt or the input name.
     static func title(for entry: Entry) -> String {
-        let text = entry.title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        abbreviatedTitle(entry.title)
+    }
+
+    static func abbreviatedTitle(_ title: String) -> String {
+        let text = title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         guard text.count > 48 else { return text }
         let cut = text.prefix(48)
         return String(cut[..<(cut.lastIndex(of: " ") ?? cut.endIndex)]) + "…"
-    }
-
-    func matches(_ query: String) -> Bool {
-        title.localizedStandardContains(query) || entries.contains { $0.title.localizedStandardContains(query) }
     }
 }
 
@@ -67,6 +66,7 @@ struct Entry: Codable, Identifiable, Hashable, Sendable {
     /// as `Inputs/<id>.png` (not for entries imported from Iris 0.1), for Run Again and Compare.
     let inputName: String?
     var outcome: Outcome
+    var metadata: GenerationMetadata?
 
     init(
         id: UUID = UUID(), created: Date = .now, workflow: Workflow,
@@ -88,8 +88,25 @@ struct Entry: Codable, Identifiable, Hashable, Sendable {
         }
     }
 
+    var displayTitle: String {
+        switch workflow {
+        case .create: request?.prompt ?? ""
+        case .depth: String(localized: "Depth of \(inputName ?? String(localized: "an image"))")
+        case .upscale: String(localized: "\(inputName ?? String(localized: "Image")), restored and upscaled")
+        }
+    }
+
     var isDone: Bool {
         if case .done = outcome { true } else { false }
+    }
+
+    /// Search prompts, inputs, models and exact seeds.
+    func matches(_ query: String) -> Bool {
+        if let seed = request?.seed, Int(query) == seed { return true }
+        return title.localizedStandardContains(query)
+            || displayTitle.localizedStandardContains(query)
+            || request?.model.fullTitle.localizedStandardContains(query) == true
+            || request?.model.title.localizedStandardContains(query) == true
     }
 
     /// A file name for the result: the start of its prompt, or its input's name, then what was
@@ -106,7 +123,8 @@ struct Entry: Codable, Identifiable, Hashable, Sendable {
 
 /// What `Library.json` holds.
 struct LibrarySnapshot: Codable, Equatable, Sendable {
-    static let currentVersion = 1
+    // Older apps would discard the model identity and regenerate Turbo entries as Original.
+    static let currentVersion = 2
 
     var version = currentVersion
     var projects: [Project] = []

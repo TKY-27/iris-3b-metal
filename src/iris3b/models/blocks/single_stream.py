@@ -75,12 +75,18 @@ class SingleStreamBlock(nn.Module):
         cond: torch.Tensor,
         rope_img: torch.Tensor,
         rope_txt: torch.Tensor | None = None,
+        shared_modulation: dict[nn.Linear, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """``cond``: [B, 1, D]. The returned text stream is the untouched input
         when ``text_out`` is False."""
         batch, n_img, dim = x.shape
         n_txt = y.shape[1]
-        (s1, c1, g1, s2, c2, g2) = self.adaln(cond).chunk(6, dim=-1)
+        mods = (
+            self.adaln(cond)
+            if shared_modulation is None
+            else shared_modulation[self.adaln.core] + self.adaln.bias
+        )
+        (s1, c1, g1, s2, c2, g2) = mods.chunk(6, dim=-1)
 
         tokens = torch.cat([y, x], dim=1)
         h = modulate(self.norm1(tokens), s1, c1)

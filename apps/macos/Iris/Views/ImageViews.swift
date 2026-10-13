@@ -10,7 +10,6 @@ struct StoredImage: View {
     var placeholder = "photo"
     @State private var image: CGImage?
     @State private var missing = false
-    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         Group {
@@ -31,8 +30,12 @@ struct StoredImage: View {
             }
         }
         .task(id: url) {
-            image = await ImageFiles.thumbnail(of: url, maxPixels: maxPixels)
-            missing = image == nil
+            image = nil
+            missing = false
+            let loaded = await ImageFiles.thumbnail(of: url, maxPixels: maxPixels)
+            guard !Task.isCancelled else { return }
+            image = loaded
+            missing = loaded == nil
         }
     }
 }
