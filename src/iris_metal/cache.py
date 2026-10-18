@@ -8,7 +8,7 @@ from huggingface_hub import try_to_load_from_cache
 
 
 def cached_snapshot(
-    repo: str, revision: str | None, *, language: bool = False, turbo: bool = False
+    repo: str, revision: str | None, *, language: bool = False, turbo: bool = False, task: str | None = None
 ) -> Path | None:
     # Branches and tags retain snapshot_download's freshness checks.
     if revision is None or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
@@ -20,6 +20,8 @@ def cached_snapshot(
     )
     if turbo:
         required = ["turbo/config.yaml", "turbo/distill.yaml", "turbo/model.safetensors"]
+    if task is not None:  # a depth or upscaler export
+        required = [f"{task}/config.yaml", f"{task}/model.safetensors", f"{task}/empty_prompt.safetensors"]
     paths = [try_to_load_from_cache(repo, name, revision=revision) for name in required]
     try:
         if not all(

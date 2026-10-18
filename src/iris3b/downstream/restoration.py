@@ -34,24 +34,35 @@ _DILATIONS = (1, 2, 4, 8, 16)
 _KERNEL = torch.tensor([[1.0, 2.0, 1.0], [2.0, 4.0, 2.0], [1.0, 2.0, 1.0]]) / 16.0
 
 
-def _blur(image: torch.Tensor, dilation: int) -> torch.Tensor:
-    kernel = _KERNEL.to(image)[None, None].repeat(image.shape[1], 1, 1, 1)
+def _kernel(image: torch.Tensor) -> torch.Tensor:
+    return _KERNEL.to(image)[None, None].repeat(image.shape[1], 1, 1, 1)
+
+
+def _blur(image: torch.Tensor, dilation: int, kernel: torch.Tensor) -> torch.Tensor:
     padded = F.pad(image, (dilation,) * 4, mode="replicate")
     return F.conv2d(padded, kernel, groups=image.shape[1], dilation=dilation)
 
 
-def _split(image: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """(high, low) frequency parts; they sum back to the input."""
+def _high(image: torch.Tensor) -> torch.Tensor:
+    """High-frequency part; with ``_low`` it sums back to the input."""
+    kernel = _kernel(image)
     high, low = torch.zeros_like(image), image
     for dilation in _DILATIONS:
-        blurred = _blur(low, dilation)
+        blurred = _blur(low, dilation, kernel)
         high, low = high + (low - blurred), blurred
-    return high, low
+    return high
+
+
+def _low(image: torch.Tensor) -> torch.Tensor:
+    kernel = _kernel(image)
+    for dilation in _DILATIONS:
+        image = _blur(image, dilation, kernel)
+    return image
 
 
 def wavelet_color_fix(content: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
     """``content``'s detail on ``reference``'s colour; both the same size."""
-    return _split(content)[0] + _split(reference)[1]
+    return _high(content) + _low(reference)
 
 
 def tile_positions(size: int, tile: int, stride: int) -> list[int]:

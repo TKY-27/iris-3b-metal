@@ -5,6 +5,22 @@ import torch.nn.functional as F
 from torch import nn
 
 
+def autocast_operand(x: torch.Tensor) -> torch.Tensor:
+    """``x`` cast once, as autocast would cast it for every Linear reading it.
+
+    Inference only: with autograd enabled, ``x`` is returned unchanged.
+    """
+    device = x.device.type
+    if (
+        torch.is_grad_enabled()
+        or not torch.is_autocast_enabled(device)
+        or not x.is_floating_point()
+        or x.dtype == torch.float64
+    ):
+        return x
+    return x.to(torch.get_autocast_dtype(device))
+
+
 class SwiGLU(nn.Module):
     """Gated SiLU feed-forward with the 2/3 width rule, bias-free.
 
@@ -20,6 +36,7 @@ class SwiGLU(nn.Module):
         self.w2 = nn.Linear(hidden, dim, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = autocast_operand(x)
         return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
 

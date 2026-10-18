@@ -5,7 +5,6 @@ from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 
-import numpy as np
 import torch
 from PIL import Image
 
@@ -34,10 +33,15 @@ def release_memory() -> None:
         torch.mps.empty_cache()
 
 
-def to_images(samples: torch.Tensor) -> list[Image.Image]:
-    """``[B, 3, H, W]`` in ``[-1, 1]`` -> 8-bit RGB images (round to nearest)."""
-    pixels = ((samples.clamp(-1, 1) + 1) * 127.5).round().to(torch.uint8)
-    return [Image.fromarray(np.ascontiguousarray(x.permute(1, 2, 0).cpu().numpy())) for x in pixels]
+def to_images(samples: torch.Tensor, *, clamped: bool = False) -> list[Image.Image]:
+    """``[B, 3, H, W]`` in ``[-1, 1]`` -> 8-bit RGB images (round to nearest).
+
+    ``clamped`` skips the clamp for samples already within ``[-1, 1]``.
+    """
+    if not clamped:
+        samples = samples.clamp(-1, 1)
+    pixels = ((samples + 1) * 127.5).round().to(torch.uint8).permute(0, 2, 3, 1).contiguous().cpu()
+    return [Image.fromarray(x.numpy()) for x in pixels]
 
 
 class StepReporter:
@@ -124,16 +128,22 @@ class IrisPipeline:
 
     @property
     def engine(self) -> MetalIris | torch.nn.Module:
+        return self._load()
+
+    def _load(self, **cancel) -> MetalIris | torch.nn.Module:
         if self._engine is None:
             if self.model == "turbo":
-                self._engine = load_dit(self.checkpoint, self.cfg, self.device, dtype=torch.bfloat16)
+                self._engine = load_dit(
+                    self.checkpoint, self.cfg, self.device, dtype=torch.bfloat16, **cancel
+                )
             else:
-                dit = load_dit(self.checkpoint, self.cfg, self.device)
+                dit = load_dit(self.checkpoint, self.cfg, self.device, **cancel)
                 self._engine = MetalIris(dit, attention_dtype=self.attention_dtype)
         return self._engine
 
-    def encode(self, texts: list[str]) -> list[Encoding]:
-        """Text-encoder ``(states, mask)`` of each text; missing ones are encoded in one pass."""
+    def encode(self, texts: list[str], **cancel) -> list[Encoding]:
+        """Text-encoder ``(states, mask)`` of each text; missing ones are encoded in one pass.
+        ``raise_if_cancelled``, if given, may stop the encoder between layers."""
         for text in texts:
             if text in self._encodings:
                 self._encodings[text] = self._encodings.pop(text)  # most recently used last
@@ -141,7 +151,7 @@ class IrisPipeline:
         if missing:
             if self._text_encoder is None:
                 self._text_encoder = StreamingQwen3VLEncoder(self.cfg.text_encoder, self.device)
-            encoding = self._text_encoder.encode(missing)
+            encoding = self._text_encoder.encode(missing, **cancel)
             for i, text in enumerate(missing):
                 # clones, so an evicted entry does not keep its whole batch alive
                 self._encodings[text] = (
@@ -190,9 +200,25 @@ class IrisPipeline:
             else:
                 break
 
-    def _conditioning(self, texts: list[str], encodings: list[Encoding], engine: MetalIris) -> torch.Tensor:
-        adapter = getattr(engine.dit, "y_embedder", None)
-        position = getattr(engine.dit, "y_pos_embedding", None)
+    def _conditioning(
+        self, texts: list[str], encodings: list[Encoding], engine: MetalIris | IrisDiT
+    ) -> torch.Tensor:
+        if hasattr(engine, "encode_text"):
+            dit, precision, adapt = (
+                engine.dit,
+                (engine.dtype, engine.text_dtype, engine.attention_dtype),
+                engine.encode_text,
+            )
+        else:  # Turbo: upstream adapter under BF16 autocast
+            dit, precision = engine, (torch.bfloat16,)
+
+            def adapt(states, mask):
+                states = states.to(device=self.device, dtype=next(engine.parameters()).dtype)
+                with torch.autocast(self.device.type, dtype=torch.bfloat16):
+                    return engine.embed_text(states, mask.to(self.device))
+
+        adapter = getattr(dit, "y_embedder", None)
+        position = getattr(dit, "y_pos_embedding", None)
         try:
             adapter_versions = (
                 tuple((id(t), t._version) for t in (*adapter.parameters(), *adapter.buffers()))
@@ -203,15 +229,13 @@ class IrisPipeline:
         except RuntimeError:
             # Inference-mode parameters have no mutation counter.
             states, mask = (torch.cat(parts) for parts in zip(*encodings, strict=True))
-            return engine.encode_text(states, mask)
+            return adapt(states, mask)
         identity = (
             id(engine),
-            id(engine.dit),
+            id(dit),
             str(self.checkpoint),
             repr(self.cfg),
-            engine.dtype,
-            engine.text_dtype,
-            engine.attention_dtype,
+            *precision,
             adapter_versions,
             position_version,
         )
@@ -224,13 +248,13 @@ class IrisPipeline:
             versions = [(id(s), s._version, id(m), m._version) for s, m in encodings]
         except RuntimeError:
             states, mask = (torch.cat(parts) for parts in zip(*encodings, strict=True))
-            return engine.encode_text(states, mask)
+            return adapt(states, mask)
         # A hit must retain the original batch shape, order and duplicate rows:
         # partial reuse could change GEMM rounding even before bucketing.
         batch, signature = tuple(texts), tuple(versions)
         if batch not in self._adapted or self._adapted[batch][0] != signature:
             states, mask = (torch.cat(parts) for parts in zip(*encodings, strict=True))
-            tokens = engine.encode_text(states, mask)
+            tokens = adapt(states, mask)
             self._adapted[batch] = (signature, tokens.detach().clone())
         result = torch.cat([self._adapted[batch][1]])
         self._adapted[batch] = self._adapted.pop(batch)
@@ -248,22 +272,27 @@ class IrisPipeline:
         seed: int = 0,
         negative_prompt: str | None = None,
         on_step: Callable[[int, int], None] | None = None,
+        raise_if_cancelled: Callable[[], None] | None = None,
     ) -> list[Image.Image]:
+        """``raise_if_cancelled``, if given, runs while the prompt is encoded and the
+        model loaded, before ``on_step`` can; raising there stops the request."""
         self.last_metadata = None
+        # omitted unless given, for encoders without it
+        cancel = {} if raise_if_cancelled is None else {"raise_if_cancelled": raise_if_cancelled}
         if self.model == "turbo":
             if any(value is not None for value in (steps, cfg_scale, negative_prompt)):
                 raise ValueError(
                     "Turbo uses its fixed four-step recipe; steps, CFG and negative prompt do not apply"
                 )
-            return self._turbo(prompts, height, width, seed, on_step)
+            return self._turbo(prompts, height, width, seed, on_step, cancel)
         sample = self.cfg.sample
         steps = sample.steps if steps is None else steps
         cfg_scale = sample.cfg_scale if cfg_scale is None else cfg_scale
         negative_prompt = sample.negative_prompt if negative_prompt is None else negative_prompt
 
         guided = cfg_scale != 1.0
-        encodings = self.encode([*prompts, negative_prompt] if guided else prompts)
-        engine = self.engine
+        encodings = self.encode([*prompts, negative_prompt] if guided else prompts, **cancel)
+        engine = self._load(**cancel)
         cond = self._conditioning(prompts, encodings[: len(prompts)], engine)
         uncond = (
             self._conditioning([negative_prompt], [encodings[-1]], engine).expand_as(cond) if guided else None
@@ -276,7 +305,7 @@ class IrisPipeline:
             reporter.queued()
             return out
 
-        # CPU noise keeps a seed's image identical across machines
+        # CPU noise: same start on every Mac
         generator = torch.Generator().manual_seed(seed)
         noise = torch.randn(len(prompts), 3, height, width, generator=generator)
         solver = FlowDPMSolver(
@@ -285,6 +314,7 @@ class IrisPipeline:
             cfg_scale=cfg_scale,
             cfg_interval=tuple(sample.cfg_interval),
             prediction=self.cfg.flow.prediction,
+            reuse_cfg_text=True,  # MetalIris never writes its text
         )
         x = solver.sample(
             noise.to(self.device),
@@ -339,13 +369,14 @@ class IrisPipeline:
         self.last_metadata = metadata
         attach_metadata(images, metadata)
 
-    def _turbo(self, prompts, height, width, seed, on_step):
+    def _turbo(self, prompts, height, width, seed, on_step, cancel):
         # Preserve official arithmetic: exported BF16 Linear weights have exactly
         # the values the FP32-master recipe casts to under BF16 autocast.
         # All non-linear parameters remain FP32.
         # Metal FP16 failed the release typography gate.
-        encodings = self.encode(prompts)
-        model = self.engine
+        encodings = self.encode(prompts, **cancel)
+        model = self._load(**cancel)
+        prepared = self._conditioning(prompts, encodings, model) if isinstance(model, IrisDiT) else None
         reporter = StepReporter(len(self.sigmas), on_step, self.device)
 
         class CachedEncoder:
@@ -355,15 +386,13 @@ class IrisPipeline:
 
         class ReportingModel:
             cfg = model.cfg
-            prepared_text = None
+            prepared_text = prepared
 
             def parameters(self):
                 return model.parameters()
 
             def __call__(self, x, t, y, y_mask):
                 if isinstance(model, IrisDiT):
-                    if self.prepared_text is None:
-                        self.prepared_text = model.embed_text(y, y_mask)
                     out = model(
                         x,
                         t,
@@ -391,8 +420,9 @@ class IrisPipeline:
                 noise=noise,
                 num_train_timesteps=self.cfg.flow.num_train_timesteps,
                 prediction=self.cfg.flow.prediction,
+                check=require_finite,
             )
         reporter.finish()
-        images = to_images(require_finite(x))
+        images = to_images(x, clamped=True)
         self._metadata(images, prompts, height, width, seed, len(self.sigmas), 1.0, "")
         return images

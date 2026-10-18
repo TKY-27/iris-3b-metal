@@ -1,10 +1,33 @@
 import argparse
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+import torch
 from PIL import Image
 
 from iris_metal import cli
+
+
+@pytest.mark.parametrize("command", [[], ["serve"], ["depth"], ["upscale"]])
+def test_help_runs_without_loading_the_inference_runtime(command):
+    code = """
+import importlib.abc
+import sys
+
+class NoInference(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if fullname == "torch":
+            raise RuntimeError("help loaded the inference runtime")
+
+sys.meta_path.insert(0, NoInference())
+from iris_metal.cli import main
+main(sys.argv[1:])
+"""
+    result = subprocess.run([sys.executable, "-c", code, *command, "--help"], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert "usage: iris-metal" in result.stdout
 
 
 @pytest.mark.parametrize(
@@ -94,7 +117,7 @@ def test_outputs_in_formats_pillow_cannot_write_are_refused(tmp_path):
 
 
 def test_unreadable_inputs_are_reported_before_any_model_loads(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli.torch.backends.mps, "is_available", lambda: True)
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
     monkeypatch.setattr(cli, "load_task", lambda *a, **k: pytest.fail("the model must not load"))
     broken = tmp_path / "broken.jpg"
     broken.write_bytes(b"not an image")
@@ -110,8 +133,10 @@ def test_unreadable_inputs_are_reported_before_any_model_loads(tmp_path, monkeyp
 
 
 def test_bad_outputs_and_arguments_fail_before_generating(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli.torch.backends.mps, "is_available", lambda: True)
-    monkeypatch.setattr(cli, "IrisPipeline", lambda *a, **k: pytest.fail("the model must not load"))
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+    monkeypatch.setattr(
+        "iris_metal.pipeline.IrisPipeline", lambda *a, **k: pytest.fail("the model must not load")
+    )
     for argv in (
         ["fox", "-o", str(tmp_path)],  # a directory
         ["fox", "-o", str(tmp_path / "out")],  # no image extension

@@ -137,3 +137,36 @@ def test_streaming_error_waits_and_releases_shard_storage(tmp_path, tokenizer_di
     result = encoder.encode(["a fox"])
     assert torch.isfinite(result.embeddings).all()
     assert not encoder._sources and not encoder._readers
+
+
+@pytest.mark.parametrize(
+    "device",
+    [
+        "cpu",
+        pytest.param(
+            "mps",
+            marks=pytest.mark.skipif(
+                not torch.backends.mps.is_available() or os.environ.get("IRIS_SKIP_GPU_TESTS") == "1",
+                reason="needs an Apple Silicon GPU",
+            ),
+        ),
+    ],
+)
+def test_streaming_encoder_stops_between_layers_and_stays_exact(tmp_path, tokenizer_dir, device):
+    _tiny_text_model(tmp_path, tokenizer_dir)
+    cfg = TextEncoderConfig(pretrained=str(tmp_path), dim=64, max_length=24, hidden_layers=[1, 3, 4])
+    encoder = StreamingQwen3VLEncoder(cfg, torch.device(device))
+    expected = encoder.encode(["a fox", ""])
+    reads = []
+
+    def stop_at_third_layer():
+        reads.append(1)
+        if len(reads) == 3:
+            raise RuntimeError("cancelled")
+
+    with pytest.raises(RuntimeError, match="cancelled"):
+        encoder.encode(["a fox", ""], raise_if_cancelled=stop_at_third_layer)
+    assert len(reads) == 3 and not encoder._sources and not encoder._readers
+    actual = encoder.encode(["a fox", ""], raise_if_cancelled=lambda: None)
+    assert actual.embeddings.view(torch.int16).equal(expected.embeddings.view(torch.int16))
+    assert actual.mask.equal(expected.mask)

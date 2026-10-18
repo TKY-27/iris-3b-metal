@@ -114,6 +114,7 @@ def test_health_reports_engine_and_api_versions(server):
         "api_version": 1,
         "supported_models": ["original"],
         "loaded_model": "original",
+        "max_job_wait_seconds": 10,
     }
 
 
@@ -469,3 +470,154 @@ def test_remote_original_omitted_controls_use_checkpoint_defaults_on_cold_and_wa
         jobs.append(wait_for(base, json.loads(body)["id"], "done"))
     assert seen == [(2, 5.0, "custom-negative"), (2, 5.0, "custom-negative")]
     assert all(j["params"]["steps"] == 2 and j["params"]["cfg_scale"] == 5.0 for j in jobs)
+
+
+def test_status_long_poll_wakes_on_progress_and_is_bounded(server):
+    pipe, base = server
+    pipe.gate.clear()
+    _, body = request(f"{base}/v1/images", "POST", {"prompt": "fox", "width": 16, "height": 16, "steps": 2})
+    job_id = json.loads(body)["id"]
+    revision = wait_for(base, job_id, "running")["revision"]
+    start = time.perf_counter()
+    status, body = request(f"{base}/v1/jobs/{job_id}?after={revision}&wait=0.2")
+    assert status == 200 and json.loads(body)["revision"] == revision
+    assert time.perf_counter() - start >= 0.2  # nothing changed: waited the full bound
+    stale = json.loads(request(f"{base}/v1/jobs/{job_id}?after={revision - 1}&wait=5")[1])
+    assert stale["revision"] == revision  # already different: at once
+
+    answers = []
+    poll = threading.Thread(
+        target=lambda: answers.append(request(f"{base}/v1/jobs/{job_id}?after={revision}&wait=5"))
+    )
+    poll.start()
+    time.sleep(0.1)
+    woken = time.perf_counter()
+    pipe.gate.set()
+    poll.join(5)
+    assert time.perf_counter() - woken < 1
+    summary = json.loads(answers[0][1])
+    assert summary["revision"] > revision and summary["step"] >= 1
+    done = wait_for(base, job_id, "done")
+    start = time.perf_counter()
+    assert (
+        json.loads(request(f"{base}/v1/jobs/{job_id}?after={done['revision']}&wait=5")[1])["status"] == "done"
+    )
+    assert time.perf_counter() - start < 1  # finished jobs answer at once
+
+
+def test_status_long_poll_wakes_on_queued_cancel_and_shutdown(server):
+    pipe, base = server
+    pipe.gate.clear()
+    body = {"prompt": "fox", "width": 16, "height": 16, "steps": 1}
+    first, second = (json.loads(request(f"{base}/v1/images", "POST", body)[1])["id"] for _ in range(2))
+    revision = json.loads(request(f"{base}/v1/jobs/{second}")[1])["revision"]
+    answers = []
+    poll = threading.Thread(
+        target=lambda: answers.append(request(f"{base}/v1/jobs/{second}?after={revision}&wait=5"))
+    )
+    poll.start()
+    time.sleep(0.1)
+    request(f"{base}/v1/jobs/{second}", "DELETE")
+    poll.join(2)
+    assert json.loads(answers[0][1])["status"] == "cancelled"
+
+    job = pipe.runner.jobs[first]
+    start = time.perf_counter()
+    threading.Timer(0.1, pipe.runner.close).start()
+    assert pipe.runner.wait(job, job.revision, 5)["id"] == first
+    assert time.perf_counter() - start < 1
+    pipe.gate.set()
+
+
+@pytest.mark.parametrize(
+    "query", ["after=-1&wait=1", "after=x&wait=1", "after=1&wait=nan", "after=1&wait=-2"]
+)
+def test_status_long_poll_rejects_invalid_parameters(server, query):
+    pipe, base = server
+    _, body = request(f"{base}/v1/images", "POST", {"prompt": "fox", "width": 16, "height": 16, "steps": 1})
+    assert request(f"{base}/v1/jobs/{json.loads(body)['id']}?{query}")[0] == 400
+
+
+def test_status_long_poll_is_clamped_and_answers_at_once_when_overloaded(server):
+    from iris_metal.server import MAX_JOB_WAIT_S, MAX_JOB_WAITERS, status_wait
+
+    pipe, base = server
+    assert status_wait({"after": "3", "wait": "5.0"}) == (3, 5.0)
+    assert status_wait({"after": "3", "wait": "1e9"}) == (3, MAX_JOB_WAIT_S)
+    assert status_wait({"after": "3"}) is None and status_wait({}) is None
+    _, body = request(f"{base}/v1/images", "POST", {"prompt": "fox", "width": 16, "height": 16, "steps": 1})
+    job = pipe.runner.jobs[json.loads(body)["id"]]
+    wait_for(base, job.id, "done")
+    runner = pipe.runner
+    for _ in range(MAX_JOB_WAITERS):
+        runner._waiters.acquire()
+    try:
+        start = time.perf_counter()
+        job.status = "running"  # would otherwise wait
+        assert runner.wait(job, job.revision, 5)["revision"] == job.revision
+        assert time.perf_counter() - start < 1
+    finally:
+        job.status = "done"
+        for _ in range(MAX_JOB_WAITERS):
+            runner._waiters.release()
+
+
+@pytest.mark.parametrize("loaded", [True, False])
+def test_switching_to_a_task_releases_memory_once(monkeypatch, loaded):
+    import iris_metal.server as server_module
+
+    releases = []
+    monkeypatch.setattr(server_module, "release_memory", lambda: releases.append("server"))
+
+    class Pipe(FakePipeline):
+        def unload(self):
+            if self.loaded:
+                releases.append("unload")
+            self.loaded = False
+
+    pipe = Pipe()
+    pipe.loaded = loaded
+    models = Models(pipe, load_task=lambda task: object())
+    models.task("depth")
+    assert releases == (["unload"] if loaded else ["server"])
+    models.task("restoration")  # pipeline already unloaded
+    assert releases[1:] == ["server"]
+    models.task("restoration")
+    assert len(releases) == 2
+
+    def broken(task):
+        raise RuntimeError("missing weights")
+
+    models._load_task = broken
+    with pytest.raises(RuntimeError):
+        models.task("depth")
+    assert models._task is None and releases[2:] == ["server"]
+
+
+def test_cancel_during_preparation_stops_before_the_first_step():
+    from iris_metal.server import text_to_image_job
+
+    class SlowPreparation(FakePipeline):
+        prepared = 0
+
+        def __call__(self, prompts, height, width, steps, on_step, raise_if_cancelled=None, **kwargs):
+            for _ in range(500):  # stands in for streamed layers and tensors
+                raise_if_cancelled()
+                self.prepared += 1
+                time.sleep(0.01)
+            return super().__call__(prompts, height, width, steps, on_step, **kwargs)
+
+    pipe = SlowPreparation()
+    runner = JobRunner(Models(pipe, load_task=lambda task: None), max_queued=2)
+    params = validate({"prompt": "fox", "width": 16, "height": 16, "steps": 2}, DEFAULTS)
+    job = runner.submit("image", params, text_to_image_job(runner.models, params))
+    while pipe.prepared < 3:
+        time.sleep(0.01)
+    cancelled_at = time.perf_counter()
+    runner.cancel(job)
+    deadline = time.perf_counter() + 5
+    while job.status != "cancelled" and time.perf_counter() < deadline:
+        time.sleep(0.01)
+    assert job.status == "cancelled" and job.step == 0
+    assert time.perf_counter() - cancelled_at < 1
+    assert pipe.prepared < 500

@@ -8,7 +8,7 @@ from iris3b.config import Config
 from iris3b.downstream.depth import IrisDepth
 from iris3b.models.dit import IrisDiT
 from iris_metal.tasks import MetalDepth, MetalRestorer, check_upscale_input
-from test_metal_engine import RELEASED_TOPOLOGY
+from test_metal_engine import RELEASED_TOPOLOGY, requires_mps
 
 
 def _export(tmp_path, model, task: dict):
@@ -87,3 +87,47 @@ def test_upscale_inputs_beyond_four_to_one_are_rejected():
     for size in ((1, 1024), (1025, 256)):
         with pytest.raises(ValueError, match="4:1"):
             check_upscale_input(Image.new("RGB", size))
+
+
+def _split_reference(image):
+    """The previous colour-fix pyramid, which also built the reference's discarded detail."""
+    from iris3b.downstream.restoration import _DILATIONS, _KERNEL
+
+    high, low = torch.zeros_like(image), image
+    for dilation in _DILATIONS:
+        kernel = _KERNEL.to(low)[None, None].repeat(low.shape[1], 1, 1, 1)
+        padded = torch.nn.functional.pad(low, (dilation,) * 4, mode="replicate")
+        blurred = torch.nn.functional.conv2d(padded, kernel, groups=low.shape[1], dilation=dilation)
+        high, low = high + (low - blurred), blurred
+    return high, low
+
+
+@pytest.mark.parametrize(
+    ("device", "size"),
+    [("cpu", (40, 72)), pytest.param("mps", (2048, 1536), marks=requires_mps)],
+)
+def test_color_fix_matches_the_full_pyramid_bitwise(device, size):
+    from iris3b.downstream.restoration import wavelet_color_fix
+
+    gen = torch.Generator().manual_seed(3)
+    content, reference = (torch.rand(1, 3, *size, generator=gen).to(device) for _ in range(2))
+    content[0, 0, 0, :2] = torch.tensor([-0.0, 0.0])
+    expected = _split_reference(content)[0] + _split_reference(reference)[1]
+    actual = wavelet_color_fix(content, reference)
+    assert actual.cpu().view(torch.int32).equal(expected.cpu().view(torch.int32))
+
+
+def test_task_engines_stay_on_their_load_device(tmp_path):
+    (tmp_path / "depth").mkdir()
+    (tmp_path / "up").mkdir()
+    _export(tmp_path / "depth", IrisDepth(RELEASED_TOPOLOGY).eval(), {"name": "depth"})
+    _export(
+        tmp_path / "up", IrisDiT(RELEASED_TOPOLOGY).eval(), {"name": "restoration", "tile": 32, "sigma": 0.5}
+    )
+    for engine in (
+        MetalDepth(tmp_path / "depth", device="cpu"),
+        MetalRestorer(tmp_path / "up", device="cpu"),
+    ):
+        assert engine.to("cpu") is engine and engine.to(torch.device("cpu")) is engine
+        with pytest.raises(NotImplementedError, match="load .* again"):
+            engine.to("meta")

@@ -11,11 +11,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import BinaryIO
 
-import numpy as np
-import torch
 from PIL import Image
 
-from iris_metal.pipeline import IrisPipeline
 from iris_metal.turbo import TURBO_REVISION, checkpoint_revision, png_info
 
 REPO_ID = "speridlabs/iris-3b"
@@ -193,8 +190,6 @@ def load_task(task: str, source: str = REPO_ID, revision: str | None = None):
 
 
 def serve_main(argv: list[str]) -> None:
-    from iris_metal.server import Models, serve
-
     parser = argparse.ArgumentParser(prog="iris-metal serve", description="Run the local HTTP API.")
     parser.add_argument("--host", default="127.0.0.1", help="default: localhost only")
     parser.add_argument("--port", type=int_range(1, 65536), default=8765)
@@ -208,6 +203,11 @@ def serve_main(argv: list[str]) -> None:
     parser.add_argument("--weights", default=REPO_ID, help="depth and upscaling: local export or repo")
     parser.add_argument("--weights-revision", help="Hugging Face revision of --weights (default: validated)")
     args = parser.parse_args(argv)
+    import torch
+
+    from iris_metal.pipeline import IrisPipeline
+    from iris_metal.server import Models, serve
+
     if not torch.backends.mps.is_available():
         parser.error("no Apple GPU (MPS) available")
     # Resolve weights lazily on the serial worker.
@@ -239,8 +239,6 @@ def serve_main(argv: list[str]) -> None:
 
 
 def task_main(task: str, argv: list[str]) -> None:
-    from iris_metal.tasks import check_upscale_input, depth_image
-
     upscale = task == "restoration"
     parser = argparse.ArgumentParser(
         prog=f"iris-metal {'upscale' if upscale else 'depth'}",
@@ -258,6 +256,11 @@ def task_main(task: str, argv: list[str]) -> None:
             "--max-side", type=int_range(0), default=1024, help="long side the model sees; 0 = native"
         )
     args = parser.parse_args(argv)
+    import numpy as np
+    import torch
+
+    from iris_metal.tasks import check_upscale_input, depth_image
+
     if not torch.backends.mps.is_available():
         parser.error("no Apple GPU (MPS) available")
     if args.out.exists() and not args.out.is_dir():
@@ -342,6 +345,10 @@ def main(argv: list[str] | None = None) -> None:
         v is not None for v in (args.steps, args.cfg_scale, args.negative_prompt, args.attention)
     ):
         parser.error("Turbo has fixed steps and embedded guidance; sampling controls do not apply")
+    import torch
+
+    from iris_metal.pipeline import IrisPipeline
+
     if not torch.backends.mps.is_available():
         parser.error("no Apple GPU (MPS) available")
     paths = output_paths(

@@ -1,11 +1,222 @@
-"""AdaLN modulation helpers."""
+"""AdaLN modulation helpers and their exact fused MPS tails."""
+
+from functools import cache
 
 import torch
 from torch import nn
 
+from iris3b.nn.norms import RMSNorm
+
 
 def modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
     return x * (1 + scale) + shift
+
+
+def norm_modulate(norm: nn.Module, x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+    """``modulate(norm(x), shift, scale)``, fused on MPS without autograd."""
+    if _fusable(norm, x, shift, scale):
+        name = "norm_modulate_float" if x.dtype == torch.float32 else "norm_modulate_bfloat"
+        return _fused(name, norm, x, _rows(scale, x), _rows(shift, x))
+    return modulate(norm(x), shift, scale)
+
+
+def gated_norm_residual(
+    residual: torch.Tensor, gate: torch.Tensor, norm: nn.Module, branch: torch.Tensor
+) -> torch.Tensor:
+    """``residual + gate * norm(branch)``, fused on MPS without autograd."""
+    if (
+        residual.dtype == torch.float32
+        and branch.dtype == torch.bfloat16
+        and residual.shape == branch.shape
+        and _fusable(norm, residual, gate)
+        and _fusable(norm, branch, gate)
+    ):
+        return _fused("gated_norm_residual", norm, branch, _rows(gate, branch), residual)
+    return residual + gate * norm(branch)
+
+
+def modulated_residual(
+    residual: torch.Tensor, branch: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor
+) -> torch.Tensor:
+    """``residual + modulate(branch, shift, scale)``, fused for BF16 inference."""
+    if (
+        _elementwise(residual, branch)
+        and shift.stride() == scale.stride()
+        and _row_views(residual, shift, scale)
+    ):
+        width4, stride4 = residual.shape[-1] // 4, scale.stride(-2) // 4
+        return _elementwise_out("modulated_residual", residual, branch, scale, shift, width4, stride4)
+    return residual + modulate(branch, shift, scale)
+
+
+def norm_operand(norm: nn.Module, x: torch.Tensor) -> torch.Tensor:
+    """``norm(x)`` as a BF16-autocast Linear operand."""
+    if (
+        isinstance(norm, RMSNorm)
+        and torch.is_autocast_enabled("mps")
+        and torch.get_autocast_dtype("mps") == torch.bfloat16
+        and _elementwise(x)
+        and norm.weight.dtype == torch.float32
+        and norm.weight.shape == (x.shape[-1],)
+        and _aligned(norm.weight)
+    ):
+        return _elementwise_out("norm_operand", x, _inv_rms(norm, x), norm.weight, x.shape[-1] // 4)
+    return norm(x)
+
+
+# eager rounding points; PyTorch keeps the reduction
+_TAILS = r"""
+#include <metal_stdlib>
+using namespace metal;
+
+template <typename T>
+inline float4 normed(device const vec<T, 4>* x, device const float* r, device const float4* w, uint i, uint2 p) {
+  return w[p.x] * float4(vec<T, 4>(float4(x[i]) * r[p.y]));
+}
+
+// mod_a: scale, mod_b: shift
+template <typename T>
+kernel void norm_modulate(
+    device const vec<T, 4>* x [[buffer(0)]], device const float* r [[buffer(1)]],
+    device const float4* w [[buffer(2)]], device const float* mod_a [[buffer(3)]],
+    device const float* mod_b [[buffer(4)]], device float4* out [[buffer(5)]],
+    constant uint& width4 [[buffer(6)]], constant uint& rows_per_batch [[buffer(7)]],
+    constant uint& mod_stride [[buffer(8)]], uint2 p [[thread_position_in_grid]]) {
+  const uint i = p.y * width4 + p.x, m = p.y / rows_per_batch * mod_stride / 4 + p.x;
+  const float4 one_plus = 1.0f + reinterpret_cast<device const float4*>(mod_a)[m];
+  const float4 scaled = normed(x, r, w, i, p) * one_plus;
+  out[i] = scaled + reinterpret_cast<device const float4*>(mod_b)[m];
+}
+
+// mod_a: gate, mod_b: the FP32 residual
+kernel void gated_norm_residual(
+    device const bfloat4* x [[buffer(0)]], device const float* r [[buffer(1)]],
+    device const float4* w [[buffer(2)]], device const float* mod_a [[buffer(3)]],
+    device const float* mod_b [[buffer(4)]], device float4* out [[buffer(5)]],
+    constant uint& width4 [[buffer(6)]], constant uint& rows_per_batch [[buffer(7)]],
+    constant uint& mod_stride [[buffer(8)]], uint2 p [[thread_position_in_grid]]) {
+  const uint i = p.y * width4 + p.x, m = p.y / rows_per_batch * mod_stride / 4 + p.x;
+  const float4 gated = reinterpret_cast<device const float4*>(mod_a)[m] * normed(x, r, w, i, p);
+  out[i] = reinterpret_cast<device const float4*>(mod_b)[i] + gated;
+}
+
+// BF16 residual + modulate(branch, shift, scale)
+kernel void modulated_residual(
+    device bfloat4* out [[buffer(0)]], device const bfloat4* x [[buffer(1)]],
+    device const bfloat4* branch [[buffer(2)]], device const bfloat* scale [[buffer(3)]],
+    device const bfloat* shift [[buffer(4)]], constant uint& width4 [[buffer(5)]],
+    constant uint& mod_stride4 [[buffer(6)]], uint i [[thread_position_in_grid]]) {
+  const uint row = i / width4, m = row * mod_stride4 + (i - row * width4);
+  const float4 one_plus = float4(bfloat4(1.0f + float4(reinterpret_cast<device const bfloat4*>(scale)[m])));
+  const float4 scaled = float4(bfloat4(float4(branch[i]) * one_plus));
+  const float4 shifted = float4(bfloat4(scaled + float4(reinterpret_cast<device const bfloat4*>(shift)[m])));
+  out[i] = bfloat4(float4(x[i]) + shifted);
+}
+
+// autocast's BF16 cast of RMSNorm(x)
+kernel void norm_operand(
+    device bfloat4* out [[buffer(0)]], device const bfloat4* x [[buffer(1)]],
+    device const float* r [[buffer(2)]], device const float4* w [[buffer(3)]],
+    constant uint& width4 [[buffer(4)]], uint i [[thread_position_in_grid]]) {
+  const uint row = i / width4;
+  out[i] = bfloat4(normed(x, r, w, i, uint2(i - row * width4, row)));
+}
+
+template [[host_name("norm_modulate_float")]] kernel void norm_modulate<float>(
+    device const float4*, device const float*, device const float4*, device const float*,
+    device const float*, device float4*, constant uint&, constant uint&, constant uint&, uint2);
+template [[host_name("norm_modulate_bfloat")]] kernel void norm_modulate<bfloat>(
+    device const bfloat4*, device const float*, device const float4*, device const float*,
+    device const float*, device float4*, constant uint&, constant uint&, constant uint&, uint2);
+"""
+
+
+@cache
+def _library():
+    return torch.mps.compile_shader(_TAILS)
+
+
+def _rows(mod: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+    return mod.reshape(x.shape[0], x.shape[-1])
+
+
+def _aligned(t: torch.Tensor) -> bool:
+    """Rows the kernels can read as aligned four-element vectors."""
+    return t.stride(-1) == 1 and t.storage_offset() % 4 == 0 and (t.dim() < 2 or t.stride(-2) % 4 == 0)
+
+
+def _fusable(norm: nn.Module, x: torch.Tensor, *mods: torch.Tensor) -> bool:
+    if torch.is_grad_enabled() or x.device.type != "mps" or not isinstance(norm, RMSNorm):
+        return False
+    batch, width = x.shape[0], x.shape[-1]
+    return (
+        x.dim() == 3
+        and x.dtype in (torch.float32, torch.bfloat16)
+        and x.is_contiguous()
+        and _aligned(x)
+        and width % 4 == 0
+        and x.numel() < 2**31
+        and norm.weight.dtype == torch.float32
+        and norm.weight.shape == (width,)
+        and _aligned(norm.weight)
+        and all(
+            m.dtype == torch.float32 and m.shape == (batch, 1, width) and _aligned(_rows(m, x)) for m in mods
+        )
+        and (batch == 1 or len({_rows(m, x).stride(0) for m in mods}) == 1)
+    )
+
+
+def _elementwise(x: torch.Tensor, *others: torch.Tensor) -> bool:
+    """Contiguous BF16 MPS inference tensors shaped like ``x``."""
+    return (
+        not torch.is_grad_enabled()
+        and x.device.type == "mps"
+        and x.dtype == torch.bfloat16
+        and x.shape[-1] % 4 == 0
+        and 0 < x.numel() < 2**31
+        and all(
+            t.dtype == x.dtype and t.shape == x.shape and t.is_contiguous() and _aligned(t)
+            for t in (x, *others)
+        )
+    )
+
+
+def _row_views(x: torch.Tensor, *mods: torch.Tensor) -> bool:
+    """Rows of 3-D ``x`` at one aligned stride."""
+    return x.dim() == 3 and all(
+        m.dtype == x.dtype
+        and m.shape == x.shape
+        and _aligned(m)
+        and m.stride(0) == x.shape[1] * m.stride(1)
+        and x.shape[0] * m.stride(0) < 2**31
+        for m in mods
+    )
+
+
+def _elementwise_out(name: str, x: torch.Tensor, *args) -> torch.Tensor:
+    out = torch.empty_like(x)
+    n4 = x.numel() // 4
+    getattr(_library(), name)(out, x, *args, threads=[n4], group_size=[min(256, n4)])
+    return out
+
+
+def _inv_rms(norm: RMSNorm, x: torch.Tensor) -> torch.Tensor:
+    x32 = x.float()  # as RMSNorm.forward computes it
+    return torch.rsqrt(x32.pow(2).mean(dim=-1, keepdim=True) + norm.eps)
+
+
+def _fused(
+    name: str, norm: RMSNorm, x: torch.Tensor, mod_a: torch.Tensor, mod_b: torch.Tensor
+) -> torch.Tensor:
+    batch, tokens, width = x.shape
+    out = torch.empty(x.shape, device=x.device, dtype=torch.float32)
+    rows = batch * tokens
+    getattr(_library(), name)(
+        x, _inv_rms(norm, x), norm.weight, mod_a, mod_b, out, width // 4, tokens,
+        mod_a.stride(0) if batch > 1 else 0,
+        threads=[width // 4, rows], group_size=[min(64, width // 4), min(4, rows)],
+    )  # fmt: skip
+    return out
 
 
 class SharedCoreModulation(nn.Module):

@@ -10,8 +10,8 @@ import torch
 from torch import nn
 
 from iris3b.nn.attention import JointAttention
-from iris3b.nn.mlp import SwiGLU
-from iris3b.nn.modulation import ModulationBuilder, modulate
+from iris3b.nn.mlp import SwiGLU, autocast_operand
+from iris3b.nn.modulation import ModulationBuilder, gated_norm_residual, norm_modulate
 from iris3b.nn.norms import RMSNorm
 from iris3b.registry import BLOCKS
 
@@ -108,8 +108,8 @@ class MMDiTBlock(nn.Module):
         )
         (xs1, xc1, xg1, xs2, xc2, xg2) = mods_x.chunk(6, dim=-1)
         (ys1, yc1, yg1, ys2, yc2, yg2) = mods_y.chunk(6, dim=-1)
-        hx = modulate(self.norm_x1(x), xs1, xc1)
-        hy = modulate(self.norm_y1(y), ys1, yc1)
+        hx = autocast_operand(norm_modulate(self.norm_x1, x, xs1, xc1))
+        hy = autocast_operand(norm_modulate(self.norm_y1, y, ys1, yc1))
         attn_x, attn_y = self.attn(
             hx,
             hy,
@@ -118,10 +118,11 @@ class MMDiTBlock(nn.Module):
             gate_x=None if self.attn_gate_x is None else torch.sigmoid(self.attn_gate_x(hx)),
             gate_y=None if self.attn_gate_y is None else torch.sigmoid(self.attn_gate_y(hy)),
         )
-        x = x + xg1 * self.attn_post_norm_x(attn_x)
-        x = x + xg2 * self.mlp_post_norm_x(self.mlp_x(modulate(self.norm_x2(x), xs2, xc2)))
+        x = gated_norm_residual(x, xg1, self.attn_post_norm_x, attn_x)
+        mlp_x = self.mlp_x(norm_modulate(self.norm_x2, x, xs2, xc2))
+        x = gated_norm_residual(x, xg2, self.mlp_post_norm_x, mlp_x)
         if not self.text_out:
             return x, y
-        y = y + yg1 * self.attn_post_norm_y(attn_y)
-        y = y + yg2 * self.mlp_post_norm_y(self.mlp_y(modulate(self.norm_y2(y), ys2, yc2)))
-        return x, y
+        y = gated_norm_residual(y, yg1, self.attn_post_norm_y, attn_y)
+        mlp_y = self.mlp_y(norm_modulate(self.norm_y2, y, ys2, yc2))
+        return x, gated_norm_residual(y, yg2, self.mlp_post_norm_y, mlp_y)

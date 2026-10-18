@@ -24,7 +24,7 @@ from torch import nn
 
 from iris3b.nn.attention import SelfAttention
 from iris3b.nn.mlp import GeluMLP
-from iris3b.nn.modulation import modulate
+from iris3b.nn.modulation import modulate, modulated_residual, norm_operand
 from iris3b.nn.norms import RMSNorm
 
 
@@ -87,6 +87,7 @@ class PiTBlock(nn.Module):
             x = x + gate2 * self.mlp(modulate(self.norm2(x), shift2, scale2))
         else:
             scale1, shift1, scale2, shift2 = mods.chunk(4, dim=-1)
-            x = x + modulate(self._global_attn(self.norm1(x), rope, grid), shift1, scale1)
-            x = x + modulate(self.mlp(self.norm2(x)), shift2, scale2)
+            attn = self._global_attn(norm_operand(self.norm1, x), rope, grid)
+            x = modulated_residual(x, attn, shift1, scale1)
+            x = modulated_residual(x, self.mlp(norm_operand(self.norm2, x)), shift2, scale2)
         return x

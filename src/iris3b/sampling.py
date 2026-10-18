@@ -1,5 +1,6 @@
 """End-to-end text-to-image generation (used by inference and train-time validation)."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 import torch
@@ -106,11 +107,14 @@ def generate_few_step(
     noise: torch.Tensor | None = None,
     num_train_timesteps: int = 1000,
     prediction: str = "v",
+    *,
+    check: Callable[[torch.Tensor], object] | None = None,
 ) -> torch.Tensor:
     """Official deterministic few-step Iris-3B Turbo sampler, without CFG.
 
     Ported from speridlabs/iris-3b at cee0c130a62a9c288ad8918f1f7cdf23cc228d69.
     The checkpoint's distill.yaml defines the descending noise levels.
+    ``check``, when given, receives the final sample before clamping.
     """
     model_dtype = next(model.parameters()).dtype
     encoding = text_encoder.encode(prompts)
@@ -129,4 +133,6 @@ def generate_few_step(
             implied_noise = (x - (1 - sigma) * clean) / sigma
             sigma = torch.full_like(sigma, sigmas[i + 1])
             x = (1 - sigma) * clean + sigma * implied_noise
+    if check is not None:
+        check(clean)
     return clean.clamp(-1, 1)

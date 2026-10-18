@@ -17,6 +17,7 @@ RMSNorm statistics, BF16 linears, residuals and rotary products.
 
 import json
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 import torch
@@ -153,10 +154,11 @@ class StreamingQwen3VLEncoder:
         x = rms_norm(h, w["post_attention_layernorm"], self.eps)
         return h + F.linear(F.silu(F.linear(x, w["gate_proj"])) * F.linear(x, w["up_proj"]), w["down_proj"])
 
-    def encode(self, texts: list[str]) -> TextEncoding:
-        """``[B, max_length, layers, dim]`` states and ``[B, max_length]`` mask for ``texts``."""
+    def encode(self, texts: list[str], raise_if_cancelled: Callable[[], None] | None = None) -> TextEncoding:
+        """``[B, max_length, layers, dim]`` states and ``[B, max_length]`` mask for ``texts``.
+        ``raise_if_cancelled`` runs before each layer is read."""
         try:
-            return self._encode(texts)
+            return self._encode(texts, raise_if_cancelled)
         finally:
             try:
                 if self._sources:
@@ -167,7 +169,7 @@ class StreamingQwen3VLEncoder:
                 self._readers.clear()  # closes the shard files (8 GB mapped) between requests
 
     @torch.no_grad()
-    def _encode(self, texts: list[str]) -> TextEncoding:
+    def _encode(self, texts: list[str], raise_if_cancelled: Callable[[], None] | None) -> TextEncoding:
         sequences = self._token_ids(texts)
         states = [self._embed(ids) for ids in sequences]
         ropes = [self._rope(len(ids)) for ids in sequences]
@@ -179,6 +181,8 @@ class StreamingQwen3VLEncoder:
             **{p: f"mlp.{p}" for p in ("gate_proj", "up_proj", "down_proj")},
         }
         for index in range(max(self.hidden_layers)):
+            if raise_if_cancelled is not None:
+                raise_if_cancelled()
             weights = {key: self._tensor(f"layers.{index}.{name}.weight") for key, name in names.items()}
             for i, (cos, sin) in enumerate(ropes):
                 states[i] = self._layer(states[i], cos, sin, weights)

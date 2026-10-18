@@ -41,7 +41,10 @@ class FlowDPMSolver:
         cfg_scale: float = 1.0,
         cfg_interval: tuple[float, float] = (0.0, 1.0),
         prediction: str = "v",
+        reuse_cfg_text: bool = False,
     ):
+        """``reuse_cfg_text`` passes one CFG text batch to every guided call
+        of a ``sample``; ``model_fn`` must then not modify its text input."""
         self.model_fn = model_fn
         self.num_timesteps = num_timesteps
         self.cfg_scale = cfg_scale
@@ -49,20 +52,24 @@ class FlowDPMSolver:
         if prediction not in ("v", "x"):
             raise ValueError(f"unknown prediction type '{prediction}'")
         self.prediction = prediction
+        self.reuse_cfg_text = reuse_cfg_text
+        self._cfg_text: torch.Tensor | None = None
 
     def _model_out(
         self, x: torch.Tensor, t: float, cond: torch.Tensor, uncond: torch.Tensor | None
     ) -> torch.Tensor:
-        t_model = torch.full((x.shape[0],), t * self.num_timesteps, device=x.device, dtype=torch.float32)
         lo, hi = self.cfg_interval
         use_cfg = uncond is not None and self.cfg_scale != 1.0 and lo < t < hi
+        rows = 2 * x.shape[0] if use_cfg else x.shape[0]
+        t_model = torch.full((rows,), t * self.num_timesteps, device=x.device, dtype=torch.float32)
         if not use_cfg:
             return self.model_fn(x, t_model, cond)
-        out = self.model_fn(
-            torch.cat([x, x], dim=0),
-            torch.cat([t_model, t_model], dim=0),
-            torch.cat([uncond, cond], dim=0),
-        )
+        text = self._cfg_text
+        if text is None:
+            text = torch.cat([uncond, cond], dim=0)
+            if self.reuse_cfg_text:
+                self._cfg_text = text
+        out = self.model_fn(torch.cat([x, x], dim=0), t_model, text)
         out_uncond, out_cond = out.chunk(2, dim=0)
         return out_uncond + self.cfg_scale * (out_cond - out_uncond)
 
@@ -114,6 +121,7 @@ class FlowDPMSolver:
         """Integrate from noise ``z`` to a sample. Multistep, lower-order final."""
         grid = self.time_grid(steps, shift)
         x = z
+        self._cfg_text = None
         history: list[tuple[float, torch.Tensor]] = []
         for i in range(1, steps + 1):
             s, t = grid[i - 1], grid[i]
@@ -129,4 +137,5 @@ class FlowDPMSolver:
                 x = self._second_order(x, history[-2], history[-1], t)
             if len(history) > 2:
                 history.pop(0)
+        self._cfg_text = None
         return x

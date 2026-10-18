@@ -17,6 +17,7 @@ from torch import nn
 from iris3b.config import ModelConfig
 from iris3b.models import ac
 from iris3b.models.blocks.pit import PiTBlock
+from iris3b.models.blocks.single_stream import SingleStreamBlock
 from iris3b.nn.embeddings import (
     LayerwiseTextEmbedder,
     PatchEmbedder,
@@ -24,8 +25,9 @@ from iris3b.nn.embeddings import (
     TextEmbedder,
     TimestepEmbedder,
     TransformerTextEmbedder,
+    trim_shape_cache,
 )
-from iris3b.nn.modulation import ModulationBuilder
+from iris3b.nn.modulation import ModulationBuilder, norm_operand
 from iris3b.nn.norms import RMSNorm
 from iris3b.nn.rope import rope_1d, rope_2d
 from iris3b.registry import BLOCKS
@@ -57,7 +59,7 @@ class FinalLayer(nn.Module):
         self.linear = nn.Linear(hidden_size, out_dim, bias=True)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.linear(self.norm(x))
+        return self.linear(norm_operand(self.norm, x))
 
 
 class IrisDiT(nn.Module):
@@ -217,6 +219,7 @@ class IrisDiT(nn.Module):
         key = (grid, str(device))
         if key not in self._rope_img:
             head_dim = self.cfg.hidden_size // self.cfg.num_heads
+            trim_shape_cache(self._rope_img, bounded=not self.training)
             self._rope_img[key] = rope_2d(
                 head_dim,
                 grid[0],
@@ -235,6 +238,7 @@ class IrisDiT(nn.Module):
         key = (length, str(device))
         if key not in self._rope_txt:
             head_dim = self.cfg.hidden_size // self.cfg.num_heads
+            trim_shape_cache(self._rope_txt, bounded=not self.training)
             self._rope_txt[key] = rope_1d(head_dim, length, theta=self.cfg.text_rope_theta).to(device)
         return self._rope_txt[key]
 
@@ -244,6 +248,7 @@ class IrisDiT(nn.Module):
             head_dim = self.cfg.pixel.attn_hidden_size // self.cfg.pixel.num_heads
             # no frame axis here: in-context reference images would carry patch
             # tokens only and never enter the per-pixel pathway
+            trim_shape_cache(self._rope_pix, bounded=not self.training)
             self._rope_pix[key] = rope_2d(
                 head_dim,
                 grid[0],
@@ -336,11 +341,18 @@ class IrisDiT(nn.Module):
             {core: core(cond) for core in self.modulation_cores.values()} if precompute_modulation else None
         )
         features: dict[int, torch.Tensor] = {}
+        tokens = None  # joined [text | image] rows, inference only
         for i, block in enumerate(self.blocks):
-            inputs = (s, y, cond, rope_img, rope_txt)
-            if shared is not None:
-                inputs += (shared,)
-            s, y = ac.run(block, inputs, policy, i, every)
+            if shared is not None and isinstance(block, SingleStreamBlock):
+                if tokens is None:
+                    tokens = torch.cat([y, s], dim=1)
+                tokens = block.forward_joint(tokens, y.shape[1], cond, rope_img, rope_txt, shared)
+                s = tokens[:, y.shape[1] :] if block.text_out else tokens
+            else:
+                inputs = (s, y, cond, rope_img, rope_txt)
+                if shared is not None:
+                    inputs += (shared,)
+                s, y = ac.run(block, inputs, policy, i, every)
             if i + 1 in capture:
                 features[i + 1] = s
 

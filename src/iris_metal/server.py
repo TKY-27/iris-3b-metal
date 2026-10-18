@@ -8,6 +8,8 @@ Endpoints (JSON unless noted):
     POST   /v1/upscale?budget=1&color_fix=1
                                    image file as the body -> 202 {"id"}
     GET    /v1/jobs/<id>           status, progress (steps; tiles of an upscale), timing, error
+                                   and a revision; with ?after=<revision>&wait=<seconds>, answers
+                                   once the revision changes or the job ends (at most 10 s)
     GET    /v1/jobs/<id>/image     the result PNG (depth: 16-bit, near = bright)
     DELETE /v1/jobs/<id>           cancel a queued job, a generation at its next step or
                                    an upscale at its next tile (depth runs in one pass)
@@ -24,6 +26,7 @@ name a foreign host (DNS rebinding) are refused with 403. Bound to a wildcard
 address, the server cannot tell its own names apart and skips the host check.
 """
 
+import contextlib
 import io
 import itertools
 import json
@@ -57,6 +60,9 @@ MAX_DEPTH_SIDE = 2048
 # without the budget, inputs may cover what the budget would leave (512 x 1024; 2048 x 4096 at 4x)
 MAX_UNBUDGETED_UPSCALE_PIXELS = 512 * 1024
 KEEP_FINISHED = 32
+MAX_JOB_WAIT_S = 10  # each long poll holds a thread
+MAX_JOB_WAITERS = 16
+FINISHED = ("done", "failed", "cancelled")
 REQUEST_TIMEOUT_S = 120  # a stalled client cannot hold a handler thread forever
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
@@ -82,9 +88,20 @@ class Job:
     seconds: float | None = None
     metadata: dict | None = None
     cancel: threading.Event = field(default_factory=threading.Event)
+    revision: int = 0
+    changed: threading.Condition | None = None  # the runner's, to wake status waiters
+
+    def update(self, **fields) -> None:
+        """Set summary fields as one new revision."""
+        with self.changed or contextlib.nullcontext():
+            for key, value in fields.items():
+                setattr(self, key, value)
+            self.revision += 1
+            if self.changed is not None:
+                self.changed.notify_all()
 
     def on_step(self, step: int, total: int) -> None:
-        self.step, self.steps = step, total
+        self.update(step=step, steps=total)
         self.raise_if_cancelled()
 
     def raise_if_cancelled(self) -> None:
@@ -102,6 +119,7 @@ class Job:
             "error": self.error,
             "params": self.params,
             "metadata": self.metadata,
+            "revision": self.revision,
         }
 
 
@@ -162,9 +180,11 @@ class Models:
     def task(self, name: str):
         if self._task is None or self._task[0] != name:
             self._task = None
+            released = self.pipe is not None and self.pipe.loaded  # unload() then releases
             if self.pipe is not None:
                 self.pipe.unload()
-            release_memory()  # also after a different task model, which unload() does not cover
+            if not released:
+                release_memory()  # e.g. after a different task model
             self._task = (name, self._load_task(name))
         return self._task[1]
 
@@ -250,6 +270,19 @@ def upscale_params(query: dict, image: Image.Image) -> dict:
     return params
 
 
+def status_wait(query: dict) -> tuple[int, float] | None:
+    """``(after, seconds)`` of a status long poll; None answers at once."""
+    if "after" not in query or "wait" not in query:
+        return None
+    try:
+        after, seconds = int(query["after"]), float(query["wait"])
+    except ValueError:
+        raise ValueError("after must be an integer and wait a number of seconds") from None
+    if after < 0 or not seconds >= 0:
+        raise ValueError("after and wait must not be negative")
+    return after, min(seconds, MAX_JOB_WAIT_S)
+
+
 def host_name(header: str) -> str:
     """``Host`` header -> the name without port or IPv6 brackets."""
     if header.startswith("["):
@@ -280,8 +313,10 @@ class JobRunner:
         self.max_queued = max_queued
         self.jobs: dict[str, Job] = {}
         self._pending: deque[Job] = deque()
-        self.lock = threading.Condition()
+        self.lock = threading.Condition()  # also wakes status waiters: notify_all
         self.intake = threading.BoundedSemaphore(2)
+        self._waiters = threading.BoundedSemaphore(MAX_JOB_WAITERS)
+        self.closed = False
         self._ids = itertools.count(1)
         threading.Thread(target=self._work, name="iris-worker", daemon=True).start()
 
@@ -296,32 +331,52 @@ class JobRunner:
 
     def submit(self, kind: str, params: dict, work: Callable[[Job], bytes]) -> Job:
         """Queues a job; raises queue.Full when ``max_queued`` jobs are already waiting."""
-        job = Job(id=str(next(self._ids)), kind=kind, params=params, work=work)
+        job = Job(id=str(next(self._ids)), kind=kind, params=params, work=work, changed=self.lock)
         with self.lock:
             if self.queued >= self.max_queued:
                 raise queue.Full
             self.jobs[job.id] = job
-            finished = [j for j in self.jobs.values() if j.status in ("done", "failed", "cancelled")]
+            finished = [j for j in self.jobs.values() if j.status in FINISHED]
             for old in sorted(finished, key=lambda j: j.created)[:-KEEP_FINISHED]:
                 del self.jobs[old.id]
             self._pending.append(job)
-            self.lock.notify()
+            self.lock.notify_all()
         return job
 
     def cancel(self, job: Job) -> None:
         with self.lock:  # a queued job is cancelled at once, not when the worker reaches it
             job.cancel.set()
             if job.status == "queued":
-                job.status = "cancelled"
                 job.work = None
                 self._pending.remove(job)
+                job.update(status="cancelled")
+
+    def wait(self, job: Job, after: int, seconds: float) -> dict:
+        """``job``'s summary once its revision is not ``after``, it has finished
+        or ``seconds`` have passed; at once while too many requests wait."""
+        if not self._waiters.acquire(blocking=False):
+            return job.summary()
+        try:
+            with self.lock:
+                self.lock.wait_for(
+                    lambda: job.revision != after or job.status in FINISHED or self.closed, seconds
+                )
+                return job.summary()
+        finally:
+            self._waiters.release()
+
+    def close(self) -> None:
+        """Answer every status waiter now, e.g. at shutdown."""
+        with self.lock:
+            self.closed = True
+            self.lock.notify_all()
 
     def _work(self) -> None:
         while True:
             with self.lock:
                 self.lock.wait_for(lambda: self._pending)
                 job = self._pending.popleft()
-                job.status = "running"
+                job.update(status="running")
             start = time.perf_counter()
             result = None
             try:
@@ -334,9 +389,11 @@ class JobRunner:
             finally:
                 job.work = None
             with self.lock:
-                job.seconds = time.perf_counter() - start
                 job.png = None if job.cancel.is_set() else result
-                job.status = "cancelled" if job.cancel.is_set() else status
+                job.update(
+                    seconds=time.perf_counter() - start,
+                    status="cancelled" if job.cancel.is_set() else status,
+                )
 
 
 def text_to_image_job(
@@ -356,10 +413,10 @@ def text_to_image_job(
             for control in default_controls:
                 options[control] = getattr(pipe.cfg.sample, control)
             normalized = validate({"prompt": prompt, "model": model, **options}, pipe.cfg.sample)
-            job.params.update(normalized)
+            job.update(params={**job.params, **normalized})  # never mutated while serialized
             options = {key: value for key, value in normalized.items() if key not in ("prompt", "model")}
         job.raise_if_cancelled()
-        image = pipe([prompt], on_step=job.on_step, **options)[0]
+        image = pipe([prompt], on_step=job.on_step, raise_if_cancelled=job.raise_if_cancelled, **options)[0]
         job.raise_if_cancelled()
         job.metadata = getattr(pipe, "last_metadata", None)
         return png(image)
@@ -389,7 +446,7 @@ def upscale_job(models: Models, image: Image.Image, budget: bool, color_fix: boo
             result = restorer(source, color_fix=color_fix)
         finally:
             restorer.on_tile = None
-        job.step = total
+        job.update(step=total)
         return png(result)
 
     return work
@@ -462,6 +519,7 @@ def make_handler(runner: JobRunner):
                         "api_version": 1,
                         "supported_models": models.supported_models,
                         "loaded_model": models.loaded_model,
+                        "max_job_wait_seconds": MAX_JOB_WAIT_S,
                     },
                 )
                 return
@@ -470,7 +528,12 @@ def make_handler(runner: JobRunner):
             if job is None:
                 return
             if not image:
-                self._send(200, job.summary())
+                try:
+                    wait = status_wait({key: values[-1] for key, values in parse_qs(url.query).items()})
+                except ValueError as exc:
+                    self._send(400, {"error": str(exc)})
+                    return
+                self._send(200, job.summary() if wait is None else runner.wait(job, *wait))
             elif job.png is None:
                 self._send(409, {"error": f"job is {job.status}"})
             else:
@@ -557,6 +620,11 @@ class LocalServer6(LocalServer):
 
 def serve(models: Models, host: str = "127.0.0.1", port: int = 8765, max_queued: int = 8) -> None:
     server_type = LocalServer6 if ":" in host else LocalServer
-    server = server_type((host, port), make_handler(JobRunner(models, max_queued)))
+    runner = JobRunner(models, max_queued)
+    server = server_type((host, port), make_handler(runner))
     print(f"iris-metal serving on http://{f'[{host}]' if ':' in host else host}:{port}", flush=True)
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        runner.close()
+        server.server_close()

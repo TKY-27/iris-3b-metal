@@ -2,6 +2,7 @@
 
 import io
 import json
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -59,6 +60,69 @@ def test_official_sampler_matches_independent_flow_euler_and_calls_once_per_sigm
     assert torch.equal(noise, model.calls[0][0])
 
 
+class ScriptedModel(ToyModel):
+    """Returns a fixed prediction at each call."""
+
+    def __init__(self, outputs):
+        super().__init__()
+        self.outputs = list(outputs)
+
+    def forward(self, x, t, y, y_mask):
+        return SimpleNamespace(x=torch.full_like(x, self.outputs.pop(0)))
+
+
+@pytest.mark.parametrize("prediction", ["v", "x"])
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_turbo_rejects_non_finite_final_sample_before_clamping(prediction, bad):
+    from iris_metal.model import require_finite
+
+    def sample(check=None):
+        model = ScriptedModel([0.0, 0.0, 0.0, bad])
+        noise = torch.zeros(1, 3, 4, 4)
+        args = (model, ToyEncoder(), ["a"], 4, 4, list(TURBO_SIGMAS))
+        return generate_few_step(*args, noise=noise, device="cpu", prediction=prediction, check=check)
+
+    assert torch.isfinite(sample()).all().item() == (not math.isnan(bad))  # clamp hides infinities
+    with pytest.raises(FloatingPointError):
+        sample(check=require_finite)
+
+
+def test_turbo_rejects_overflow_in_the_final_update():
+    from iris_metal.model import require_finite
+
+    def sample(check=None):
+        model = ScriptedModel([0.0, 0.0, 0.0, -1e38])  # every prediction is finite
+        noise = torch.full((1, 3, 4, 4), 3e38)
+        return generate_few_step(
+            model, ToyEncoder(), ["a"], 4, 4, list(TURBO_SIGMAS), noise=noise, device="cpu", check=check
+        )
+
+    assert torch.equal(sample(), torch.ones(1, 3, 4, 4))
+    with pytest.raises(FloatingPointError):
+        sample(check=require_finite)
+
+
+def test_turbo_check_sees_final_sample_and_leaves_result_unchanged():
+    noise = torch.randn(2, 3, 16, 32, generator=torch.Generator().manual_seed(17))
+    seen = []
+    args = (ToyEncoder(), ["abc", "d"], 16, 32, list(TURBO_SIGMAS))
+    plain = generate_few_step(ToyModel(), *args, noise=noise, device="cpu")
+    checked = generate_few_step(ToyModel(), *args, noise=noise, device="cpu", check=seen.append)
+    assert plain.view(torch.int32).equal(checked.view(torch.int32))
+    assert len(seen) == 1 and seen[0].abs().max() > 1  # unclamped
+    assert checked.view(torch.int32).equal(seen[0].clamp(-1, 1).view(torch.int32))
+
+
+def test_turbo_pipeline_raises_on_non_finite_output(tmp_path, monkeypatch):
+    _pipeline(tmp_path, monkeypatch)
+    write_distill(tmp_path)
+    pipe = IrisPipeline(tmp_path, device="cpu")
+    pipe._engine = ScriptedModel([0.0, 0.0, 0.0, float("inf")])
+    with pytest.raises(FloatingPointError):
+        pipe(["cat"], height=16, width=16, seed=5)
+    assert pipe.last_metadata is None
+
+
 def test_distill_recipe_rejects_modified_schedule_or_stochastic_mode(tmp_path):
     assert load_sigmas(tmp_path) is None
     write_distill(tmp_path)
@@ -93,7 +157,7 @@ def test_turbo_pipeline_uses_only_positive_prompt_and_reports_four_steps(tmp_pat
     assert not pipe.loaded
 
 
-def test_turbo_prepares_text_once_per_request_and_recovers_after_cancel(tmp_path, monkeypatch):
+def test_turbo_reuses_exact_prepared_text_across_requests_and_cancel(tmp_path, monkeypatch):
     from test_metal_engine import _inputs, _randomized_model
 
     _pipeline(tmp_path, monkeypatch)
@@ -113,10 +177,13 @@ def test_turbo_prepares_text_once_per_request_and_recovers_after_cancel(tmp_path
 
         with pytest.raises(RuntimeError, match="cancelled"):
             pipe(["cat"], height=16, width=32, seed=5, on_step=cancel)
+        assert pipe(["cat"], height=16, width=32, seed=5)[0].tobytes() == expected
+        assert len(calls) == 1  # one exact adaptation for every request
+        states.mul_(1.0)  # an in-place write invalidates it
+        assert pipe(["cat"], height=16, width=32, seed=5)[0].tobytes() == expected
         assert len(calls) == 2
-        actual = pipe(["cat"], height=16, width=32, seed=5)[0].tobytes()
-        assert len(calls) == 3
-        assert actual == expected
+        pipe.unload()
+        assert not pipe._adapted
     finally:
         handle.remove()
 
@@ -293,7 +360,8 @@ def test_bf16_linear_storage_is_exactly_upcast_then_autocast(tmp_path):
     load_weights(reduced, file, torch.device("cpu"), torch.bfloat16)
     x = torch.randn(7, 16)
     with torch.no_grad(), torch.autocast("cpu", dtype=torch.bfloat16):
-        assert torch.equal(reference(x), reduced(x))
+        expected, actual = reference(x), reduced(x)
+    assert torch.isfinite(actual).all() and actual.view(torch.int32).equal(expected.view(torch.int32))
     assert reference.linear.weight.dtype == torch.float32
     assert reduced.linear.weight.dtype == torch.bfloat16
     assert reduced.norm.weight.dtype == torch.float32
@@ -341,7 +409,7 @@ def test_http_startup_and_turbo_first_request_never_resolve_original(tmp_path, m
     import iris_metal.server as server_module
     from iris_metal import cli
 
-    monkeypatch.setattr(cli.torch.backends.mps, "is_available", lambda: True)
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
     calls = []
 
     def resolve(name, revision, model="original"):
@@ -355,7 +423,7 @@ def test_http_startup_and_turbo_first_request_never_resolve_original(tmp_path, m
         loaded = False
         cfg = SimpleNamespace(sample=SimpleNamespace(steps=100, cfg_scale=3.0, negative_prompt=""))
 
-    monkeypatch.setattr(cli, "IrisPipeline", lambda checkpoint: Pipe())
+    monkeypatch.setattr("iris_metal.pipeline.IrisPipeline", lambda checkpoint: Pipe())
     captured = []
     monkeypatch.setattr(server_module, "serve", lambda models, *args: captured.append(models))
     cli.serve_main([])

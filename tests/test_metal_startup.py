@@ -222,3 +222,28 @@ def test_partial_checkpoint_snapshot_uses_existing_download_fallback(tmp_path, m
     assert calls == [
         (REPO_ID, {"revision": REVISION, "allow_patterns": ["config.yaml", "model.safetensors"]})
     ]
+
+
+def test_task_exports_resolve_from_a_complete_immutable_cache(tmp_path, monkeypatch):
+    import huggingface_hub
+
+    from iris_metal.tasks import resolve_task
+
+    folder = tmp_path / "snapshot/upscaler"
+    folder.mkdir(parents=True)
+    for name in ("config.yaml", "model.safetensors", "empty_prompt.safetensors"):
+        (folder / name).write_text("fixture")
+    monkeypatch.setattr(
+        cache, "try_to_load_from_cache", lambda repo, name, revision: str(tmp_path / "snapshot" / name)
+    )
+    downloads = []
+    monkeypatch.setattr(
+        huggingface_hub, "snapshot_download", lambda *a, **k: downloads.append(k) or str(tmp_path / "hub")
+    )
+    assert resolve_task("org/repo", "restoration", "a" * 40) == folder
+    assert downloads == []
+    assert resolve_task("org/repo", "restoration", "main") == tmp_path / "hub/upscaler"  # mutable
+    (folder / "empty_prompt.safetensors").write_text("")  # partial download
+    assert resolve_task("org/repo", "restoration", "a" * 40) == tmp_path / "hub/upscaler"
+    assert [k["allow_patterns"] for k in downloads] == [["upscaler/*"], ["upscaler/*"]]
+    assert resolve_task(str(tmp_path / "snapshot"), "restoration", None) == folder  # local export

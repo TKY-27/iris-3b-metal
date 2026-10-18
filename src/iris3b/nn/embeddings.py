@@ -9,6 +9,14 @@ from iris3b.nn.attention import SelfAttention
 from iris3b.nn.mlp import SwiGLU
 from iris3b.nn.norms import RMSNorm
 
+SHAPE_CACHE_SIZE = 4  # per-size tables kept at inference
+
+
+def trim_shape_cache(cache: dict, bounded: bool = True) -> None:
+    """Drop the oldest tables of a bounded cache to make room for one more."""
+    while bounded and len(cache) >= SHAPE_CACHE_SIZE:
+        del cache[next(iter(cache))]
+
 
 class TimestepEmbedder(nn.Module):
     """Sinusoidal timestep features + 2-layer SiLU MLP.
@@ -304,6 +312,7 @@ class PixelEmbedder(nn.Module):
         if table is None:
             table = sincos_pos_embed_2d(self.proj.out_features, height, width)
             table = table.reshape(height, width, -1).to(device=device, dtype=dtype)
+            trim_shape_cache(self._pos_cache, bounded=not self.training)
             self._pos_cache[key] = table
         return table
 

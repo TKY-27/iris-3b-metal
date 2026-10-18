@@ -10,8 +10,8 @@ import torch
 from torch import nn
 
 from iris3b.nn.attention import scaled_dot_product
-from iris3b.nn.mlp import SwiGLU
-from iris3b.nn.modulation import ModulationBuilder, modulate
+from iris3b.nn.mlp import SwiGLU, autocast_operand
+from iris3b.nn.modulation import ModulationBuilder, gated_norm_residual, norm_modulate
 from iris3b.nn.norms import RMSNorm
 from iris3b.nn.rope import apply_rope
 from iris3b.registry import BLOCKS
@@ -79,8 +79,26 @@ class SingleStreamBlock(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """``cond``: [B, 1, D]. The returned text stream is the untouched input
         when ``text_out`` is False."""
-        batch, n_img, dim = x.shape
         n_txt = y.shape[1]
+        tokens = self.forward_joint(
+            torch.cat([y, x], dim=1), n_txt, cond, rope_img, rope_txt, shared_modulation
+        )
+        if not self.text_out:
+            return tokens, y
+        return tokens[:, n_txt:], tokens[:, :n_txt]
+
+    def forward_joint(
+        self,
+        tokens: torch.Tensor,
+        n_txt: int,
+        cond: torch.Tensor,
+        rope_img: torch.Tensor,
+        rope_txt: torch.Tensor | None = None,
+        shared_modulation: dict[nn.Linear, torch.Tensor] | None = None,
+    ) -> torch.Tensor:
+        """``tokens``: [B, T + L, D], text rows first. Returns them updated, or
+        only the image rows when ``text_out`` is False."""
+        batch, n_tokens, dim = tokens.shape
         mods = (
             self.adaln(cond)
             if shared_modulation is None
@@ -88,9 +106,8 @@ class SingleStreamBlock(nn.Module):
         )
         (s1, c1, g1, s2, c2, g2) = mods.chunk(6, dim=-1)
 
-        tokens = torch.cat([y, x], dim=1)
-        h = modulate(self.norm1(tokens), s1, c1)
-        n_tokens = n_txt + n_img
+        modulated = norm_modulate(self.norm1, tokens, s1, c1)
+        h = autocast_operand(modulated)
         if self.qkv is not None:
             q, k, v = self.qkv(h).reshape(batch, n_tokens, 3, self.num_heads, self.head_dim).unbind(2)
         else:
@@ -98,13 +115,15 @@ class SingleStreamBlock(nn.Module):
             k = self.k_proj(h).reshape(batch, n_tokens, self.num_kv_heads, self.head_dim)
             v = self.v_proj(h).reshape(batch, n_tokens, self.num_kv_heads, self.head_dim)
         q, k = self.q_norm(q), self.k_norm(k)
-        qx, kx = apply_rope(q[:, n_txt:], k[:, n_txt:], rope_img)
-        qy, ky = q[:, :n_txt], k[:, :n_txt]
-        if rope_txt is not None:
-            qy, ky = apply_rope(qy, ky, rope_txt)
-        q = torch.cat([qy, qx], dim=1).transpose(1, 2)
-        k = torch.cat([ky, kx], dim=1).transpose(1, 2)
-        v = v.transpose(1, 2)
+        if rope_txt is not None and not torch.is_grad_enabled():
+            q, k = apply_rope(q, k, torch.cat([rope_txt, rope_img]))  # one pass, same values
+        else:
+            qx, kx = apply_rope(q[:, n_txt:], k[:, n_txt:], rope_img)
+            qy, ky = q[:, :n_txt], k[:, :n_txt]
+            if rope_txt is not None:
+                qy, ky = apply_rope(qy, ky, rope_txt)
+            q, k = torch.cat([qy, qx], dim=1), torch.cat([ky, kx], dim=1)
+        q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
         attn = scaled_dot_product(
             q,
             k,
@@ -116,13 +135,9 @@ class SingleStreamBlock(nn.Module):
         if not self.text_out:
             # text still supplied keys and values to the attention above; from
             # here on only the image rows are computed
-            attn, h, tokens = attn[:, n_txt:], h[:, n_txt:], x
+            attn, h, tokens = attn[:, n_txt:], modulated[:, n_txt:], tokens[:, n_txt:]
         if self.attn_gate is not None:
             attn = attn * torch.sigmoid(self.attn_gate(h))
-        attn = self.attn_post_norm(self.attn_proj(attn))
-        tokens = tokens + g1 * attn
-        mlp = self.mlp(modulate(self.norm2(tokens), s2, c2))
-        tokens = tokens + g2 * self.mlp_post_norm(mlp)
-        if not self.text_out:
-            return tokens, y
-        return tokens[:, n_txt:], tokens[:, :n_txt]
+        tokens = gated_norm_residual(tokens, g1, self.attn_post_norm, self.attn_proj(attn))
+        mlp = self.mlp(norm_modulate(self.norm2, tokens, s2, c2))
+        return gated_norm_residual(tokens, g2, self.mlp_post_norm, mlp)

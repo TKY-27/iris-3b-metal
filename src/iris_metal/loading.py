@@ -1,5 +1,6 @@
 """Load a released Iris-3B checkpoint directory for Apple GPU inference."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 import torch
@@ -38,29 +39,39 @@ def linear_dtypes(model: nn.Module, trunk: torch.dtype) -> dict[str, torch.dtype
 
 
 def load_weights(
-    model: nn.Module, path: str | Path, device: torch.device, dtype: torch.dtype = torch.float16
+    model: nn.Module,
+    path: str | Path,
+    device: torch.device,
+    dtype: torch.dtype = torch.float16,
+    raise_if_cancelled: Callable[[], None] | None = None,
 ) -> nn.Module:
     """Stream a safetensors file into ``model``, built on the meta device.
 
     Linear weights and biases are stored as ``linear_dtypes(model, dtype)``
     says; everything else (norm gains, adaLN biases, position tables) stays
     FP32. Tensors are converted one at a time, so the FP32 checkpoint is never
-    resident.
+    resident. ``raise_if_cancelled`` runs before each tensor is read.
     """
     linear = linear_dtypes(model, dtype)
     state = {}
     with safe_open(str(path), framework="pt", device="cpu") as reader:
         keys = reader.keys()
         for key in keys:
+            if raise_if_cancelled is not None:
+                raise_if_cancelled()
             state[key] = reader.get_tensor(key).to(device).to(linear.get(key, torch.float32))
     model.load_state_dict(state, strict=True, assign=True)
     return model.eval().requires_grad_(False)
 
 
 def load_dit(
-    checkpoint: str | Path, cfg: Config, device: torch.device, dtype: torch.dtype = torch.float16
+    checkpoint: str | Path,
+    cfg: Config,
+    device: torch.device,
+    dtype: torch.dtype = torch.float16,
+    raise_if_cancelled: Callable[[], None] | None = None,
 ) -> IrisDiT:
     """The text-to-image model of a released checkpoint directory."""
     with torch.device("meta"):
         model = IrisDiT(cfg.model)
-    return load_weights(model, Path(checkpoint) / "model.safetensors", device, dtype)
+    return load_weights(model, Path(checkpoint) / "model.safetensors", device, dtype, raise_if_cancelled)

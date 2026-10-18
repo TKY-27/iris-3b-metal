@@ -28,6 +28,12 @@ def resolve_task(source: str | Path, task: str, revision: str | None) -> Path:
         return nested if (nested / "config.yaml").is_file() else Path(source)
     from huggingface_hub import snapshot_download
 
+    from iris_metal.cache import cached_snapshot
+
+    cached = cached_snapshot(str(source), revision, task=folder)
+    if cached is not None:
+        return cached
+
     root = snapshot_download(str(source), revision=revision, allow_patterns=[f"{folder}/*"])
     return Path(root) / folder
 
@@ -43,6 +49,13 @@ def check_upscale_input(image: Image.Image) -> None:
         raise ValueError(
             f"images to upscale may be at most {MAX_UPSCALE_ASPECT}:1, not {image.width} x {image.height}"
         )
+
+
+def _same_device(self, device: str | torch.device):
+    """The upstream ``to``: these engines stay on their load device."""
+    if torch.device(device).type != self.device.type:
+        raise NotImplementedError(f"load {type(self).__name__} again with device={str(device)!r}")
+    return self
 
 
 def depth_image(depth: np.ndarray) -> Image.Image:
@@ -65,6 +78,8 @@ def _read_export(path: Path, task: str) -> tuple[object, dict, dict]:
 
 class MetalDepth(DepthPredictor):
     """Relative log depth (-1 near, +1 far); see ``DepthPredictor.__call__``."""
+
+    to = _same_device
 
     def __init__(self, export: Path, device: str = "mps", attention_dtype: torch.dtype = torch.float16):
         cfg, _, prompt = _read_export(export, "depth")
@@ -96,6 +111,7 @@ class MetalRestorer(Restorer):
     """
 
     on_tile: Callable[[], None] | None = None
+    to = _same_device
 
     def __init__(self, export: Path, device: str = "mps", attention_dtype: torch.dtype = torch.float16):
         cfg, settings, prompt = _read_export(export, "restoration")

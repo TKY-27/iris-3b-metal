@@ -30,6 +30,7 @@ from iris3b.models.blocks.mmdit import MMDiTBlock
 from iris3b.models.blocks.pit import PiTBlock
 from iris3b.models.blocks.single_stream import SingleStreamBlock
 from iris3b.models.dit import IrisDiT
+from iris3b.nn.embeddings import trim_shape_cache
 from iris3b.nn.norms import RMSNorm
 from iris3b.nn.rope import rope_1d, rope_2d
 from iris_metal.kernels import (
@@ -165,6 +166,7 @@ class MetalIris:
                 aspect=cfg.rope_aspect,
             )
             text = rope_1d(HEAD_DIM, n_text, theta=cfg.text_rope_theta)
+            trim_shape_cache(self._ropes)
             self._ropes[key] = (
                 RopeTable.from_complex(text, image, device=self.device),
                 RopeTable.from_complex(pixel, device=self.device),

@@ -32,8 +32,13 @@ scripts and tests use consistent formatting; src/iris3b/data/datasets.py
 also keeps corrupt-sample retries within the batch's shape bucket.
 src/iris3b/sampling.py includes the official deterministic Turbo sampler from
 Speridlabs revision cee0c130a62a9c288ad8918f1f7cdf23cc228d69.
-src/iris3b/models/dit.py and models/blocks/{mmdit,single_stream}.py support
-exact, request-local conditioning reuse during Turbo inference.
+Inference-only changes that keep results bit-identical: src/iris3b/sampling.py
+checks the final Turbo sample before clamping; models/dit.py,
+models/blocks/{mmdit,single_stream}.py and
+nn/{norms,mlp,embeddings,modulation}.py reuse conditioning and casts, keep
+single-stream tokens joined, fuse normalization epilogues on Apple GPUs and
+bound per-size caches; flow/solver.py builds guidance inputs once; downstream/restoration.py
+skips unused colour-fix work. Training and gradient paths are unchanged.
 Turbo validation utilities: scripts/validate_turbo.py,
 scripts/pair_turbo_storage.py and scripts/profile_generation.py.
 

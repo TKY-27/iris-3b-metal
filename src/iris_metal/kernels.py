@@ -124,6 +124,7 @@ kernel void rms_norm_modulate(
     constant long& rows_per_batch [[buffer(6)]],
     constant long& width [[buffer(7)]],
     constant float& eps [[buffer(8)]],
+    constant long& mod_stride [[buffer(9)]],
     uint2 pos [[thread_position_in_grid]]) {
   const uint lane = pos.x;
   const long row = pos.y;
@@ -136,8 +137,8 @@ kernel void rms_norm_modulate(
   device const vec<T, 4>* x4 = reinterpret_cast<device const vec<T, 4>*>(xr);
   device vec<U, 4>* o4 = reinterpret_cast<device vec<U, 4>*>(out + row * width);
   device const float4* w4 = reinterpret_cast<device const float4*>(weight);
-  device const float4* sh4 = reinterpret_cast<device const float4*>(shift + batch * width);
-  device const float4* sc4 = reinterpret_cast<device const float4*>(scale + batch * width);
+  device const float4* sh4 = reinterpret_cast<device const float4*>(shift + batch * mod_stride);
+  device const float4* sc4 = reinterpret_cast<device const float4*>(scale + batch * mod_stride);
   for (long j = lane; j < width / 4; j += 32) {
     const float4 h = float4(x4[j]) * r * w4[j];
     o4[j] = vec<U, 4>(h * (1.0f + sc4[j]) + sh4[j]);
@@ -154,6 +155,7 @@ kernel void gated_residual_rms_norm(
     constant long& rows_per_batch [[buffer(5)]],
     constant long& width [[buffer(6)]],
     constant float& eps [[buffer(7)]],
+    constant long& mod_stride [[buffer(8)]],
     uint2 pos [[thread_position_in_grid]]) {
   const uint lane = pos.x;
   const long row = pos.y;
@@ -166,7 +168,7 @@ kernel void gated_residual_rms_norm(
   device const vec<T, 4>* b4 = reinterpret_cast<device const vec<T, 4>*>(br);
   device float4* x4 = reinterpret_cast<device float4*>(residual + row * width);
   device const float4* w4 = reinterpret_cast<device const float4*>(weight);
-  device const float4* g4 = reinterpret_cast<device const float4*>(gate + batch * width);
+  device const float4* g4 = reinterpret_cast<device const float4*>(gate + batch * mod_stride);
   for (long j = lane; j < width / 4; j += 32) {
     x4[j] += g4[j] * (float4(b4[j]) * r * w4[j]);
   }
@@ -176,7 +178,7 @@ kernel void gated_residual_rms_norm(
   template [[host_name("rms_norm_modulate_" #T "_" #U)]] kernel void rms_norm_modulate<T, U>(   \
       device const T*, device U*, device const float*, device const float*,                    \
       device const float*, constant long&, constant long&, constant long&, constant float&,    \
-      uint2);
+      constant long&, uint2);
 
 INSTANTIATE_ROW(float, bfloat);
 INSTANTIATE_ROW(float, float);
@@ -185,7 +187,7 @@ INSTANTIATE_ROW(float, half);
 #define INSTANTIATE_RESIDUAL(T)                                                                 \
   template [[host_name("gated_residual_rms_norm_" #T)]] kernel void gated_residual_rms_norm<T>( \
       device float*, device const T*, device const float*, device const float*,                 \
-      constant long&, constant long&, constant long&, constant float&, uint2);
+      constant long&, constant long&, constant long&, constant float&, constant long&, uint2);
 
 INSTANTIATE_RESIDUAL(bfloat);
 INSTANTIATE_RESIDUAL(float);
@@ -399,9 +401,13 @@ def _row_launch(rows: int) -> dict:
     return {"threads": [32, rows, 1], "group_size": [32, 8, 1]}
 
 
-def _per_batch(vector: torch.Tensor, batch: int, width: int) -> torch.Tensor:
-    """``[B, 1, D]`` modulation slice -> contiguous FP32 ``[B, D]``."""
-    return vector.reshape(batch, width).float().contiguous()
+def _per_batch(vector: torch.Tensor, batch: int, width: int) -> tuple[torch.Tensor, int]:
+    """``[B, 1, D]`` modulation slice -> FP32 ``[B, D]`` rows, read in place
+    when possible, and the element stride between them."""
+    rows = vector.reshape(batch, width).float()
+    if rows.stride(1) != 1 or rows.stride(0) % 4 or rows.storage_offset() % 4:
+        rows = rows.clone(memory_format=torch.contiguous_format)  # float4 loads need 16-byte alignment
+    return rows, rows.stride(0)
 
 
 def rms_norm_modulate(
@@ -424,17 +430,23 @@ def rms_norm_modulate(
     _require_fp32(weight=weight)
     _require(weight.numel() == width, "rms_norm_modulate gain width mismatch")
     out = torch.empty(x.shape, device=x.device, dtype=out_dtype)
+    shift, shift_stride = _per_batch(shift, batch, width)
+    scale, scale_stride = _per_batch(scale, batch, width)
+    if shift_stride != scale_stride:  # the kernel takes one stride
+        shift, scale = shift.contiguous(), scale.contiguous()
+        shift_stride = width
     name = f"rms_norm_modulate_{_TYPE_NAMES[x.dtype]}_{_TYPE_NAMES[out_dtype]}"
     getattr(_library(), name)(
         x,
         out,
         weight,
-        _per_batch(shift, batch, width),
-        _per_batch(scale, batch, width),
+        shift,
+        scale,
         batch * tokens,
         tokens,
         width,
         float(eps),
+        shift_stride,
         **_row_launch(batch * tokens),
     )
     return out
@@ -452,15 +464,17 @@ def gated_residual_rms_norm_(
     _require(branch.is_contiguous(), "gated_residual_rms_norm_ needs a contiguous branch")
     _require_fp32(residual=residual, weight=weight)
     _require(weight.numel() == width, "gated_residual_rms_norm_ gain width mismatch")
+    gate, gate_stride = _per_batch(gate, batch, width)
     getattr(_library(), f"gated_residual_rms_norm_{_TYPE_NAMES[branch.dtype]}")(
         residual,
         branch,
         weight,
-        _per_batch(gate, batch, width),
+        gate,
         batch * tokens,
         tokens,
         width,
         float(eps),
+        gate_stride,
         **_row_launch(batch * tokens),
     )
     return residual
