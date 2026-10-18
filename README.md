@@ -34,10 +34,10 @@ The upstream depth and restoration fine-tunes reuse the Iris architecture for re
 
 ## At a glance
 
-On a base M5 MacBook Pro with 24 GiB, the final 1024 × 1024 measurements
-were **12.07 s warm for official Turbo (4 steps)**, **38.38 s for Original
-(10 steps)** and **76.04 s for Original (20 steps)**. Peak process physical
-memory was **10.03 GiB for Turbo** and about **10.02 GiB for Original**.
+In the v0.5.0 release measurements on a base M5 MacBook Pro with 24 GiB,
+1024 × 1024 images took **12.07 s warm for official Turbo (4 steps)**,
+**38.38 s for Original (10 steps)** and **76.04 s for Original (20 steps)**.
+Peak process physical memory was **10.03 GiB for Turbo** and about **10.02 GiB for Original**.
 These are different models and step counts, not an engine-only speedup.
 See [conditions and ranges](#performance-details). Macs with 16 GB have not
 been tested.
@@ -81,15 +81,14 @@ Qwen3-VL-4B-Instruct text encoder from Hugging Face. Depth and restoration
 weights (about 12 GB each) download only when first used. Model weights are not
 included in the repository or release.
 
-```bash
-pipx install "git+https://github.com/TKY-27/iris-3b-metal@v0.5.0"
-iris-metal "A red fox sleeping in fresh snow, golden hour" --steps 20 -o fox.png
-```
+For the native app and engine, see [Install the macOS release](docs/macos-updates.md).
+That route does not require Git or Xcode. The v0.6.0 release files are
+an arm64 app ZIP and a matching Python wheel. The app uses a separately
+installed engine and does not include Python or model weights.
 
-`v0.5.0` is the repository, macOS app and Python engine release. [pipx](https://pipx.pypa.io)
-installs `iris-metal` in `~/.local/bin`, where the app can find it. Installing
-the package does not download model weights; the first inference does. A
-virtual environment with `pip install` also works.
+To install only the CLI or Python package from source, use the development
+instructions in [Development](#development). Installing the engine does not
+download model weights; the first inference does.
 
 **Explore:** [Usage](#usage) · [macOS app](#macos-app) · [Performance details](#performance-details) · [How it works](#how-it-works) · [Image quality](#image-quality) · [Development](#development) · [License and credits](#license-and-credits)
 
@@ -104,7 +103,7 @@ virtual environment with `pip install` also works.
   is baked into the weights; steps, CFG and negative prompts cannot be adjusted.
   This is a separate model with different image characteristics from Original.
   Turbo retains the official BF16 forward on MPS; a 1024 × 1024 image takes
-  about 12.07 s warm in the final M5 measurement (see below).
+  about 12.07 s warm in the v0.5.0 M5 measurement (see below).
 - Relative depth estimation and 4× image restoration/upscaling with the official upstream fine-tunes.
 - A native SwiftUI macOS app, `iris-metal` CLI, `IrisPipeline` Python API, and localhost HTTP API.
 - Local inference on Apple Silicon. Prompts and images are processed on the Mac; first use downloads model files from Hugging Face. The app's release checker contacts GitHub when enabled.
@@ -155,6 +154,7 @@ importing `iris_metal.turbo`; the CLI and HTTP server do this automatically.
 ```bash
 curl -s localhost:8765/v1/images -H 'Content-Type: application/json' -d '{"prompt":"a tabby cat on a windowsill","steps":20}'  # {"id":"1"}
 curl -s localhost:8765/v1/jobs/1                 # repeat until status is "done"
+curl -s 'localhost:8765/v1/jobs/1?after=3&wait=5'  # or wait up to 5 s for a revision other than 3
 curl -s localhost:8765/v1/jobs/1/image -o cat.png
 curl -s -X DELETE localhost:8765/v1/jobs/1       # cancel
 curl -s localhost:8765/v1/depth --data-binary @photo.jpg  # also /v1/upscale
@@ -164,10 +164,13 @@ curl -s localhost:8765/v1/depth --data-binary @photo.jpg  # also /v1/upscale
 `width`, `height`, `steps`, `cfg_scale`, `seed` and `negative_prompt`. For Turbo,
 send e.g. `{"model":"turbo","prompt":"a red fox","seed":0}`; omit `steps`,
 `cfg_scale` and `negative_prompt` or the server returns 400. `/v1/health` advertises
-`supported_models` and `loaded_model`. Completed jobs return reproduction
+`supported_models`, `loaded_model` and `max_job_wait_seconds`. Job status carries a
+`revision` that changes with status or progress; with `after` and `wait` the request
+returns as soon as it changes or the job ends, waiting at most 10 s (at once when
+16 requests already wait), and without them it answers at once. Completed jobs return reproduction
 metadata, also embedded as JSON in the PNG `iris` text field. Jobs run in order in a bounded queue; a full queue
-returns 429. Cancellation stops generation at the next step and upscaling at
-the next tile. Switching between text-to-image, depth and restoration releases
+returns 429. Cancellation stops prompt encoding between layers, model loading
+between tensors, generation at the next step and upscaling at the next tile. Switching between text-to-image, depth and restoration releases
 the previous model, including when switching Original and Turbo.
 `--checkpoint`, `--turbo-checkpoint` and `--weights` accept separate local
 directories for offline use. Checkpoints download on first use, and Original
@@ -178,9 +181,11 @@ The server has no authentication and must not be exposed beyond localhost. It re
 ## macOS app
 
 The SwiftUI app is a client of `iris-metal serve`; it contains no model code.
-The current app and engine release is [v0.5.0](https://github.com/TKY-27/iris-3b-metal/releases/tag/v0.5.0). The release is
-source-only: no signed, downloadable app or model weights are available. Build
-the app from source with Xcode 27:
+The [macOS release guide](docs/macos-updates.md) covers the downloadable app
+and matching engine wheel. The app is ad-hoc signed and is not notarized. macOS
+may require you to approve its first launch in Privacy & Security.
+
+To build the app from source with Xcode 27:
 
 ```bash
 cd apps/macos
@@ -188,7 +193,7 @@ xcodebuild -project Iris.xcodeproj -scheme Iris -configuration Release -derivedD
 open build/Build/Products/Release/Iris.app
 ```
 
-The app uses an engine already running on its port, or starts `iris-metal serve` from `~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin`. For a virtual environment, set the path to its `bin/iris-metal` in Settings.
+The app uses an engine already running on its port, or starts `iris-metal serve` from `~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin`. For a virtual environment, set the absolute path to its `bin/iris-metal` in Settings. The app does not install or update the engine.
 
 The app can check GitHub for compatible stable releases and open their release pages. It does not download or install app updates. Automatic checks can be disabled in Settings. Iris does not upgrade or modify a Python environment; Settings reports engine compatibility and manual update instructions. See [macOS releases and updates](docs/macos-updates.md).
 
@@ -225,8 +230,9 @@ All rows use four warm requests. Original and released Turbo use two fresh
 processes each, with one cold and two warm requests per process. The earlier
 BF16/FP16 comparison used four fresh processes per path in alternating order.
 First requests include model loading and text encoding; timings end at the
-PNG-ready image with metadata and exclude disk writing. Model-load intervals
-exclude text encoding. Other apps remained open; background GPU samples,
+PNG-ready image with metadata and exclude Python imports, downloads, PNG
+writing, HTTP delivery, app library persistence and display. Model load is
+part of the first request, not an addition to it, and excludes text encoding. Other apps remained open; background GPU samples,
 swap activity and timing ranges are documented. These are session
 measurements, not idle-GPU or all-Mac guarantees.
 [Raw records, exact boundaries and reproduction](benchmarks/release-0.5.0.md).
@@ -289,7 +295,7 @@ Upstream Iris-3B uses a 24-block transformer over 16 × 16 pixel patches (8 dual
 
 - **Matrix multiplies and attention use PyTorch MPS kernels.** At the trunk's shapes they run at 13.7–15.5 TFLOPS in FP16 or BF16 on the M5, 84–95% of a compute-only Metal 4 `matmul2d` kernel measured on the same GPU. Custom GEMMs, epilogue fusion and wider packed projections were measured and rejected because they showed no gain beyond thermal drift. Attention uses PyTorch's fused, memory-efficient SDPA.
 - **Custom Metal kernels fuse work around the matrix multiplies:** query/key RMSNorm, RoPE and head layout; input normalization and adaLN modulation; sandwich post-norm, gating and residual add on an FP32 residual stream; and the per-pixel half of each pixel block.
-- **Precision is chosen per part.** The trunk's linear layers and attention take FP16 inputs, which have three more mantissa bits than BF16. Late single-stream QK-norm gains reach 27 and amplify query/key rounding. Norms, adaLN modulation and the residual stream stay FP32. The pixel stage and text adapter use BF16; the pixel stream reaches about 1.4 × 10⁴. The largest measured FP16 trunk value was 2520, and every result is checked for overflow.
+- **Original's precision is chosen per part.** The trunk's linear layers and attention take FP16 inputs, which have three more mantissa bits than BF16. Late single-stream QK-norm gains reach 27 and amplify query/key rounding. Norms, adaLN modulation and the residual stream stay FP32. The pixel stage and text adapter use BF16; the pixel stream reaches about 1.4 × 10⁴. The largest measured FP16 trunk value was 2520, and every result is checked for overflow.
 - **Qwen text encoding is streamed.** One decoder layer is loaded at a time from checkpoint files for real prompt tokens, keeping the encoder process footprint near 1.5 GiB instead of loading the full 8 GB model at once. The next layer's transfer overlaps the current layer's compute.
 - **Repeated work is cached.** The diffusion model stays resident between requests; recent prompt encodings and adapted conditioning (including the empty negative prompt) are cached; shared adaLN projections are computed once per step.
 
@@ -298,15 +304,20 @@ In a single-stream block at 1024 × 1024, measured GPU time was 66% matrix multi
 Turbo runs the upstream forward under BF16 autocast, with BF16 linear
 storage and FP32 non-linear parameters. Its official deterministic flow-Euler
 sampler makes four single-batch forwards without a negative conditioning
-branch. Prompt encodings remain cached, adapted text is reused within each
-request, and shared modulation is computed once per step. These reuse steps
-retain the official arithmetic. The faster mixed-precision Metal candidate
+branch. Prompt encodings and the adapted text of recent prompt batches
+remain cached, and shared modulation is computed once per step. On the GPU,
+each block's RMSNorm with modulation and its post-norm gated residual run as
+fused Metal kernels that round wherever the upstream expressions round and
+leave the reductions to PyTorch. All of this retains the official arithmetic
+bit for bit. The faster mixed-precision Metal candidate
 is available only in the numerical study script; it is not the released
 Turbo path ([release decision](benchmarks/release-0.5.0.md#quality-review)).
 
 ## Image quality
 
-The Original engine is checked against the upstream PyTorch implementation on a randomly initialized copy of the architecture, by per-step velocity error against an FP32 forward of the real checkpoint, and with complete 100-step generations on a 12-prompt development set and separate 12-prompt held-out set. The prompts cover portraits, hands, full bodies, textures, architecture, typography, small objects, repetitive structure, animals, illustration and food. `scripts/evaluate.py`, `scripts/compare_runs.py` and `scripts/precision_study.py` reproduce these studies.
+The Original engine is checked against upstream PyTorch on a randomly initialized copy of the architecture, through per-step velocity error against an FP32 forward of the real checkpoint, and through complete 100-step generations. `scripts/evaluate.py` records checkpoint, prompt, source and image metadata for the `dev` and `holdout` splits. Use `dev` to explore and `holdout` to confirm a decision. `scripts/compare_runs.py` requires each run to contain its complete expected prompt set. It checks that checkpoint, prompts, split, seed, scale and image sizes match. `--vary` allows experiments with `steps`, `attention` or `cfg_scale`; `--subset` is exploratory. The metrics measure fidelity to the reference, so inspect the contact sheet before judging image quality.
+
+Initial noise is drawn on the CPU from the seed, so a seed starts from the same noise on every Mac. Pixels are reproducible on the same hardware and software; other GPUs, macOS or PyTorch versions can round differently.
 
 **Against upstream FP32.** Prompt encodings and initial noise are saved so each implementation uses the same inputs and sampler. Across eight 512 × 512 prompts at 100 steps (six development and two held-out):
 
@@ -332,7 +343,7 @@ NRMSE is numerical distance from FP32; LPIPS is perceptual distance. A diffusion
 - Keep text-to-image sizes near one megapixel. At 512 × 512, the model can show its 16-pixel patch grid, as can upstream FP32; 2048 × 512 and 512 × 2048 were smoke-tested only.
 - Python batches larger than one image are supported but untested at 1024 × 1024 on 24 GB. The app and server process one image at a time.
 - Model errors are inherited: on a held-out prompt of hands on a piano, upstream FP32 also drew extra hands.
-- The app is source-buildable; there is no signed or notarized downloadable application.
+- The app requires macOS 15 or later. Release runtime testing covered an M5 Mac with 24 GB of memory. macOS 15 and 16 GB Macs were not tested.
 - The engine does not call a remote inference or moderation service. Local execution does not guarantee what the underlying model can generate.
 
 ## Development

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0 — 2026-10-19 (engine and macOS app)
+
+- Distribute an arm64 macOS app ZIP, matching engine wheel and tested Python dependency constraints. The app is ad-hoc signed without Developer ID signing or notarization; Python and the engine remain separately installed. HTTP API 1 is unchanged; the app accepts compatible 0.3.x, 0.5.x and 0.6.x engines.
+- Run Turbo's RMSNorm/modulation and residual tails as fused Metal kernels, keep single-stream tokens joined, share autocast casts and reuse adapted text. The captured step tensors, pre-clamp samples, pixels and metadata match the v0.5.0 reference. See [measurement scope and results](benchmarks/optimization-2026-10-18.md); no precision or sampling schedule was changed.
+- Reject non-finite Turbo results before clamping instead of returning a clamped image.
+- Stop prompt encoding and model loading at cancellation, and let clients wait for job status changes (`after`/`wait`, advertised as `max_job_wait_seconds`); the app uses it when offered.
+- Require complete fixture sets and recorded source, checkpoint and input identities in evaluation comparisons. Reject mismatched saved references and refuse to overwrite validation outputs.
+- Skip unused colour-fix work in restoration, resolve task exports from a complete local Hugging Face snapshot, bound per-size GPU tables and require Pillow 12.3 or later (GHSA-vjc4-5qp5-m44j).
+- App: refresh storage totals after writes and deletions complete, resolve the Hugging Face cache like `huggingface_hub`, report image-deletion failures, wait for a stopped engine to exit before reconnecting, refresh replaced attachment previews, skip decoding of cancelled thumbnails, save each result once and order the gallery without a second sort. CI runs the stand-in engine tests.
+- Load the inference runtime only after CLI argument parsing. Help output is unchanged; `--help` fell from 654 ms to 77 ms median in seven alternating measurements per version.
+
 ## 0.5.0 — 2026-10-14 (engine and macOS app)
 
 - Add native Japanese and English localization, including plurals, dates, progress, settings, errors and accessibility. Preserve prompts, stored identifiers and library data independently of UI language.

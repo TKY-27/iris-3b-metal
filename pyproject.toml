@@ -1,6 +1,6 @@
 [project]
 name = "iris-3b-metal"
-version = "0.5.0"
+version = "0.6.0"
 description = "Iris-3B pixel-space text-to-image inference on Apple Silicon GPUs"
 readme = "README.md"
 license = "Apache-2.0"
@@ -11,7 +11,7 @@ dependencies = [
     "omegaconf>=2.3",
     "safetensors>=0.4",
     "huggingface_hub>=0.26",
-    "pillow>=10.0",
+    "pillow>=12.3",
     "numpy>=1.26",
 ]
 
