@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Daily results with selection and Quick Look.
@@ -10,11 +11,12 @@ struct GalleryView: View {
     let items: [GalleryItem]
     let query: String
     let preview: (URL) -> Void
-    @State private var columns = 1
+    @State private var scrollerStyle = NSScroller.preferredScrollerStyle
     @FocusState private var focused: Bool
 
     private static let minimumWidth: CGFloat = 176
     private static let spacing: CGFloat = 16
+    private static let horizontalPadding: CGFloat = 24
 
     var body: some View {
         if !items.isEmpty {
@@ -27,62 +29,70 @@ struct GalleryView: View {
     }
 
     private func grid(_ sections: [GallerySection]) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 28) {
-                    ForEach(sections) { section in
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text(section.title)
-                                .font(.headline)
-                                .accessibilityAddTraits(.isHeader)
-                            LazyVGrid(
-                                columns: [GridItem(
-                                    .adaptive(minimum: Self.minimumWidth, maximum: Self.minimumWidth * 1.6),
-                                    spacing: Self.spacing, alignment: .top
-                                )],
-                                alignment: .leading, spacing: 20
-                            ) {
-                                ForEach(section.items) { card($0).id($0.id) }
+        GeometryReader { viewport in
+            let gutter = scrollerStyle == .legacy
+                ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: scrollerStyle) : 0
+            let contentWidth = max(0, viewport.size.width - 2 * Self.horizontalPadding - gutter)
+            let columns = max(1, Int((contentWidth + Self.spacing) / (Self.minimumWidth + Self.spacing)))
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 28) {
+                        ForEach(sections) { section in
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text(section.title)
+                                    .font(.headline)
+                                    .accessibilityAddTraits(.isHeader)
+                                LazyVGrid(
+                                    columns: [GridItem(
+                                        .adaptive(minimum: Self.minimumWidth, maximum: Self.minimumWidth * 1.6),
+                                        spacing: Self.spacing, alignment: .top
+                                    )],
+                                    alignment: .leading, spacing: 20
+                                ) {
+                                    ForEach(section.items) { card($0).id($0.id) }
+                                }
                             }
                         }
                     }
+                    .frame(width: contentWidth, alignment: .leading)
+                    .padding(.horizontal, Self.horizontalPadding)
+                    .padding(.vertical, 20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .onGeometryChange(for: CGFloat.self, of: \.size.width) { width in
-                    // Match the adaptive grid's column count.
-                    columns = max(1, Int((width + Self.spacing) / (Self.minimumWidth + Self.spacing)))
+                .onReceive(NotificationCenter.default.publisher(for: NSScroller.preferredScrollerStyleDidChangeNotification)) { _ in
+                    scrollerStyle = NSScroller.preferredScrollerStyle
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 20)
-            }
-            .focusable()
-            .focused($focused)
-            .focusEffectDisabled()  // Selection indicates keyboard focus.
-            .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
-                let move: Gallery.Move = switch press.key {
-                case .leftArrow: .left
-                case .rightArrow: .right
-                case .upArrow: .up
-                default: .down
+                .focusable()
+                .focused($focused)
+                .focusEffectDisabled()  // Selection indicates keyboard focus.
+                .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
+                    let move: Gallery.Move = switch press.key {
+                    case .leftArrow: .left
+                    case .rightArrow: .right
+                    case .upArrow: .up
+                    default: .down
+                    }
+                    workspace.selectedEntry = Gallery.neighbor(
+                        of: workspace.selectedEntry, in: sections, columns: columns, moving: move
+                    )
+                    return .handled
                 }
-                workspace.selectedEntry = Gallery.neighbor(
-                    of: workspace.selectedEntry, in: sections, columns: columns, moving: move
-                )
-                return .handled
-            }
-            .onKeyPress(.space) {
-                guard let selected = workspace.selectedEntry, items.contains(where: { $0.id == selected && $0.entry.isDone })
-                else { return .ignored }
-                preview(library.imageURL(selected))
-                return .handled
-            }
-            .onDeleteCommand {
-                guard let item = items.first(where: { $0.id == workspace.selectedEntry }) else { return }
-                let actions = actions(for: item)
-                if actions.canChange { actions.delete() }
-            }
-            .onChange(of: workspace.selectedEntry, initial: true) { _, selected in
-                guard let selected else { return }
-                withAnimation(reduceMotion ? nil : Theme.spring) { proxy.scrollTo(selected) }
+                .onKeyPress(.space) {
+                    guard let selected = workspace.selectedEntry, items.contains(where: { $0.id == selected && $0.entry.isDone })
+                    else { return .ignored }
+                    preview(library.imageURL(selected))
+                    return .handled
+                }
+                .onDeleteCommand {
+                    guard let item = items.first(where: { $0.id == workspace.selectedEntry }) else { return }
+                    let actions = actions(for: item)
+                    if actions.canChange { actions.delete() }
+                }
+                .onChange(of: workspace.selectedEntry, initial: true) { _, selected in
+                    guard let selected else { return }
+                    withAnimation(reduceMotion ? nil : Theme.spring) { proxy.scrollTo(selected) }
+                }
             }
         }
     }

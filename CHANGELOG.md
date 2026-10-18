@@ -9,6 +9,7 @@
 - Require complete fixture sets and recorded source, checkpoint and input identities in evaluation comparisons. Reject mismatched saved references and refuse to overwrite validation outputs.
 - Skip unused colour-fix work in restoration, resolve task exports from a complete local Hugging Face snapshot, bound per-size GPU tables and require Pillow 12.3 or later (GHSA-vjc4-5qp5-m44j).
 - App: refresh storage totals after writes and deletions complete, resolve the Hugging Face cache like `huggingface_hub`, report image-deletion failures, wait for a stopped engine to exit before reconnecting, refresh replaced attachment previews, skip decoding of cancelled thumbnails, save each result once and order the gallery without a second sort. CI runs the stand-in engine tests.
+- Keep gallery card widths stable when a legacy scrollbar appears. This fixes repeated resizing and high idle CPU near the scrolling threshold while preserving the animated, pointer-reactive background.
 - Load the inference runtime only after CLI argument parsing. Help output is unchanged; `--help` fell from 654 ms to 77 ms median in seven alternating measurements per version.
 
 ## 0.5.0 — 2026-10-14 (engine and macOS app)

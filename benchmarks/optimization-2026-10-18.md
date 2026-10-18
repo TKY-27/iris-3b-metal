@@ -208,3 +208,24 @@ The ordinary-help ranges were 615–838 ms and 71–83 ms. These are command
 startup results, not inference speedups. Raw audit captures and timing inputs
 are retained outside the checkout in the sibling `iris-audit-20261019-*`
 directory; the release report records the final artifact identities.
+
+
+### Gallery layout regression
+
+On the same M5, a 640 × 591 pt gallery with five entries repeatedly alternated
+between 592 and 575 pt content widths as the legacy scrollbar appeared and
+disappeared. This changed card heights and reversed whether scrolling was
+needed. With inference idle and background animation disabled, the old app
+recorded 57,421 content-size changes in 23.79 seconds and a 97.8% CPU sample.
+Main-thread samples showed SwiftUI layout and hover hit-testing.
+
+The gallery now derives its width outside the scroll view and reserves the
+native legacy-scroller gutter. The same fixture settled after 25 startup
+geometry events; no further size oscillation occurred with animation enabled.
+An idle CPU sample was 0.0%. These samples diagnose a layout loop, not a
+statistical CPU benchmark. Scrolling, keyboard selection, Quick Look, details
+panel toggling and a two-image stand-in-engine batch were exercised. The
+background shader and its pointer interaction are unchanged. All 93 macOS
+tests passed. A new same-process accessibility geometry test could not read
+SwiftUI's card frames and was not retained; the real-window reproduction is
+the direct regression evidence.
