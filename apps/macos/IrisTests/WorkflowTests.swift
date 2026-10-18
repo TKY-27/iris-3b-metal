@@ -247,8 +247,9 @@ final class WorkflowTests: XCTestCase {
         #!/usr/bin/python3
         import os, signal, time
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        with open("\(marker.path)", "w") as marker:
+        with open("\(marker.path).tmp", "w") as marker:
             marker.write(str(os.getpid()))
+        os.replace("\(marker.path).tmp", "\(marker.path)")
         time.sleep(30)
         """
         try Data(script.utf8).write(to: executable)

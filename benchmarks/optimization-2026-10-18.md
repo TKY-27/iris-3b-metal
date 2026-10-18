@@ -184,6 +184,14 @@ noise. Peak whole-request physical footprint was 10.08 versus 10.04 GiB: this
 run does not establish a peak-memory improvement. Live MPS allocations were
 zero after unload. Pixels and metadata matched for every paired request.
 
+Original's corresponding ABBA block used ten steps and two prompts repeated
+twice per process. Repeated-request medians were 39.559 s versus 39.586 s
+(four samples each; ranges 39.318–40.745 and 39.391–39.890 s). First-request
+medians were 51.625 versus 51.604 s, and changed-prompt medians were 43.318
+versus 43.516 s (two samples each). Peak physical footprint was 10.097 versus
+10.096 GiB. This does not establish an Original speed or memory improvement,
+and does not measure the 100-step default. All pixels and metadata matched.
+
 The CLI import decision was revisited because monkeypatch aliases were test
 details, not a public API. Moving patches to the owning modules permits lazy
 inference imports without changing generation. Seven fresh processes per
