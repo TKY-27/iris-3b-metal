@@ -52,6 +52,59 @@ final class LibraryTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: library.imageURL(entry.id).path))
     }
 
+    /// Completed writes and deletions bump the revision.
+    func testFileRevisionCountsCompletedWritesAndDeletions() async throws {
+        let library = Library(store: LibraryStore(root: root))
+        let entry = Entry(workflow: .create, request: request("fox"), outcome: .done(seconds: 1))
+        library.append(entry, to: nil)
+        XCTAssertEqual(library.fileRevision, 0)
+        try await library.write(Data([1]), for: entry.id)
+        XCTAssertEqual(library.fileRevision, 1)
+        library.delete(entry: entry.id)
+        library.flush()
+        let deadline = ContinuousClock.now + .seconds(3)
+        while library.fileRevision < 2, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(library.fileRevision, 2)
+        XCTAssertNil(library.problem)
+    }
+
+    func testRemovingFilesIgnoresMissingOnesButReportsOtherFailures() async throws {
+        let store = LibraryStore(root: root)
+        XCTAssertNoThrow(try store.removeFiles(of: [UUID()]))  // nothing on disk at all
+
+        let library = Library(store: store)
+        let entry = Entry(workflow: .create, request: request("fox"), outcome: .done(seconds: 1))
+        library.append(entry, to: nil)
+        try await library.write(Data([1]), for: entry.id)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: store.imagesDirectory.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: store.imagesDirectory.path) }
+        XCTAssertThrowsError(try store.removeFiles(of: [entry.id]))
+
+        library.delete(entry: entry.id)
+        library.flush()
+        let deadline = ContinuousClock.now + .seconds(3)
+        while library.problem == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(library.problem?.contains(entry.id.uuidString) == true, library.problem ?? "no problem reported")
+        XCTAssertNil(library.entry(entry.id))  // the index no longer lists it
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.imageURL(entry.id).path))
+    }
+
+    /// Matches huggingface_hub 2.2 cache-root precedence.
+    func testHubCacheFollowsHuggingFaceHubPrecedence() {
+        let home = root.path
+        func hub(_ environment: [String: String]) -> String {
+            ModelCache.hubCache(environment: ["HOME": home].merging(environment) { $1 }).path
+        }
+        XCTAssertEqual(hub([:]), home + "/.cache/huggingface/hub")
+        XCTAssertEqual(hub(["XDG_CACHE_HOME": "/xdg"]), "/xdg/huggingface/hub")
+        XCTAssertEqual(hub(["XDG_CACHE_HOME": "/xdg", "HF_HOME": "~/hf"]), home + "/hf/hub")
+        XCTAssertEqual(hub(["HF_HOME": "/hf", "HUGGINGFACE_HUB_CACHE": "/legacy"]), "/legacy")
+        XCTAssertEqual(hub(["HUGGINGFACE_HUB_CACHE": "/legacy", "HF_HUB_CACHE": "$ROOT/hub", "ROOT": "/new"]), "/new/hub")
+        XCTAssertEqual(hub(["HF_HUB_CACHE": "${ROOT}/hub", "ROOT": "/braced"]), "/braced/hub")
+        XCTAssertEqual(hub(["HF_HUB_CACHE": "/keep/$UNSET/hub"]), "/keep/$UNSET/hub")
+        XCTAssertEqual(hub(["HF_HOME": "$ROOT", "ROOT": "~/again"]), home + "/again/hub")  // expanduser runs first
+    }
+
     func testIris01HistoryIsImportedWithoutLoss() throws {
         let legacy = root.appending(path: "History", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)

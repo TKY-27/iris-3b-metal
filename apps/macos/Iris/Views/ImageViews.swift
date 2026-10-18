@@ -8,6 +8,8 @@ struct StoredImage: View {
     /// Reserves the final shape while loading, so the layout does not jump.
     var aspectRatio: CGFloat?
     var placeholder = "photo"
+    /// Reloads when an attachment is reselected.
+    var version: String?
     @State private var image: CGImage?
     @State private var missing = false
 
@@ -29,10 +31,10 @@ struct StoredImage: View {
                     }
             }
         }
-        .task(id: url) {
+        .task(id: "\(url.path)#\(version ?? "")") {
             image = nil
             missing = false
-            let loaded = await ImageFiles.thumbnail(of: url, maxPixels: maxPixels)
+            let loaded = await ImageFiles.thumbnail(of: url, maxPixels: maxPixels, version: version)
             guard !Task.isCancelled else { return }
             image = loaded
             missing = loaded == nil

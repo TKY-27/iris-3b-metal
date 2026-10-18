@@ -90,6 +90,50 @@ final class GalleryTests: XCTestCase {
         XCTAssertEqual(Gallery.items(of: conversations, in: .allImages).map(\.entry.title), ["heron", "fox 0", "fox 1", "fox 2", "fox 3"])
     }
 
+    /// The former second-sort gallery order.
+    private func formerOrder(of conversations: [Conversation], in scope: Workspace.Selection, matching query: String) -> [UUID] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let made = conversations.filter(scope.contains)
+            .flatMap { c in c.entries.map { GalleryItem(entry: $0, conversation: c.id, project: c.projectID) } }
+            .enumerated()
+            .sorted { ($0.element.entry.created, $0.offset) < ($1.element.entry.created, $1.offset) }
+            .map(\.element)
+        var keyed: [(batch: Date, order: Int, item: GalleryItem)] = []
+        var batch = Date.distantPast
+        var previous: Date?
+        for (order, item) in made.enumerated() {
+            if previous.map({ item.entry.created.timeIntervalSince($0) >= Gallery.batchGap }) ?? true { batch = item.entry.created }
+            previous = item.entry.created
+            if query.isEmpty || item.entry.matches(query) { keyed.append((batch, order, item)) }
+        }
+        return keyed.sorted { $0.batch != $1.batch ? $0.batch > $1.batch : $0.order < $1.order }.map(\.item.id)
+    }
+
+    /// Batch reversal keeps the former order.
+    func testBatchReversalMatchesTheFormerSort() {
+        var generator = SystemRandomNumberGenerator()
+        let project = UUID()
+        for count in [1_000, 10_000] {
+            var conversations = [Conversation(title: "a", projectID: nil), Conversation(title: "b", projectID: project)]
+            var at: TimeInterval = 0
+            for index in 0..<count {
+                // ties and gaps around 0.1 s
+                at += [0, 0, 0.001, 0.05, 0.1, 0.1, 0.25, 7].randomElement(using: &generator)!
+                let prompt = index % 3 == 0 ? "fox \(index)" : "heron \(index)"
+                conversations[Int.random(in: 0...1, using: &generator)].entries.append(entry(prompt, at: at, seed: index))
+            }
+            for (scope, query) in [(Workspace.Selection.allImages, ""), (.allImages, "fox"), (.project(project), ""), (.project(project), "heron")] {
+                let clock = ContinuousClock()
+                var expected: [UUID] = []
+                let former = clock.measure { expected = formerOrder(of: conversations, in: scope, matching: query) }
+                var actual: [UUID] = []
+                let current = clock.measure { actual = Gallery.items(of: conversations, in: scope, matching: query).map(\.id) }
+                XCTAssertEqual(actual, expected, "\(count) entries, \(scope), \"\(query)\"")
+                print("gallery order \(count) entries \(scope) \"\(query)\": former \(former) current \(current)")
+            }
+        }
+    }
+
     func testSectionsAreDays() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))

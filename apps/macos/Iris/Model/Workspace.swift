@@ -20,6 +20,7 @@ final class Workspace {
 
     /// An image chosen for depth or upscaling.
     struct Attachment: Equatable {
+        let id = UUID()
         let url: URL
         let name: String
         /// Upright, as it is sent; nil when the file cannot be read.

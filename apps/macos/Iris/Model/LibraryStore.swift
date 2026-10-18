@@ -102,13 +102,25 @@ struct LibraryStore: Sendable {
     /// Removes the files of entries that are no longer in the library, including an
     /// Iris 0.1 original still in a History folder that could not be removed whole,
     /// which would otherwise be imported again.
-    func removeFiles(of entries: [UUID]) {
+    /// Missing files are fine; other failures throw.
+    func removeFiles(of entries: [UUID]) throws {
+        var failure: Error?
         for id in entries {
-            try? FileManager.default.removeItem(at: imageURL(id))
-            try? FileManager.default.removeItem(at: inputURL(id))
-            try? FileManager.default.removeItem(at: legacyDirectory.appending(path: "\(id.uuidString).png"))
-            try? FileManager.default.removeItem(at: legacyDirectory.appending(path: "\(id.uuidString).json"))
+            let files = [
+                imageURL(id), inputURL(id),
+                legacyDirectory.appending(path: "\(id.uuidString).png"), legacyDirectory.appending(path: "\(id.uuidString).json"),
+            ]
+            for file in files {
+                do {
+                    try FileManager.default.removeItem(at: file)
+                } catch let error as CocoaError where error.code == .fileNoSuchFile {
+                    continue
+                } catch {
+                    failure = failure ?? error
+                }
+            }
         }
+        if let failure { throw failure }
     }
 
     // MARK: - Private

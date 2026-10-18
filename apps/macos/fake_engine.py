@@ -74,7 +74,7 @@ def main() -> None:
         lambda model: FakePipeline(args.step_seconds, args.load_seconds, model),
     )
     server = LocalServer(("127.0.0.1", args.port), make_handler(JobRunner(models, 8)))
-    print(f"fake engine on http://127.0.0.1:{args.port}", flush=True)
+    print(f"fake engine on http://127.0.0.1:{server.server_port}", flush=True)
     server.serve_forever()
 
 

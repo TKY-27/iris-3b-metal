@@ -148,8 +148,8 @@ final class Generator {
         progress = Progress()
         cancelRequested = false
         task = Task {
-            let outcome = await run(entry, input: input, library: library, engine: engine)
-            library.setOutcome(outcome, of: entry.id)
+            let result = await run(entry, input: input, library: library, engine: engine)
+            library.setOutcome(result.outcome, of: entry.id, metadata: result.metadata)
             job = nil
             task = nil
             // the rest of a batch runs unless it was stopped or the engine went away
@@ -166,14 +166,16 @@ final class Generator {
         }
     }
 
-    private func run(_ entry: Entry, input: URL?, library: Library, engine: EngineController) async -> Entry.Outcome {
+    private func run(
+        _ entry: Entry, input: URL?, library: Library, engine: EngineController
+    ) async -> (outcome: Entry.Outcome, metadata: GenerationMetadata?) {
         let client = engine.client
         do {
             try checkCancellation()
             let id: String
             if let request = entry.request {
                 guard engine.health?.supports(request.model) == true else {
-                    return .failed("This engine does not support \(request.model.fullTitle). Update the engine in Settings.")
+                    return (.failed("This engine does not support \(request.model.fullTitle). Update the engine in Settings."), nil)
                 }
                 id = try await client.submit(request)
             } else if let input {
@@ -184,11 +186,11 @@ final class Generator {
                 try checkCancellation()
                 id = try await client.submit(entry.workflow, png: png)
             } else {
-                return .failed("This entry has no input.")
+                return (.failed("This entry has no input."), nil)
             }
             job = id
             if cancelRequested { try? await client.cancel(id) }
-            let status = try await poll(id, workflow: entry.workflow, client: client)
+            let status = try await poll(id, workflow: entry.workflow, client: client, maxWait: engine.health?.maxJobWaitSeconds)
             switch status.status {
             case .done:
                 try checkCancellation()
@@ -196,23 +198,22 @@ final class Generator {
                 try checkCancellation()
                 try await library.write(png, for: entry.id)
                 try checkCancellation()
-                library.setMetadata(status.metadata, of: entry.id)
-                return .done(seconds: status.seconds ?? 0)
+                return (.done(seconds: status.seconds ?? 0), status.metadata)
             case .cancelled:
-                return .cancelled
+                return (.cancelled, nil)
             default:
-                return .failed(status.error ?? "The engine could not finish this request.")
+                return (.failed(status.error ?? "The engine could not finish this request."), nil)
             }
         } catch is CancellationError {
-            return cancelRequested ? .cancelled : .interrupted
+            return (cancelRequested ? .cancelled : .interrupted, nil)
         } catch EngineError.unreachable {
-            if cancelRequested { return .cancelled }
+            if cancelRequested { return (.cancelled, nil) }
             engine.connectionLost()
-            return .failed(EngineError.unreachable.diagnosticDescription)
+            return (.failed(EngineError.unreachable.diagnosticDescription), nil)
         } catch let error as EngineError {
-            return cancelRequested ? .cancelled : .failed(error.diagnosticDescription)
+            return (cancelRequested ? .cancelled : .failed(error.diagnosticDescription), nil)
         } catch {
-            return cancelRequested ? .cancelled : .failed(error.localizedDescription)
+            return (cancelRequested ? .cancelled : .failed(error.localizedDescription), nil)
         }
     }
 
@@ -221,10 +222,15 @@ final class Generator {
         if cancelRequested { throw CancellationError() }
     }
 
-    private func poll(_ id: String, workflow: Workflow, client: EngineClient) async throws -> JobStatus {
+    /// Long-polls when offered; otherwise every 250 ms.
+    private func poll(_ id: String, workflow: Workflow, client: EngineClient, maxWait: Double?) async throws -> JobStatus {
         var firstSample: (step: Int, time: ContinuousClock.Instant)?
+        var known: Int?
         while true {
-            let status = try await client.status(of: id)
+            let asked = ContinuousClock.now
+            let wait = maxWait.map { min(5, $0) }
+            let after = wait == nil ? nil : known
+            let status = try await client.status(of: id, after: after, wait: after == nil ? nil : wait)
             switch status.status {
             case .queued:
                 progress = Progress()
@@ -242,7 +248,13 @@ final class Generator {
             case .done, .failed, .cancelled:
                 return status
             }
-            try await Task.sleep(for: .milliseconds(250))
+            known = status.revision
+            if after == nil {
+                try await Task.sleep(for: .milliseconds(250))
+            } else if status.revision == nil || status.revision == after {
+                // unchanged answers must not hot-loop
+                try await Task.sleep(for: max(.zero, .milliseconds(250) - (ContinuousClock.now - asked)))
+            }
         }
     }
 }

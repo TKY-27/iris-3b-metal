@@ -1364,19 +1364,19 @@
         }
       }
     },
-    "Engine %@ is not supported by this app. Use iris-metal 0.3.x or 0.5.x; see Settings.": {
+    "Engine %@ is not supported by this app. Use iris-metal 0.3.x, 0.5.x or 0.6.x; see Settings.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Engine %@ is not supported by this app. Use iris-metal 0.3.x or 0.5.x; see Settings."
+            "value": "Engine %@ is not supported by this app. Use iris-metal 0.3.x, 0.5.x or 0.6.x; see Settings."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このアプリはエンジン%@に対応していません。iris-metal 0.3.xまたは0.5.xを使用してください。設定を参照してください。"
+            "value": "このアプリはエンジン%@に対応していません。iris-metal 0.3.x、0.5.xまたは0.6.xを使用してください。設定を参照してください。"
           }
         }
       }
@@ -2262,6 +2262,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Iris %@を利用できます"
+          }
+        }
+      }
+    },
+    "Iris could not delete image files: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iris could not delete image files: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像ファイルを削除できませんでした：%@"
           }
         }
       }
@@ -4731,19 +4748,19 @@
         }
       }
     },
-    "Use iris-metal 0.3.x or 0.5.x with this app. Quit Iris before changing the engine. Install the chosen release into a new Python environment, then select its bin/iris-metal here. Keep the old environment until the new one works; select the old path again to roll back.": {
+    "Use iris-metal 0.3.x, 0.5.x or 0.6.x with this app. Quit Iris before changing the engine. Install the chosen release into a new Python environment, then select its bin/iris-metal here. Keep the old environment until the new one works; select the old path again to roll back.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use iris-metal 0.3.x or 0.5.x with this app. Quit Iris before changing the engine. Install the chosen release into a new Python environment, then select its bin/iris-metal here. Keep the old environment until the new one works; select the old path again to roll back."
+            "value": "Use iris-metal 0.3.x, 0.5.x or 0.6.x with this app. Quit Iris before changing the engine. Install the chosen release into a new Python environment, then select its bin/iris-metal here. Keep the old environment until the new one works; select the old path again to roll back."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このアプリにはiris-metal 0.3.xまたは0.5.xを使用してください。エンジンを変更する前にIrisを終了します。新しいPython環境に目的のリリースをインストールし、そのbin/iris-metalをここで選択してください。動作を確認するまで旧環境を残しておくと、以前のパスを再選択して元に戻せます。"
+            "value": "このアプリにはiris-metal 0.3.x、0.5.xまたは0.6.xを使用してください。エンジンを変更する前にIrisを終了します。新しいPython環境に目的のリリースをインストールし、そのbin/iris-metalをここで選択してください。動作を確認するまで旧環境を残しておくと、以前のパスを再選択して元に戻せます。"
           }
         }
       }

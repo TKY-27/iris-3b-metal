@@ -71,6 +71,8 @@ struct JobStatus: Decodable, Sendable {
     let seconds: Double?
     let error: String?
     var metadata: GenerationMetadata? = nil
+    /// Older engines omit this change counter.
+    var revision: Int? = nil
 }
 
 /// Checkpoint provenance accompanying saved generation settings.
@@ -113,6 +115,8 @@ struct EngineHealth: Decodable, Sendable {
     let apiVersion: Int?
     var supportedModels: [String]? = nil
     var loadedModel: String? = nil
+    /// Longest status wait; nil on older engines.
+    var maxJobWaitSeconds: Double? = nil
 
     static let instructionsURL = URL(string: "https://github.com/TKY-27/iris-3b-metal#quick-start")!
 
@@ -122,6 +126,7 @@ struct EngineHealth: Decodable, Sendable {
         case apiVersion = "api_version"
         case supportedModels = "supported_models"
         case loadedModel = "loaded_model"
+        case maxJobWaitSeconds = "max_job_wait_seconds"
     }
 
     func supports(_ model: GenerationModel) -> Bool {
@@ -133,8 +138,8 @@ struct EngineHealth: Decodable, Sendable {
             return String(localized: "This engine uses API \(apiVersion); Iris requires API 1. See Engine update instructions in Settings.")
         }
         if let engineVersion {
-            guard let version = ReleaseVersion(engineVersion), version.major == 0, [3, 5].contains(version.minor) else {
-                return String(localized: "Engine \(engineVersion) is not supported by this app. Use iris-metal 0.3.x or 0.5.x; see Settings.")
+            guard let version = ReleaseVersion(engineVersion), version.major == 0, [3, 5, 6].contains(version.minor) else {
+                return String(localized: "Engine \(engineVersion) is not supported by this app. Use iris-metal 0.3.x, 0.5.x or 0.6.x; see Settings.")
             }
         }
         return nil
@@ -201,8 +206,13 @@ struct EngineClient: Sendable {
         return submitted.id
     }
 
-    func status(of job: String) async throws -> JobStatus {
-        try await decode(get("jobs/\(job)"))
+    /// Waits `wait` seconds for a newer revision.
+    func status(of job: String, after revision: Int? = nil, wait: Double? = nil) async throws -> JobStatus {
+        var url = baseURL.appending(path: "jobs/\(job)")
+        if let revision, let wait {
+            url.append(queryItems: [URLQueryItem(name: "after", value: String(revision)), URLQueryItem(name: "wait", value: String(wait))])
+        }
+        return try await decode(send(URLRequest(url: url)))
     }
 
     func image(of job: String) async throws -> Data {

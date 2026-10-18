@@ -227,7 +227,7 @@ private struct AttachmentRow: View {
     var body: some View {
         @Bindable var workspace = workspace
         HStack(alignment: .center, spacing: 12) {
-            StoredImage(url: attachment.url, maxPixels: 200, placeholder: "photo")
+            StoredImage(url: attachment.url, maxPixels: 200, placeholder: "photo", version: attachment.id.uuidString)
                 .frame(width: 52, height: 52)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(.separator))

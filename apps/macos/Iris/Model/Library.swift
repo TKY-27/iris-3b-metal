@@ -13,6 +13,8 @@ final class Library {
     var problem: String?
     /// Nothing is changed or saved; see `LibraryStore`.
     let isReadOnly: Bool
+    /// Counts completed image writes and deletions.
+    private(set) var fileRevision = 0
 
     @ObservationIgnored private let lock: LibraryLock?
     @ObservationIgnored private let writer = DispatchQueue(label: "Iris.LibraryWriter", qos: .utility)
@@ -90,11 +92,6 @@ final class Library {
         }
     }
 
-    func setMetadata(_ metadata: GenerationMetadata?, of id: UUID) {
-        guard let metadata, let found = entry(id) else { return }
-        setOutcome(found.entry.outcome, of: id, metadata: metadata)
-    }
-
     /// Delete an entry and empty conversation.
     /// Running entries remain owned by the generator.
     func delete(entry id: UUID) {
@@ -136,6 +133,7 @@ final class Library {
                 try store.writeImage(png, for: entry)
             }
         }.value
+        fileRevision += 1
     }
 
     // MARK: - Projects
@@ -170,8 +168,6 @@ final class Library {
     }
 
     // MARK: - Storage
-
-    var entryCount: Int { conversations.reduce(0) { $0 + $1.entries.count } }
 
     /// Finished results, which have an image.
     var imageCount: Int { conversations.reduce(0) { $0 + $1.entries.filter(\.isDone).count } }
@@ -212,12 +208,21 @@ final class Library {
         writer.async { [weak self, logger] in
             do {
                 try store.save(snapshot)
-                store.removeFiles(of: removed)
             } catch {
-                logger.error("Saving the library failed: \(error.localizedDescription, privacy: .public)")
                 let message = String(localized: "Iris could not save the library: \(error.localizedDescription)")
+                logger.error("\(message, privacy: .public)")
+                Task { @MainActor in self?.problem = message }
+                return
+            }
+            guard !removed.isEmpty else { return }
+            do {
+                try store.removeFiles(of: removed)
+            } catch {
+                let message = String(localized: "Iris could not delete image files: \(error.localizedDescription)")
+                logger.error("\(message, privacy: .public)")
                 Task { @MainActor in self?.problem = message }
             }
+            Task { @MainActor in self?.fileRevision += 1 }
         }
     }
 

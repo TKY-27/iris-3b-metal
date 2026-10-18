@@ -54,7 +54,7 @@ private struct EngineSettings: View {
                     Text(notice).foregroundStyle(.secondary)
                 }
                 DisclosureGroup(String(localized: "Engine update instructions")) {
-                    Text(String(localized: "Use iris-metal 0.3.x or 0.5.x with this app. Quit Iris before changing the engine. Install the chosen release into a new Python environment, then select its bin/iris-metal here. Keep the old environment until the new one works; select the old path again to roll back."))
+                    Text(String(localized: "Use iris-metal 0.3.x, 0.5.x or 0.6.x with this app. Quit Iris before changing the engine. Install the chosen release into a new Python environment, then select its bin/iris-metal here. Keep the old environment until the new one works; select the old path again to roll back."))
                     Text(String(localized: "For pipx or another package manager, use the tool that owns the installation. App updates do not update Python packages. Checkpoints and the Hugging Face cache can stay where they are."))
                     Link(String(localized: "Official installation guide"), destination: EngineHealth.instructionsURL)
                 }
@@ -150,7 +150,12 @@ private struct StorageSettings: View {
         }
         .formStyle(.grouped)
         .task { models = await ModelCache.scan() }
-        .task(id: library.entryCount) { libraryBytes = await library.byteCount() }
+        .task(id: library.fileRevision) {
+            let bytes = await library.byteCount()
+            // a newer scan has taken over
+            guard !Task.isCancelled else { return }
+            libraryBytes = bytes
+        }
         .confirmationDialog(String(localized: "Delete all images?"), isPresented: $confirmsDelete) {
             Button(String(localized: "Delete All"), role: .destructive) {
                 library.deleteAllImages()
@@ -176,16 +181,32 @@ struct ModelCache: Identifiable, Sendable {
 
     static func scan() async -> [ModelCache] {
         await Task.detached(priority: .utility) {
-            let environment = ProcessInfo.processInfo.environment
-            let hub = environment["HF_HUB_CACHE"].map { URL(fileURLWithPath: $0) }
-                ?? URL(fileURLWithPath: environment["HF_HOME"] ?? NSString("~/.cache/huggingface").expandingTildeInPath)
-                    .appending(path: "hub")
+            let hub = hubCache(environment: ProcessInfo.processInfo.environment)
             return known.compactMap { name, folder in
                 let url = hub.appending(path: folder)
                 guard FileManager.default.fileExists(atPath: url.path) else { return nil }
                 return ModelCache(name: name, url: url, bytes: allocatedSize(of: url))
             }
         }.value
+    }
+
+    /// `HF_HUB_CACHE` as huggingface_hub 2.2 resolves it.
+    static func hubCache(environment: [String: String]) -> URL {
+        let home = environment["HOME"] ?? NSHomeDirectory()
+        func expand(_ path: String) -> String {
+            // Python's expanduser + expandvars: unknown variables stay
+            // shortcut: no ~user form, add if reported
+            var path = path
+            if path == "~" || path.hasPrefix("~/") { path = home + path.dropFirst() }
+            return path.replacing(/\$(\w+|\{[^}]*\})/) { match in
+                var name = match.output.1
+                if name.hasPrefix("{") { name = name.dropFirst().dropLast() }
+                return environment[String(name)] ?? String(match.output.0)
+            }
+        }
+        let hfHome = expand(environment["HF_HOME"] ?? ((environment["XDG_CACHE_HOME"] ?? home + "/.cache") as NSString).appendingPathComponent("huggingface"))
+        let legacy = environment["HUGGINGFACE_HUB_CACHE"] ?? (hfHome as NSString).appendingPathComponent("hub")
+        return URL(fileURLWithPath: expand(environment["HF_HUB_CACHE"] ?? legacy), isDirectory: true)
     }
 
     /// Bytes of the distinct files reachable from the folder; the cache links

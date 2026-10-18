@@ -33,17 +33,15 @@ enum Gallery {
             .enumerated()
             .sorted { ($0.element.entry.created, $0.offset) < ($1.element.entry.created, $1.offset) }
             .map(\.element)
-        var keyed: [(batch: Date, order: Int, item: GalleryItem)] = []
-        var batch = Date.distantPast
+        var batches: [[GalleryItem]] = []
         var previous: Date?
-        for (order, item) in made.enumerated() {
-            if previous.map({ item.entry.created.timeIntervalSince($0) >= batchGap }) ?? true { batch = item.entry.created }
+        for item in made {
+            // hidden entries still bound their batch
+            if previous.map({ item.entry.created.timeIntervalSince($0) >= batchGap }) ?? true { batches.append([]) }
             previous = item.entry.created
-            if query.isEmpty || item.entry.matches(query) { keyed.append((batch, order, item)) }
+            if query.isEmpty || item.entry.matches(query) { batches[batches.count - 1].append(item) }
         }
-        return keyed
-            .sorted { $0.batch != $1.batch ? $0.batch > $1.batch : $0.order < $1.order }
-            .map(\.item)
+        return batches.reversed().flatMap { $0 }
     }
 
     /// Group entries by their local creation date.

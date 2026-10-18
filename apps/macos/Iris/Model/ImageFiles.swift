@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
+import os
 
 /// Image decoding off the main thread, with downsampled results cached by size.
 enum ImageFiles {
@@ -17,27 +18,36 @@ enum ImageFiles {
     private static let decoding = DispatchQueue(label: "Iris.ThumbnailDecoder", qos: .userInitiated)
 
     /// The image at `url`, at most `maxPixels` on its long side and upright.
-    static func thumbnail(of url: URL, maxPixels: Int) async -> CGImage? {
-        let key = "\(url.path)#\(maxPixels)"
+    /// Reattachments supply unique cache versions.
+    static func thumbnail(of url: URL, maxPixels: Int, version: String? = nil) async -> CGImage? {
+        let key = "\(url.path)#\(maxPixels)#\(version ?? "")"
         if let cached = cache.images.object(forKey: key as NSString) { return cached }
         guard !Task.isCancelled else { return nil }
-        let image: CGImage? = await withCheckedContinuation { continuation in
-          decoding.async {
-            // Serial decoding bounds transient memory while scrolling.
-            if let cached = cache.images.object(forKey: key as NSString) { continuation.resume(returning: cached); return }
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
-            else { continuation.resume(returning: nil); return }
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true,
-                kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-            ]
-            let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-            if let image { cache.images.setObject(image, forKey: key as NSString, cost: image.bytesPerRow * image.height) }
-            continuation.resume(returning: image)
-          }
+        // cards scrolled away skip decoding
+        let cancelled = OSAllocatedUnfairLock(initialState: false)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                // Serial decoding bounds transient memory while scrolling.
+                decoding.async {
+                    continuation.resume(returning: cancelled.withLock { $0 } ? nil : decode(url, maxPixels: maxPixels, key: key))
+                }
+            }
+        } onCancel: {
+            cancelled.withLock { $0 = true }
         }
+    }
+
+    private static func decode(_ url: URL, maxPixels: Int, key: String) -> CGImage? {
+        if let cached = cache.images.object(forKey: key as NSString) { return cached }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+        ]
+        let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        if let image { cache.images.setObject(image, forKey: key as NSString, cost: image.bytesPerRow * image.height) }
         return image
     }
 

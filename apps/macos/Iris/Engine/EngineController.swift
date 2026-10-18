@@ -123,7 +123,7 @@ final class EngineController {
 
     /// Stops a launched engine and waits for it to exit, so the new one can
     /// bind the port and the old one cannot answer the first health check.
-    func restart() async {
+    func restart(grace: Duration = .seconds(10)) async {
         guard !isRestarting else { return }
         isRestarting = true
         defer { isRestarting = false }
@@ -134,28 +134,38 @@ final class EngineController {
         connectionID = id
         state = .starting
         if let old {
-            let deadline = ContinuousClock.now + .seconds(10)
-            while old.isRunning, ContinuousClock.now < deadline {
-                do {
-                    try await Task.sleep(for: .milliseconds(100))
-                } catch {
-                    guard connectionID == id, state == .starting else { return }
-                    connectionID = nil
-                    state = .stopped
-                    return
-                }
-                guard connectionID == id, state == .starting else { return }
+            guard await waitForExit(of: old, within: grace, id: id) else { return }
+            if old.isRunning {
+                kill(old.processIdentifier, SIGKILL)
+                // reaped before the port is probed again
+                guard await waitForExit(of: old, within: .seconds(5), id: id) else { return }
             }
-            guard connectionID == id, state == .starting else { return }
-            if Task.isCancelled {
-                connectionID = nil
-                state = .stopped
-                return
-            }
-            if old.isRunning { kill(old.processIdentifier, SIGKILL) }
         }
         guard connectionID == id, state == .starting else { return }
         await connect()
+    }
+
+    /// False if superseded or cancelled meanwhile.
+    private func waitForExit(of old: Process, within grace: Duration, id: UUID) async -> Bool {
+        let deadline = ContinuousClock.now + grace
+        while old.isRunning, ContinuousClock.now < deadline {
+            do {
+                try await Task.sleep(for: .milliseconds(100))
+            } catch {
+                guard connectionID == id, state == .starting else { return false }
+                connectionID = nil
+                state = .stopped
+                return false
+            }
+            guard connectionID == id, state == .starting else { return false }
+        }
+        guard connectionID == id, state == .starting else { return false }
+        if Task.isCancelled {
+            connectionID = nil
+            state = .stopped
+            return false
+        }
+        return true
     }
 
     private func launch(_ executable: URL) {

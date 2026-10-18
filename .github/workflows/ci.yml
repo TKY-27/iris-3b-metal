@@ -71,11 +71,40 @@ jobs:
         working-directory: apps/macos
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      # server layer only; no weights are downloaded
+      - run: pip install -e .
+        working-directory: ${{ github.workspace }}
       - run: xcodebuild -version
+      - name: Start the stand-in engine
+        run: |
+          python fake_engine.py --port 0 > "$RUNNER_TEMP/fake-engine.log" 2>&1 &
+          echo "FAKE_ENGINE_PID=$!" >> "$GITHUB_ENV"
+          for _ in $(seq 1 90); do
+            port=$(sed -n 's/^fake engine on http:\/\/127\.0\.0\.1:\([0-9]*\)$/\1/p' "$RUNNER_TEMP/fake-engine.log")
+            if [ -n "$port" ] && curl -sf "http://127.0.0.1:$port/v1/health" > /dev/null; then
+              echo "IRIS_TEST_PORT=$port" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "the stand-in engine did not start"
+          cat "$RUNNER_TEMP/fake-engine.log"
+          exit 1
       - name: Test
+        env:
+          TEST_RUNNER_IRIS_ENGINE_TEST: "1"
+          TEST_RUNNER_IRIS_TEST_PORT: ${{ env.IRIS_TEST_PORT }}
         run: >-
           xcodebuild test -project Iris.xcodeproj -scheme Iris -destination platform=macOS
           -derivedDataPath ${{ runner.temp }}/dd CODE_SIGNING_ALLOWED=NO
+      - name: Stop the stand-in engine
+        if: always()
+        run: kill "$FAKE_ENGINE_PID" 2> /dev/null || true
       - name: Release build
         run: >-
           xcodebuild build -project Iris.xcodeproj -scheme Iris -configuration Release

@@ -60,10 +60,10 @@ final class LocalizationTests: XCTestCase {
     }
 
     func testCompatibilityIsBoundedToSupportedEngineVersions() {
-        for version in ["0.3.0", "0.3.9", "0.5.0", "0.5.7"] {
+        for version in ["0.3.0", "0.3.9", "0.5.0", "0.5.7", "0.6.0", "0.6.9"] {
             XCTAssertNil(EngineHealth(resident: nil, queued: 0, engineVersion: version, apiVersion: 1).compatibilityIssue)
         }
-        for version in ["0.4.0", "0.6.0", "1.0.0"] {
+        for version in ["0.4.0", "0.7.0", "1.0.0"] {
             XCTAssertNotNil(EngineHealth(resident: nil, queued: 0, engineVersion: version, apiVersion: 1).compatibilityIssue)
         }
         XCTAssertNotNil(EngineHealth(resident: nil, queued: 0, engineVersion: "0.5.0", apiVersion: 2).compatibilityIssue)
