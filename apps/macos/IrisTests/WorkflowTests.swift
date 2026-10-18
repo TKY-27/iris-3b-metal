@@ -402,6 +402,8 @@ final class WorkflowTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).bmp")
         defer { try? FileManager.default.removeItem(at: url) }
         try solidBMP(blue: false).write(to: url)
+        let originalDate = Date(timeIntervalSince1970: 1_700_000_000)
+        try FileManager.default.setAttributes([.modificationDate: originalDate], ofItemAtPath: url.path)
         let original = try FileManager.default.attributesOfItem(atPath: url.path)
         let workspace = Workspace()
         workspace.attach(url)
@@ -410,7 +412,6 @@ final class WorkflowTests: XCTestCase {
         let firstImage = try XCTUnwrap(firstThumbnail)
 
         try solidBMP(blue: true).write(to: url, options: .atomic)
-        let originalDate = try XCTUnwrap(original[.modificationDate] as? Date)
         try FileManager.default.setAttributes([.modificationDate: originalDate], ofItemAtPath: url.path)
         let replaced = try FileManager.default.attributesOfItem(atPath: url.path)
         XCTAssertEqual(original[.size] as? Int, replaced[.size] as? Int)
