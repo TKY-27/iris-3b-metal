@@ -71,23 +71,38 @@ final class WorkflowTests: XCTestCase {
                         served += 1
                     self.reply(json.dumps(status).encode())
         server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-        (root / 'port').write_text(str(server.server_port))
+        (root / 'port.tmp').write_text(str(server.server_port))
+        (root / 'port.tmp').replace(root / 'port')
         server.serve_forever()
         """
         let server = Process()
         server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         server.arguments = ["-c", script]
+        let log = root.appending(path: "server.log")
+        try Data().write(to: log)
+        let output = try FileHandle(forWritingTo: log)
+        defer { try? output.close() }
+        server.standardOutput = output
+        server.standardError = output
         try server.run()
-        let startupDeadline = ContinuousClock.now + .seconds(5)
-        while !FileManager.default.fileExists(atPath: marker.path), ContinuousClock.now < startupDeadline {
+        var handedOff = false
+        defer { if !handedOff && server.isRunning { server.terminate() } }
+        let startupDeadline = ContinuousClock.now + .seconds(15)
+        while !FileManager.default.fileExists(atPath: marker.path), server.isRunning,
+              ContinuousClock.now < startupDeadline {
             try await Task.sleep(for: .milliseconds(20))
         }
+        let portText = (try? String(contentsOf: marker, encoding: .utf8)) ?? ""
+        let state = server.isRunning ? "still running" : "exited with status \(server.terminationStatus)"
+        let diagnostics = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+        let port = try XCTUnwrap(Int(portText), "Stub engine \(state); output: \(diagnostics)")
         let suite = "io.github.tky27.iris.stub-engine-tests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defaults.register(defaults: ["enginePort": try XCTUnwrap(Int(String(contentsOf: marker, encoding: .utf8)))])
+        defaults.register(defaults: ["enginePort": port])
         let engine = EngineController(defaults: defaults)
         await engine.start()
         XCTAssertEqual(engine.state, .ready)
+        handedOff = true
         return (engine, server)
     }
 
