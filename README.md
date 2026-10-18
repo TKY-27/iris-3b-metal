@@ -182,16 +182,39 @@ The server has no authentication and must not be exposed beyond localhost. It re
 
 The SwiftUI app is a client of `iris-metal serve`; it contains no model code.
 The [macOS release guide](docs/macos-updates.md) covers the downloadable app
-and matching engine wheel. The app is ad-hoc signed and is not notarized. macOS
-may require you to approve its first launch in Privacy & Security.
+and matching engine wheel, Python installation, checksums and model downloads.
 
-To build the app from source with Xcode 27:
+**Signing:** this distribution has **no Developer ID signature and no Apple
+notarization**. It retains a valid **ad-hoc signature** for Apple Silicon
+execution. Ad-hoc signing does not verify the developer's identity with Apple.
+
+1. Download the app ZIP and matching engine files from the [release page](https://github.com/TKY-27/iris-3b-metal/releases/latest), verify the checksums, and install the engine as described in the release guide.
+2. Extract the ZIP, move `Iris.app` to Applications, and open it.
+3. If macOS blocks Iris, open **System Settings > Privacy & Security** (**システム設定 > プライバシーとセキュリティ**). Find the Iris notice and choose **Open Anyway** (**このまま開く**, verified on Japanese macOS 27.0.1), then follow the confirmation and authentication prompts. Other versions or languages may label the action **Open**.
+4. In Iris Settings, select the installed environment's absolute `bin/iris-metal` path. Approving the app does not install Python or its dependencies.
+
+Do not disable Gatekeeper globally or remove quarantine attributes. Per-app
+approval does not repair a damaged signature, incomplete download or runtime
+failure. Replacing the app preserves models, settings and the image library
+outside its bundle.
+
+To build v0.6.0 from source instead, install Git, Python 3.14 and Xcode 27, then
+run these commands in a directory where `iris-3b-metal` does not already exist:
 
 ```bash
-cd apps/macos
-xcodebuild -project Iris.xcodeproj -scheme Iris -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
-open build/Build/Products/Release/Iris.app
+git clone --branch v0.6.0 https://github.com/TKY-27/iris-3b-metal.git
+cd iris-3b-metal
+python3.14 -m venv .venv
+.venv/bin/python -m pip install -c apps/macos/engine-constraints.txt -e .
+xcodebuild -project apps/macos/Iris.xcodeproj -scheme Iris -configuration Release -derivedDataPath apps/macos/build CODE_SIGNING_ALLOWED=NO build
+codesign --force --sign - apps/macos/build/Build/Products/Release/Iris.app
+open apps/macos/build/Build/Products/Release/Iris.app
 ```
+
+In Iris Settings, set the engine path to the absolute path of this checkout's
+`.venv/bin/iris-metal`. This build uses ad-hoc signing and needs no Apple
+Developer Program membership. Keep the checkout and virtual environment at
+their installed paths. For changes to the engine, see [Development](#development).
 
 The app uses an engine already running on its port, or starts `iris-metal serve` from `~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin`. For a virtual environment, set the absolute path to its `bin/iris-metal` in Settings. The app does not install or update the engine.
 
