@@ -25,6 +25,7 @@ PROCESS_START = time.perf_counter()
 
 import argparse  # noqa: E402
 import ctypes  # noqa: E402
+import hashlib  # noqa: E402
 import json  # noqa: E402
 import os  # noqa: E402
 import platform  # noqa: E402
@@ -35,6 +36,8 @@ from pathlib import Path  # noqa: E402
 
 import torch  # noqa: E402
 
+import iris3b  # noqa: E402
+import iris_metal  # noqa: E402
 from iris_metal.cli import REPO_ID, parse_size, resolve_checkpoint  # noqa: E402
 from iris_metal.pipeline import IrisPipeline, StreamingQwen3VLEncoder  # noqa: E402
 
@@ -83,6 +86,12 @@ def gpu_utilization(seconds: float = 5.0) -> float:
 
 
 def environment() -> dict:
+    repo = Path(__file__).resolve().parents[1]
+    sources = [
+        repo / "scripts/benchmark.py",
+        *(repo / "src" / "iris3b").rglob("*.py"),
+        *(repo / "src" / "iris_metal").rglob("*.py"),
+    ]
     return {
         "chip": command("sysctl", "-n", "machdep.cpu.brand_string"),
         "memory_gb": int(command("sysctl", "-n", "hw.memsize")) / 1e9,
@@ -94,14 +103,25 @@ def environment() -> dict:
         "power": command("pmset", "-g", "batt"),
         "power_modes": command("pmset", "-g", "custom"),
         "commit": source_commit(),
+        "source_sha256": {
+            path.relative_to(repo).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(sources)
+        },
     }
 
 
 def source_commit() -> str:
     """The commit of the repository this script (and the engine it imports) belongs to."""
-    repo = str(Path(__file__).resolve().parents[1])
-    commit = command("git", "-C", repo, "rev-parse", "--short", "HEAD")
-    dirty = command("git", "-C", repo, "status", "--porcelain", "--untracked-files=no")
+    repo = Path(__file__).resolve().parents[1]
+    for module in (iris3b, iris_metal):
+        expected = (repo / "src" / module.__name__ / "__init__.py").resolve()
+        actual = Path(module.__file__).resolve()
+        if actual != expected:
+            raise RuntimeError(f"{module.__name__} loaded from {actual}, expected {expected}")
+    commit = command("git", "-C", str(repo), "rev-parse", "--short", "HEAD")
+    if not commit:
+        raise RuntimeError(f"cannot identify the commit of {repo}")
+    dirty = command("git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no")
     return f"{commit}-dirty" if dirty else commit
 
 
@@ -127,6 +147,23 @@ def main() -> None:
     if args.repeats < 1:
         parser.error("--repeats must be positive")
     width, height = args.size
+    outputs = [Path(path) for path in (args.image, args.out) if path]
+    if len({path.resolve() for path in outputs}) != len(outputs):
+        parser.error("--image and --out must be different paths")
+    for path in outputs:
+        if os.path.lexists(path):
+            parser.error(f"output already exists: {path}")
+    image_format = None
+    if args.image:
+        from PIL import Image
+
+        image_format = Image.registered_extensions().get(Path(args.image).suffix.lower())
+        if image_format not in Image.SAVE:
+            parser.error(f"unsupported image output format: {args.image}")
+    try:
+        source_commit()
+    except RuntimeError as exc:
+        parser.error(str(exc))
 
     background_gpu = gpu_utilization()
     swap_before, paging_before = swap_used_mb(), paging_counters()
@@ -232,12 +269,12 @@ def main() -> None:
                 super().finish()
                 phase_times["completed_forward_steps_s"] = time.perf_counter() - self.started
 
-        def profile_images(samples):
+        def profile_images(samples, **options):
             start = time.perf_counter()
             # require_finite has completed the final solver update before this
             # boundary; finish() alone only waits for the final model evaluation.
             phase_times["total_denoising_s"] = start - phase_times.pop("denoising_started")
-            images = original_to_images(samples)
+            images = original_to_images(samples, **options)
             phase_times["image_conversion_s"] = time.perf_counter() - start
             return images
 
@@ -341,9 +378,11 @@ def main() -> None:
     text = json.dumps(report, indent=2)
     print(text)
     if args.image:
-        image.save(args.image)
+        with open(args.image, "xb") as file:
+            image.save(file, format=image_format)
     if args.out:
-        Path(args.out).write_text(text + "\n")
+        with open(args.out, "x", encoding="utf-8") as file:
+            file.write(text + "\n")
 
 
 if __name__ == "__main__":

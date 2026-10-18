@@ -16,6 +16,7 @@ from benchmark import (
     gpu_utilization,
     paging_counters,
     peak_footprint_gib,
+    source_commit,
     swap_used_mb,
 )
 from iris_metal.pipeline import IrisPipeline
@@ -31,12 +32,23 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--size", type=int, default=1024)
     parser.add_argument("--repeats", type=int, default=2)
-    parser.add_argument("--compare-head", type=Path)
+    parser.add_argument(
+        "--compare-head", type=Path, help="pipeline.py to compare; reuses this engine, so not engine parity"
+    )
     parser.add_argument("--reload", action="store_true")
     args = parser.parse_args()
     if args.repeats < 2:
         parser.error("--repeats must include a cold and warm request (at least 2)")
-    args.out.mkdir(parents=True, exist_ok=True)
+    if args.out.exists() or args.out.is_symlink():
+        parser.error(f"output already exists: {args.out}")
+    try:
+        source_commit()
+    except RuntimeError as exc:
+        parser.error(str(exc))
+    try:
+        args.out.mkdir(parents=True)
+    except FileExistsError:
+        parser.error(f"output already exists: {args.out}")
     stages = []
     original_loader = pipeline_module.load_dit
     original_encoder = pipeline_module.StreamingQwen3VLEncoder
@@ -110,7 +122,9 @@ def main():
     if args.compare_head:
         import importlib.util
 
-        spec = importlib.util.spec_from_file_location("iris_head_pipeline", args.compare_head)
+        head_path = args.compare_head.resolve()
+        head_sha256 = hashlib.sha256(head_path.read_bytes()).hexdigest()
+        spec = importlib.util.spec_from_file_location("iris_head_pipeline", head_path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         head = module.IrisPipeline(args.checkpoint)
@@ -119,6 +133,8 @@ def main():
         start = time.perf_counter()
         baseline = head([args.prompt], height=args.size, width=args.size, steps=args.steps, seed=args.seed)[0]
         results["head_comparison"] = {
+            "pipeline_path": str(head_path),
+            "pipeline_sha256": head_sha256,
             "seconds": time.perf_counter() - start,
             "pixels_bitwise_equal": baseline.tobytes() == image.tobytes(),
             "head_pixel_sha256": hashlib.sha256(baseline.tobytes()).hexdigest(),

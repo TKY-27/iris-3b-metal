@@ -3,6 +3,8 @@
 Usage:
     python scripts/compare_runs.py runs/reference runs/candidate [...] --sheet sheet.png
 
+Whole runs require provenance; subsets are exploratory.
+
 Per run: fidelity to the reference image of each prompt (PSNR, SSIM on luma,
 LPIPS-Alex when the ``lpips`` package is installed), a patch-grid score and
 the mean sampling time. Fidelity only says how closely a cheaper sampler
@@ -26,6 +28,7 @@ import torch.nn.functional as F
 from PIL import Image
 
 PATCH = 16
+VARY = ("steps", "attention", "cfg_scale")
 
 
 def luma(rgb: torch.Tensor) -> torch.Tensor:
@@ -91,6 +94,83 @@ def contact_sheet(runs: list[Path], ids: list[str], path: Path, cell: int = 384)
     sheet.save(path)
 
 
+def finished(run: Path) -> tuple[dict, set[str], set[str]]:
+    """``meta.json``, the ids of finished images and ids with an image or a record only."""
+    meta = json.loads((run / "meta.json").read_text())
+    pngs, recorded = {p.stem for p in run.glob("*.png")}, set(meta["images"])
+    return meta, pngs & recorded, pngs ^ recorded
+
+
+def mismatches(reference: Path, run: Path, vary: set[str] | None = None) -> list[str]:
+    """Reasons two whole runs cannot be compared."""
+    if vary and not vary <= set(VARY):
+        raise ValueError(f"unsupported experiment variables: {sorted(vary - set(VARY))}")
+    (ref_meta, ref_ids, ref_unpaired), (meta, ids, run_unpaired) = finished(reference), finished(run)
+    problems = []
+    for name, current, complete, unpaired in (
+        (reference, ref_meta, ref_ids, ref_unpaired),
+        (run, meta, ids, run_unpaired),
+    ):
+        identity = current.get("provenance")
+        checkpoint = identity.get("checkpoint") if isinstance(identity, dict) else None
+        if not (
+            isinstance(checkpoint, dict)
+            and checkpoint.get("config_sha256")
+            and checkpoint.get("weights_sha256")
+            and identity.get("prompts_sha256")
+            and isinstance(identity.get("source_sha256"), dict)
+            and identity["source_sha256"]
+        ):
+            problems.append(f"{name}: missing checkpoint, prompt or source provenance")
+        expected = current.get("expected")
+        if not isinstance(expected, dict) or not expected:
+            problems.append(f"{name}: missing expected prompt set")
+        else:
+            if expected.keys() - complete:
+                problems.append(f"{name}: incomplete prompt set {sorted(expected.keys() - complete)}")
+            if complete - expected.keys():
+                problems.append(f"{name}: unexpected prompt ids {sorted(complete - expected.keys())}")
+        if unpaired:
+            problems.append(f"{name}: image or meta.json entry alone for {sorted(unpaired)}")
+        for image_id in sorted(complete):
+            record = current["images"][image_id]
+            if (
+                isinstance(expected, dict)
+                and image_id in expected
+                and (
+                    record.get("prompt") != expected[image_id].get("prompt")
+                    or record.get("size") != expected[image_id].get("size")
+                )
+            ):
+                problems.append(f"{name}: {image_id} prompt or declared size differs")
+            try:
+                with Image.open(name / f"{image_id}.png") as image:
+                    actual_size = list(image.size)
+                if actual_size != record.get("size"):
+                    problems.append(f"{name}: {image_id} PNG dimensions differ from metadata")
+            except (OSError, ValueError):
+                problems.append(f"{name}: {image_id} PNG cannot be read")
+    if ref_ids - ids:
+        problems.append(f"missing {sorted(ref_ids - ids)}")
+    if ids - ref_ids:
+        problems.append(f"unexpected {sorted(ids - ref_ids)}")
+    ref_identity, identity = ref_meta.get("provenance"), meta.get("provenance")
+    if isinstance(ref_identity, dict) and isinstance(identity, dict):
+        for key in ("checkpoint", "prompts_sha256"):
+            if ref_identity.get(key) != identity.get(key):
+                problems.append(f"{key} provenance differs")
+    if ref_meta.get("expected") != meta.get("expected"):
+        problems.append("expected prompt sets differ")
+    ref_config, config = ref_meta["config"], meta["config"]
+    for key in sorted((ref_config.keys() | config.keys()) - {"out"} - (vary or set())):
+        if key not in ref_config or key not in config or ref_config[key] != config[key]:
+            problems.append(f"{key} {config.get(key)!r} != {ref_config.get(key)!r}")
+    for image_id in sorted(ref_ids & ids):
+        if ref_meta["images"][image_id]["size"] != meta["images"][image_id]["size"]:
+            problems.append(f"{image_id} size differs")
+    return problems
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -99,6 +179,10 @@ def main() -> None:
     parser.add_argument("candidates", type=Path, nargs="+")
     parser.add_argument("--sheet", type=Path, help="write a contact sheet PNG")
     parser.add_argument("--json", type=Path, help="write per-image metrics")
+    parser.add_argument("--subset", action="store_true", help="exploratory: compare shared prompts only")
+    parser.add_argument(
+        "--vary", choices=VARY, action="append", default=[], help="declared experiment variable"
+    )
     args = parser.parse_args()
 
     try:
@@ -108,15 +192,44 @@ def main() -> None:
     except ImportError:
         lpips_model = None
 
-    # prompts every run has, so the means of all runs cover the same images
     runs = [args.reference, *args.candidates]
-    ids = sorted(set.intersection(*({p.stem for p in run.glob("*.png")} for run in runs)))
+    problems = {str(run): mismatches(args.reference, run, set(args.vary)) for run in runs}
+    if args.subset:
+        # prompts every run has, so the means of all runs cover the same images
+        ids = sorted(set.intersection(*(finished(run)[1] for run in runs)))
+        print("EXPLORATORY subset comparison")
+    elif any(problems.values()):
+        raise SystemExit(
+            "runs are not comparable as a whole:\n"
+            + "\n".join(f"{run}: {'; '.join(found)}" for run, found in problems.items() if found)
+        )
+    else:
+        ids = sorted(finished(args.reference)[1])
     if not ids:
         raise SystemExit("the runs have no prompt in common")
+    metadata = {str(run): json.loads((run / "meta.json").read_text()) for run in runs}
+    for image_id in ids:
+        sizes = []
+        for run in runs:
+            with Image.open(run / f"{image_id}.png") as image:
+                sizes.append(image.size)
+                if list(image.size) != metadata[str(run)]["images"][image_id].get("size"):
+                    raise SystemExit(f"{run}: {image_id} PNG dimensions differ from metadata")
+        if len(set(sizes)) != 1:
+            raise SystemExit(f"{image_id}: actual PNG dimensions differ")
     print(f"{len(ids)} prompts: {', '.join(ids)}")
-    report = {}
+    report = {
+        "complete_comparison": not args.subset,
+        "prompts": ids,
+        "mismatches": problems,
+        "variants": {
+            key: {str(run): metadata[str(run)]["config"].get(key) for run in runs} for key in args.vary
+        },
+        "provenance": {str(run): metadata[str(run)].get("provenance") for run in runs},
+        "runs": {},
+    }
     for run in runs:
-        meta = json.loads((run / "meta.json").read_text())
+        meta = metadata[str(run)]
         rows = {}
         for image_id in ids:
             candidate = load(run / f"{image_id}.png")
@@ -128,7 +241,7 @@ def main() -> None:
                     with torch.no_grad():
                         row["lpips"] = lpips_model(candidate[None] * 2 - 1, reference[None] * 2 - 1).item()
             rows[image_id] = row
-        report[str(run)] = rows
+        report["runs"][str(run)] = rows
 
         means = {key: statistics.fmean(r[key] for r in rows.values()) for key in next(iter(rows.values()))}
         summary = "  ".join(f"{key} {value:.4f}" for key, value in means.items())

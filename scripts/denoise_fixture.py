@@ -16,7 +16,11 @@ upstream's ``scripts/sample.py``: the baselines the engine is compared with.
 """
 
 import argparse
+import hashlib
+import importlib.metadata
+import json
 import statistics
+import sys
 import time
 from pathlib import Path
 
@@ -27,6 +31,57 @@ from iris3b.flow.solver import FlowDPMSolver
 from iris_metal.cli import REPO_ID, resolve_checkpoint
 from iris_metal.loading import load_config, load_dit
 from iris_metal.model import MetalIris
+
+
+def sha256(path: Path) -> str:
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def source_identity() -> dict[str, str]:
+    sources = {Path(__file__).resolve()}
+    sources.update(
+        Path(module.__file__).resolve()
+        for name, module in sys.modules.items()
+        if name.split(".")[0] in ("iris3b", "iris_metal") and getattr(module, "__file__", None)
+    )
+    return {str(path): sha256(path) for path in sorted(sources)}
+
+
+def checkpoint_identity(checkpoint: Path) -> dict:
+    names = ("model.safetensors", "config.yaml")
+    files = {name: sha256(checkpoint / name) for name in names}
+    return {"path": str(checkpoint.resolve()), "files": files}
+
+
+def provenance(args, checkpoint: Path) -> dict:
+    return {
+        "fixture_sha256": sha256(args.fixture),
+        "checkpoint": checkpoint_identity(checkpoint),
+        "source_sha256": source_identity(),
+        "dependencies": {
+            "torch": str(torch.__version__),
+            "numpy": np.__version__,
+            "transformers": importlib.metadata.version("transformers"),
+            "safetensors": importlib.metadata.version("safetensors"),
+        },
+        "steps": args.steps,
+        "attention": args.attention,
+        "reference": args.reference,
+    }
+
+
+def save_result(path: Path, final: torch.Tensor, times: list[float], load_s: float, identity: dict) -> None:
+    if not bool(torch.isfinite(final).all()):
+        raise ValueError("final sample contains non-finite values")
+    with path.open("xb") as result:
+        np.savez(
+            result,
+            final=final.cpu().numpy(),
+            seconds=np.array(times),
+            load_s=load_s,
+            provenance=np.array(json.dumps(identity, sort_keys=True)),
+        )
 
 
 def main() -> None:
@@ -45,6 +100,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.steps < 1 or args.repeats < 1:
         parser.error("steps and repeats must be positive")
+    if args.out is not None and args.out.exists():
+        raise SystemExit(f"{args.out} exists; use a new output path")
     args.checkpoint = resolve_checkpoint(args.checkpoint, None)
 
     fixture = np.load(args.fixture)
@@ -94,13 +151,15 @@ def main() -> None:
         start = time.perf_counter()
         final = denoise()
         torch.mps.synchronize()
+        if not bool(torch.isfinite(final).all()):
+            raise ValueError("final sample contains non-finite values")
         times.append(time.perf_counter() - start)
     print(
         f"load {load_s:.1f}s; denoising {args.steps} steps: first {times[0]:.2f}s, "
         f"median of repeats {statistics.median(times[1:] or times):.2f}s ({', '.join(f'{t:.2f}' for t in times)})"
     )
     if args.out:
-        np.savez(args.out, final=final.cpu().numpy(), seconds=np.array(times), load_s=load_s)
+        save_result(args.out, final, times, load_s, provenance(args, args.checkpoint))
 
 
 if __name__ == "__main__":
