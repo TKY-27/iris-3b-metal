@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "additionalDirectories": ["../iris-wt", "~/.iris-loop/notes"]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/loop/guard.py\" || exit 2"
+          }
+        ]
+      }
+    ]
+  }
+}
