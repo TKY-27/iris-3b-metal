@@ -44,7 +44,7 @@ packages = ["src/iris3b", "src/iris_metal"]
 [tool.ruff]
 line-length = 110
 target-version = "py311"
-src = ["src", "scripts", "tests"]
+src = ["src", "scripts", "tests", "loop"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "B", "SIM"]
