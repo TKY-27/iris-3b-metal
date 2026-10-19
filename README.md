@@ -87,7 +87,7 @@ weights (about 12 GB each) download only when first used. Model weights are not
 included in the repository or release.
 
 For the native app and engine, see [Install the macOS release](docs/macos-updates.md).
-That route does not require Git or Xcode. The v0.6.0 release files are
+That route does not require Git or Xcode. The v0.6.1 release files are
 an arm64 app ZIP and a matching Python wheel. The app uses a separately
 installed engine and does not include Python or model weights.
 
@@ -203,11 +203,11 @@ approval does not repair a damaged signature, incomplete download or runtime
 failure. Replacing the app preserves models, settings and the image library
 outside its bundle.
 
-To build v0.6.0 from source instead, install Git, Python 3.14 and Xcode 27, then
+To build v0.6.1 from source instead, install Git, Python 3.14 and Xcode 27, then
 run these commands in a directory where `iris-3b-metal` does not already exist:
 
 ```bash
-git clone --branch v0.6.0 https://github.com/TKY-27/iris-3b-metal.git
+git clone --branch v0.6.1 https://github.com/TKY-27/iris-3b-metal.git
 cd iris-3b-metal
 python3.14 -m venv .venv
 .venv/bin/python -m pip install -c apps/macos/engine-constraints.txt -e .
@@ -229,7 +229,7 @@ The app can check GitHub for compatible stable releases and open their release p
 - **Language and focus.** The app follows macOS’s preferred app language, with Japanese and English UI and an English fallback. Prompts and saved model identities stay unchanged. Hide or show the gallery from the toolbar or View menu (⇧⌘G); the choice persists across launches. Hidden galleries keep the prompt and generation progress available. Find Images (⌘F) brings the gallery back and focuses search.
 - **Motion.** The background and active generation tile retain the pointer-reactive liquid field, shaped as an iris flower. Animation can be turned off in Settings and respects macOS Reduce Motion. The background stops drawing after the pointer settles, while the active generation tile keeps moving; hidden windows stop animation.
 - **Generation controls.** The model menu selects Original or Turbo. Turbo only exposes shape and seed; its four steps are fixed. Original tuning is preserved when switching models. Original presets are Draft, Fast, Standard, High and Maximum at 4, 10, 20, 30 and 50 steps; Standard is the default. The exact controls include steps, guidance, seed and negative prompt. The model's evaluated 100-step setting is available by entering 100.
-- **Image sizes in source builds.** The shape menu starts with square, exact 16:9 (1280 × 720) and 9:16 (720 × 1280). The other training sizes remain under More sizes. The exact 16:9 pair is additional to the 21 training buckets and is not yet in the v0.6.0 app ZIP.
+- **Image sizes.** Since v0.6.1, the shape menu starts with square, exact 16:9 (1280 × 720) and 9:16 (720 × 1280). The other training sizes remain under More sizes. The exact 16:9 pair is additional to the 21 training buckets.
 - **Progress and library.** Generation reports step progress and can be stopped. Upscaling reports tiles. Images with their prompts and settings, and projects, live under `~/Library/Application Support/Iris`. A legacy `History` folder from Iris 0.1 is imported once; existing chat entries remain visible. Saving upgrades the library to format 2 so older apps cannot silently discard Turbo model identity. Older apps refuse to modify this newer library.
 - **Restoration limits.** The restorer works at 4×. Inputs above 512 pixels on
   the short side or 1024 on the long side are reduced first, so a 1024 × 1024
