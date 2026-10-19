@@ -2,34 +2,34 @@
 
 ## Install the macOS release
 
-The v0.6.0 release contains a native arm64 app ZIP and a matching engine wheel:
+The v0.6.1 release contains a native arm64 app ZIP and a matching engine wheel:
 
-- `Iris-0.6.0-1-arm64.zip`
-- `iris_3b_metal-0.6.0-py3-none-any.whl`
-- `iris-engine-0.6.0-constraints.txt`
+- `Iris-0.6.1-1-arm64.zip`
+- `iris_3b_metal-0.6.1-py3-none-any.whl`
+- `iris-engine-0.6.1-constraints.txt`
 - `SHA256SUMS`
 
-Download all four files from the [v0.6.0 GitHub release](https://github.com/TKY-27/iris-3b-metal/releases/tag/v0.6.0). In Downloads, run `shasum -a 256 -c SHA256SUMS` to check the ZIP, wheel and constraints file before installing. The ZIP contains `Iris.app`. The app is ad-hoc signed, not signed with a Developer ID, and not notarized. The wheel contains the Python engine package, not Python itself or model weights.
+Download all four files from the [v0.6.1 GitHub release](https://github.com/TKY-27/iris-3b-metal/releases/tag/v0.6.1). In Downloads, run `shasum -a 256 -c SHA256SUMS` to check the ZIP, wheel and constraints file before installing. The ZIP contains `Iris.app`. The app is ad-hoc signed, not signed with a Developer ID, and not notarized. The wheel contains the Python engine package, not Python itself or model weights.
 
 Install [Python 3.14](https://www.python.org/downloads/macos/) first. Python 3.14.8 is the tested version. Create a new virtual environment at its final location, then install the downloaded wheel with the matching tested dependency constraints:
 
 ```sh
 python3.14 --version
-engine="$HOME/.local/share/iris-engine-0.6.0"
+engine="$HOME/.local/share/iris-engine-0.6.1"
 if [ -e "$engine" ] || [ -L "$engine" ]; then
   printf 'Choose a new environment path: %s already exists\n' "$engine" >&2
   exit 1
 fi
 python3.14 -m venv "$engine"
 "$engine/bin/python" -m pip install \
-  -c "$HOME/Downloads/iris-engine-0.6.0-constraints.txt" \
-  "$HOME/Downloads/iris_3b_metal-0.6.0-py3-none-any.whl"
+  -c "$HOME/Downloads/iris-engine-0.6.1-constraints.txt" \
+  "$HOME/Downloads/iris_3b_metal-0.6.1-py3-none-any.whl"
 "$engine/bin/iris-metal" --help
 ```
 
-Download the wheel and `iris-engine-0.6.0-constraints.txt` into `Downloads` before running these commands. If the target directory already exists, choose another new path. In Iris Settings, set the engine path to the absolute path `$HOME/.local/share/iris-engine-0.6.0/bin/iris-metal`, replacing `$HOME` with your home directory. The app launches that executable as a separate process and does not change the Python environment. Keep the previous engine environment until a small generation succeeds.
+Download the wheel and `iris-engine-0.6.1-constraints.txt` into `Downloads` before running these commands. If the target directory already exists, choose another new path. In Iris Settings, set the engine path to the absolute path `$HOME/.local/share/iris-engine-0.6.1/bin/iris-metal`, replacing `$HOME` with your home directory. The app launches that executable as a separate process and does not change the Python environment. Keep the previous engine environment until a small generation succeeds.
 
-Unzip `Iris-0.6.0-1-arm64.zip`, then drag `Iris.app` into Applications. Moving the app does not move or change the Python environment or the image library at `~/Library/Application Support/Iris`. Keep the engine at its installed path.
+Unzip `Iris-0.6.1-1-arm64.zip`, then drag `Iris.app` into Applications. Moving the app does not move or change the Python environment or the image library at `~/Library/Application Support/Iris`. Keep the engine at its installed path.
 
 The wheel declares Python dependencies that `pip` installs from the package index. The install needs network access for dependencies. The first generation downloads the selected text-to-image checkpoint and the shared Qwen3-VL-4B-Instruct text encoder from Hugging Face. Original weights are about 12.0 GB, Turbo weights are about 6.0 GB, and the text encoder is about 8.9 GB. Depth and restoration weights, about 12 GB each, download when first used. The release contains no model weights. Allow enough disk space for downloads, caches, and generated images.
 
@@ -55,7 +55,7 @@ Drafts, prereleases, and releases without valid compatibility metadata are not o
 
 ## Engine compatibility and updates
 
-The v0.6.0 app uses HTTP API version 1 and accepts engines 0.3.x, 0.5.x, and 0.6.x that report API version 1. Turbo also requires the engine to advertise Turbo support. The app runs the selected `iris-metal` executable on localhost. It does not bundle Python or change the selected environment.
+The v0.6.1 app uses HTTP API version 1 and accepts engines 0.3.x, 0.5.x, and 0.6.x that report API version 1. Turbo also requires the engine to advertise Turbo support. The app runs the selected `iris-metal` executable on localhost. It does not bundle Python or change the selected environment.
 
 To update the engine, download the wheel from the same release as the app and install it into a new virtual environment using the steps above. Do not replace an environment that another app or task uses. The engine can also be installed separately for CLI or Python use.
 
@@ -68,7 +68,7 @@ If you want to build the app yourself, install Xcode 27 and follow the [source b
 `apps/macos/package_release.sh` supports an ad-hoc mode for local ZIP creation and a separate Developer ID mode for notarized packaging. Ad-hoc mode needs macOS and Xcode, but does not inspect Apple credentials or contact Apple. Dry-run validates only the supplied values and creates no files:
 
 ```sh
-IRIS_RELEASE_VERSION=0.6.0 \
+IRIS_RELEASE_VERSION=0.6.1 \
 IRIS_RELEASE_BUILD=1 \
 IRIS_RELEASE_OUTPUT=/absolute/path/to/new-output \
   apps/macos/package_release.sh --mode ad-hoc --dry-run
