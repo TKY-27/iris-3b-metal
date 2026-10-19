@@ -17,6 +17,8 @@ from pathlib import Path
 KIT = Path(__file__).resolve().parent
 STATE = Path(os.environ.get("IRIS_LOOP_HOME", "~/.iris-loop")).expanduser()
 NOTES = STATE / "notes"  # the only agent-writable part of STATE
+BASELINE = STATE / "baseline"
+ORACLE = STATE / "oracle"
 LOCKED_ENV = "IRIS_LOOP_GPU_HOLDER"
 
 # Any change invalidates every verdict.
@@ -48,18 +50,13 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def digest_of(mapping: dict) -> str:
-    return hashlib.sha256(json.dumps(mapping, sort_keys=True).encode()).hexdigest()
-
-
 def frozen_hashes(tree: Path) -> dict[str, str]:
     import tomllib
 
     hashes = {name: sha256_file(tree / name) for name in FROZEN}
     tool = tomllib.loads((tree / "pyproject.toml").read_text()).get("tool", {})
-    hashes["pyproject.toml [tool.ruff] [tool.pytest]"] = digest_of(
-        {key: tool.get(key) for key in ("ruff", "pytest")}
-    )
+    settings = json.dumps({key: tool.get(key) for key in ("ruff", "pytest")}, sort_keys=True)
+    hashes["pyproject.toml [tool.ruff] [tool.pytest]"] = hashlib.sha256(settings.encode()).hexdigest()
     return hashes
 
 
@@ -98,8 +95,8 @@ def head(tree: Path) -> str:
     return git(tree, "rev-parse", "HEAD")
 
 
-def is_clean(tree: Path) -> bool:
-    return git(tree, "status", "--porcelain", "--untracked-files=no") == ""
+def is_clean(tree: Path, untracked: bool = False) -> bool:
+    return git(tree, "status", "--porcelain", f"--untracked-files={'all' if untracked else 'no'}") == ""
 
 
 def run_child(command: list[str], log: Path, timeout: float, **kwargs) -> int:
@@ -113,7 +110,11 @@ def run_child(command: list[str], log: Path, timeout: float, **kwargs) -> int:
             os.killpg(child.pid, signal.SIGKILL)
             raise SystemExit(f"stopped by signal {signum}")
 
-        previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
+        # nohup and & leave SIGHUP and SIGINT ignored; installing a handler would undo that
+        handled = [
+            s for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP) if signal.getsignal(s) != signal.SIG_IGN
+        ]
+        previous = {sig: signal.signal(sig, stop) for sig in handled}
         try:
             return child.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -144,7 +145,10 @@ def on_ac_power() -> bool:
 
 
 def low_power_mode() -> bool:
-    return re.search(r"lowpowermode\s+1", run("pmset", "-g")) is not None
+    found = re.search(r"\b(?:lowpowermode|powermode)\s+(\d)", run("pmset", "-g"))
+    if found is None:
+        raise RuntimeError("pmset -g reports neither lowpowermode nor powermode")
+    return found[1] != "0"
 
 
 def thermal_state() -> int:
@@ -163,6 +167,7 @@ def machine() -> dict:
     }
 
 
+# -- locks -------------------------------------------------------------------
 def holds_lock() -> bool:
     """True when an ancestor process holds the GPU lock."""
     holder = os.environ.get(LOCKED_ENV)
@@ -176,6 +181,24 @@ def holds_lock() -> bool:
     return False
 
 
+def acquire(file, mode: int, label: str, wait: float | None) -> None:
+    deadline = None if wait is None else time.monotonic() + wait
+    announced = False
+    while True:
+        try:
+            fcntl.flock(file, mode | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            file.seek(0)
+            holder = file.read().strip() or "unknown"
+            if deadline is not None and time.monotonic() > deadline:
+                raise SystemExit(f"{label} busy ({holder}); run the command again later") from None
+            if not announced:
+                print(f"waiting for the {label} (held by: {holder})", flush=True)
+                announced = True
+            time.sleep(5)
+
+
 @contextmanager
 def gpu_lock(label: str, wait: float | None = None):
     """Machine-wide; ``wait`` seconds at most, then SystemExit."""
@@ -184,21 +207,7 @@ def gpu_lock(label: str, wait: float | None = None):
         return
     STATE.mkdir(parents=True, exist_ok=True)
     with open(STATE / "gpu.lock", "a+") as file:
-        deadline = None if wait is None else time.monotonic() + wait
-        announced = False
-        while True:
-            try:
-                fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                file.seek(0)
-                holder = file.read().strip() or "unknown"
-                if deadline is not None and time.monotonic() > deadline:
-                    raise SystemExit(f"GPU busy ({holder}); run the command again later") from None
-                if not announced:
-                    print(f"waiting for the GPU (held by: {holder})", flush=True)
-                    announced = True
-                time.sleep(5)
+        acquire(file, fcntl.LOCK_EX, "GPU", wait)
         file.seek(0)
         file.truncate()
         file.write(f"{label} pid={os.getpid()} since {time.strftime('%H:%M')}\n")
@@ -209,3 +218,34 @@ def gpu_lock(label: str, wait: float | None = None):
         finally:
             os.environ.pop(LOCKED_ENV)
             fcntl.flock(file, fcntl.LOCK_UN)
+
+
+def alive(pid: str) -> bool:
+    try:
+        os.kill(int(pid), 0)
+    except (ValueError, ProcessLookupError):
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+@contextmanager
+def quiet_lock(exclusive: bool, wait: float | None = None):
+    """Timing holds it alone; CPU work shares it and is refused while timing waits."""
+    STATE.mkdir(parents=True, exist_ok=True)
+    pending = STATE / "quiet.pending"
+    if not exclusive and pending.exists() and alive(pending.read_text().strip()):
+        raise SystemExit("timing is running; run CPU work again later")
+    if exclusive:
+        pending.write_text(str(os.getpid()))
+    try:
+        with open(STATE / "quiet.lock", "a+") as file:
+            acquire(file, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH, "CPU quiet period", wait)
+            try:
+                yield
+            finally:
+                fcntl.flock(file, fcntl.LOCK_UN)
+    finally:
+        if exclusive:
+            pending.unlink(missing_ok=True)

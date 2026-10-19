@@ -44,28 +44,30 @@ These are fixed. The gate enforces them; do not argue with a verdict.
    still passes through `Tensor.clamp(-1, 1)`, where the gate records it.
 6. **No benchmark gaming.** Never cache generated samples or images, never
    keep caches of encodings, weights or kernels across processes, never
-   detect or special-case the gate's prompts, sizes, seeds or workloads.
-   The cold time covers pipeline construction and the first request, so
-   moving work into construction or imports gains nothing.
+   detect or special-case the gate's prompts, sizes, seeds, environment or
+   workloads. Cold time runs from process start, imports included, so
+   moving work into imports or construction gains nothing.
 7. Depth and restoration reuse `MetalIris`. When the gate reports their
    output changed, record it in the ledger's `## review` section; a person
    checks those images before the final merge.
 
 ## Harness (read-only)
 
-`loop/`, `.claude/`, this file, `benchmarks/prompts.json`, the ruff and
-pytest settings in `pyproject.toml`, and `~/.iris-loop/` except
+`loop/`, `.claude/`, `~/.claude/`, this file, `benchmarks/prompts.json`,
+the ruff and pytest settings in `pyproject.toml`, and `~/.iris-loop/` except
 `~/.iris-loop/notes/` are frozen. A hook blocks edits; the gate re-hashes
-everything before each verdict. A candidate that changes any of it is
-rejected; a reference head that does halts the loop.
+everything before each verdict. A candidate that changes any of it, or adds
+a `conftest.py`, `pytest.ini`, `setup.cfg`, `tox.ini`, `ruff.toml` or
+`sitecustomize.py`, is rejected; a reference head that does halts the loop.
 
-- One GPU job at a time, machine-wide. Any Python command runs as
-  `python loop/gpu.py run -- <command>`, which waits 60 s for the lock and
-  then exits (`--wait SECONDS` changes that). The only exception is CPU
-  tests: `IRIS_SKIP_GPU_TESTS=1 python -m pytest ...`.
-- While a gate check holds the GPU (often two hours), implementers keep
-  writing code and running CPU tests, and try the GPU again later. Start
-  micro-benchmarks as background commands and keep them under five minutes.
+- Every command that runs code goes through `loop/gpu.py`:
+  `python loop/gpu.py run -- <command>` for GPU work (one job at a time,
+  machine-wide) and `python loop/gpu.py cpu -- <command>` for CPU tests and
+  scripts (GPU tests skipped). Both wait 60 s and then exit;
+  `--wait SECONDS` changes that. `cpu` is refused while the gate is timing.
+- A gate check holds the GPU for one to three hours. Meanwhile implementers
+  keep writing code and run CPU work whenever `cpu` lets them. Keep GPU
+  micro-benchmarks under five minutes.
 - `python loop/gate.py check --candidate <worktree> --category <c> --targets original,turbo --note "<hypothesis>"`
   snapshots both commits, then runs lint, tests, correctness and timing in
   fresh processes (ABBA and BAAB after a warm-up). A speedup counts only on
@@ -73,9 +75,13 @@ rejected; a reference head that does halts the loop.
   cold starts count only for the `loading` category. `--quick` times only
   the targeted workloads and can return PROMISING, never ACCEPT; a
   PROMISING candidate needs a full check before it can merge.
-- Verdicts: ACCEPT, PROMISING, NO_GAIN, REJECT, BROKEN (lint or tests),
-  NOISY (the Mac was busy, hot, on battery or swapping), ERROR. The last
-  line of every command starts with `GATE`.
+- A slowdown rejects only when the confirmation run reproduces it. A change
+  is also rejected when, with every earlier merge, a workload's estimated
+  time against v0.6.1 rises by more than 1%.
+- Verdicts: ACCEPT, PROMISING, NO_GAIN, REJECT, BROKEN (lint, tests, or the
+  candidate's code crashed), STALE (not rebased onto `opt/loop`), NOISY (the
+  Mac was busy, hot, on battery or swapping), ERROR (the gate or the
+  reference failed). The last line of every command starts with `GATE`.
 - `python loop/gate.py merge --id <G....>` merges an ACCEPT with `--no-ff`
   after a PASS review and records the gate numbers in the merge commit.
   `python loop/gate.py stopcheck` tells whether the stopping rule holds.
@@ -90,9 +96,17 @@ the gate and merges. Subagents implement. Only the main session runs
 `GATE` line in the conversation; the goal is judged from those lines.
 
 Start long gate commands detached, so no tool timeout kills them:
-`nohup python loop/gate.py check ... > ~/.iris-loop/notes/out/<slug>.log 2>&1 &`.
-Wait for the log's last line to start with `GATE` (a Monitor until-loop, or
-a check every ten minutes), then quote that line.
+
+```
+mkdir -p ~/.iris-loop/notes/out
+nohup python loop/gate.py check ... > ~/.iris-loop/notes/out/<slug>.log 2>&1 &
+echo $! > ~/.iris-loop/notes/out/<slug>.pid
+```
+
+Wait until the log's last line starts with `GATE`, or the process is gone
+(`kill -0 $(cat <slug>.pid)` fails): a Monitor until-loop, or a check every
+ten minutes. Quote the `GATE` line; a vanished process without one counts as
+an ERROR.
 
 1. **Measure first.** Before the first hypothesis for a workload, record
    where its request time goes (text encoding, load, each block type,
@@ -112,11 +126,12 @@ a check every ten minutes), then quote that line.
 6. **After every verdict**, update the ledger: hypothesis, category, gate
    id, verdict, numbers, and what it teaches. Do not retry a rejected idea
    without new evidence, and say what is new.
-7. **ERROR** with `HALT` in its reason, three NOISY verdicts in a row, or
+7. **BROKEN**: fix the candidate (`~/.iris-loop/runs/<id>/` has the logs)
+   and check again. **STALE**: rebase onto `opt/loop` and check again.
+8. **ERROR** with `HALT` in its reason, three NOISY verdicts in a row, or
    three ERRORs in a row: write `LOOP HALTED: <reason>` in the conversation
    and wait for the person. Any other ERROR: read
-   `~/.iris-loop/runs/<id>/error.txt`, fix the cause in the candidate, check
-   again.
+   `~/.iris-loop/runs/<id>/error.txt` and retry once.
 
 ### Ledger format
 
@@ -125,30 +140,36 @@ The stopping check parses one table per gate workload: `## original-10`,
 
 ```
 ## original-10
-| component | share % | status | evidence |
-|---|---|---|---|
-| trunk matmul | 61 | at-bound | measurements/original-matmul-roofline.md |
-| attention | 20 | exhausted | G0004 G0009 |
-| text encoding | 4 | open | |
+| component | share % | status | category | evidence |
+|---|---|---|---|---|
+| trunk matmul | 61 | at-bound | matmul | measurements/original-matmul-roofline.md |
+| attention | 20 | exhausted | attention | G0004 G0009 |
+| text encoding | 4 | open | text-encoder | |
 ```
 
 Shares are of that workload's warm request and sum to about 100. Rows of
-3% or more must be `at-bound`, citing a measurement file under
+3% or more must be `at-bound`, citing a `measurements/*.md` file under
 `~/.iris-loop/notes/` that shows a measured hardware limit, or `exhausted`,
-citing two full, correct, rejected checks for that model. Rows under 3% may
-add up to 10% at most.
+citing two full, correct, rejected checks for that model in the row's
+category. Rows under 3% may add up to 10% at most. Only rejections of real
+source changes with distinct `--note` hypotheses count toward stopping.
 
 ### Stopping
 
 Stop only when `gate.py stopcheck` prints `GATE STOPCHECK MET` after the last
 merge, and a fresh `loop-auditor` subagent ends with `AUDIT: AGREE`. If it
-disagrees, its hypotheses go into the ledger and the loop continues. Then
-run `gate.py audit`. It must end with `GATE AUDIT PASS`; on FAIL, fix what
-it names and repeat the stopcheck and audit. Write
-`benchmarks/optimization-loop-<date>.md` in the style of the existing
-records (conditions, ranges, exactness, what was rejected, no claims beyond
-the evidence), update the README performance section only with audited
-numbers, and open a pull request from `opt/loop` to `main`. Do not merge it.
+disagrees, each hypothesis it names is tried once; one that already has a
+full, correct rejection is not tried again. After three DISAGREE rounds,
+write `LOOP HALTED: the auditor still disagrees` and wait for the person.
+
+Then run `gate.py audit`. It must end with `GATE AUDIT PASS`; on FAIL, fix
+what it names and repeat the stopcheck and audit. Every commit on `opt/loop`
+must come from `gate.py merge`. After the audit, commit only
+`benchmarks/optimization-loop-<date>.md` (in the style of the existing
+records: conditions, ranges, exactness, what was rejected, no claims beyond
+the evidence) and the README performance section with audited numbers. Run
+`gate.py finalcheck`; after `GATE FINAL READY`, open a pull request from
+`opt/loop` to `main` with `gh pr create`. Do not merge it.
 
 ## Starting points
 

@@ -14,7 +14,7 @@ from common import git
 
 LIMIT = 8
 HUNK = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@")
-METAL_COMMENT = re.compile(r"//\s*(.+)|/\*\s*(.+?)\s*\*/")
+METAL_COMMENT = re.compile(r"(?:^|\s)//\s*(.+)|/\*\s*(.+?)\s*\*/")
 
 
 def added_lines(tree: Path, base: str) -> dict[str, set[int]]:

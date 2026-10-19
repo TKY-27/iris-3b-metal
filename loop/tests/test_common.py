@@ -34,3 +34,16 @@ def test_lock_gives_up_after_wait(tmp_path, monkeypatch):
         )
         os.environ[common.LOCKED_ENV] = str(os.getpid())
     assert "GPU busy (first" in result.stderr
+
+
+def test_cpu_work_waits_out_timing_but_not_a_dead_marker(tmp_path, monkeypatch):
+    monkeypatch.setattr(common, "STATE", tmp_path)
+    (tmp_path / "quiet.pending").write_text(str(os.getpid()))
+    with pytest.raises(SystemExit, match="timing is running"), common.quiet_lock(exclusive=False):
+        pass
+    (tmp_path / "quiet.pending").write_text("999999")
+    with common.quiet_lock(exclusive=False):
+        pass
+    with common.quiet_lock(exclusive=True):
+        assert (tmp_path / "quiet.pending").read_text() == str(os.getpid())
+    assert not (tmp_path / "quiet.pending").exists()

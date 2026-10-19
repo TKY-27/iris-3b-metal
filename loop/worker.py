@@ -1,12 +1,16 @@
 """One measurement per fresh process, importing the engine from ``--tree``."""
 
+# ruff: noqa: E402
+import time
+
+PROCESS_START = time.perf_counter()  # cold time includes every import
+
 import argparse
 import ctypes
 import hashlib
 import json
 import os
 import sys
-import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,7 +18,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from common import STATE, read_json, swapouts
+from common import BASELINE, ORACLE, STATE, read_json, swapouts
 
 DEVICE = torch.device("mps")
 
@@ -60,8 +64,6 @@ def encoding_digest(encodings) -> str:
 
 
 class ClampProbe:
-    """First ``clamp(-1, 1)`` input of an image batch."""
-
     def __init__(self):
         self.sample: torch.Tensor | None = None
         original = torch.Tensor.clamp
@@ -182,8 +184,8 @@ def oracle(run) -> dict:
                     states=states,
                     mask=mask,
                 )
-        else:
-            np.save(run.out / f"traj-{job['id']}.npy", final.numpy())
+        prefix = "traj-1mp-" if run.arg == "velocity" else "traj-"
+        np.save(run.out / f"{prefix}{job['id']}.npy", final.numpy())
         print(f"oracle {run.arg} {job['id']}: {time.perf_counter() - start:.0f}s", flush=True)
     return {"jobs": [job["id"] for job in jobs]}
 
@@ -205,7 +207,7 @@ def capture_turbo(run) -> dict:
 def ocr_capture(run, pipe, probe) -> dict:
     """The baseline picks the first seed that renders every word; candidates reuse it."""
     job = run.spec["ocr"][run.arg]
-    recorded = STATE / "baseline" / f"original-{run.arg}" / "result.json"
+    recorded = BASELINE / f"original-{run.arg}" / "result.json"
     seeds = [read_json(recorded)["ocr"]["seed"]] if recorded.exists() else job["seeds"]
     for seed in seeds:
         [image] = pipe(
@@ -239,13 +241,28 @@ def capture_original(run) -> dict:
         }
     if run.arg == "dev":
         engine = pipe.engine
-        for path in sorted((STATE / "oracle" / "velocity").glob("vel-*.npz")):
+        for path in sorted((ORACLE / "velocity").glob("vel-*.npz")):
             with np.load(path) as data:
                 x, t, rows = (torch.from_numpy(data[key]).to(DEVICE) for key in ("x", "t", "rows"))
                 text = engine.encode_text(torch.from_numpy(data["states"]), torch.from_numpy(data["mask"]))
             v = engine(x, t, text[rows]).cpu()
             np.save(run.out / f"{path.stem}.npy", v.numpy())
             result["velocity"][path.stem] = tensor_digest(v)
+        for job in run.spec["velocity"]:  # the oracle's FP32 trajectories at about 1 MP
+            [image] = pipe(
+                [job["prompt"]],
+                height=job["height"],
+                width=job["width"],
+                steps=job["steps"],
+                seed=job["seed"],
+            )
+            sample = probe.take()
+            np.save(run.out / f"traj-1mp-{job['id']}.npy", sample.float().numpy())
+            result["trajectories"][f"1mp-{job['id']}"] = {
+                "preclamp": tensor_digest(sample),
+                "encoding": encoding_digest(pipe.encode([job["prompt"], negative])),
+                **image_digests(image),
+            }
     result["ocr"] = ocr_capture(run, pipe, probe)
     return result
 
@@ -274,7 +291,7 @@ def capture_tasks(run) -> dict:
 
 
 def timing(run) -> dict:
-    """Cold covers construction and the first request; unique workloads get a per-process nonce."""
+    """Cold runs from process start; unique workloads get a per-process prompt nonce."""
     from iris_metal.pipeline import IrisPipeline
 
     job = run.spec["workloads"][run.arg]
@@ -283,7 +300,7 @@ def timing(run) -> dict:
     nonce = os.urandom(3).hex()
     prompts = [f"{p}, study {nonce}{i}" if job.get("unique") else p for i, p in enumerate(job["prompts"])]
     before, times = swapouts(), []
-    start = time.perf_counter()
+    start = PROCESS_START
     pipe = IrisPipeline(Path(run.config["checkpoints"][job["model"]]))
     for seed, prompt in enumerate(prompts):
         pipe([prompt], height=height, width=width, seed=seed, **extra)

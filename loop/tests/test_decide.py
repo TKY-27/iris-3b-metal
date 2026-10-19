@@ -100,6 +100,7 @@ def entry(**changes):
         "timing": {"turbo-repeat": FASTER, "turbo-repeat:cold": SAME, "original-10": SAME},
         "confirmation": {"turbo-repeat": FASTER},
         "memory": {"turbo-repeat": {"status": "same"}},
+        "cumulative": {"turbo-repeat": 0.95, "original-10": 1.0},
         "workload_models": {"turbo-repeat": "turbo", "original-10": "original"},
         "targets": ["turbo"],
         "category": "kernel-fusion",
@@ -127,13 +128,33 @@ def test_gains_must_be_targeted_and_confirmed():
     assert decide.verdict(loading)[0] == "ACCEPT"
 
 
-def test_regressions_reject():
-    slower = {**entry()["timing"], "original-10": {"status": "slower", "gain": -0.02}}
-    assert decide.verdict(entry(timing=slower))[0] == "REJECT"
+def test_slowdowns_reject_only_when_confirmed():
+    slow = {"status": "slower", "gain": -0.02}
+    timing = {**entry()["timing"], "original-10": slow}
+    assert decide.verdict(entry(timing=timing))[0] == "ACCEPT"
+    confirmed = {"turbo-repeat": FASTER, "original-10": slow}
+    assert decide.verdict(entry(timing=timing, confirmation=confirmed))[0] == "REJECT"
     drift = {**entry()["timing"], "original-10": {"status": "same", "gain": -0.012}}
-    assert decide.verdict(entry(timing=drift))[0] == "REJECT"
-    cold_noise = {**entry()["timing"], "turbo-repeat:cold": {"status": "same", "gain": -0.03}}
-    assert decide.verdict(entry(timing=cold_noise))[0] == "ACCEPT"
+    assert (
+        decide.verdict(entry(timing=drift, confirmation={**confirmed, "original-10": drift["original-10"]}))[
+            0
+        ]
+        == "REJECT"
+    )
+
+
+def test_noisy_cold_needs_two_percent():
+    small = {"status": "slower", "gain": -0.015}
+    timing = {**entry()["timing"], "turbo-repeat:cold": small}
+    confirmation = {"turbo-repeat": FASTER, "turbo-repeat:cold": small}
+    assert decide.verdict(entry(timing=timing, confirmation=confirmation))[0] == "ACCEPT"
+    big = {"status": "slower", "gain": -0.03}
+    timing["turbo-repeat:cold"] = confirmation["turbo-repeat:cold"] = big
+    assert decide.verdict(entry(timing=timing, confirmation=confirmation))[0] == "REJECT"
+
+
+def test_drift_against_v061_rejects():
+    assert decide.verdict(entry(cumulative={"turbo-repeat": 0.95, "original-10": 1.011}))[0] == "REJECT"
 
 
 def test_memory_above_v061_needs_the_low_memory_path():
@@ -147,16 +168,16 @@ def test_memory_above_v061_needs_the_low_memory_path():
 
 LEDGER = """
 ## original-10
-| component | share % | status | evidence |
-|---|---|---|---|
-| trunk matmul | 70 | at-bound | measurements/matmul.md |
-| attention | 28 | exhausted | G0001 G0002 |
-| final layer | 2 | open | |
+| component | share % | status | category | evidence |
+|---|---|---|---|---|
+| trunk matmul | 70 | at-bound | matmul | measurements/matmul.md |
+| attention | 28 | exhausted | attention | G0001 G0004 |
+| final layer | 2 | open | | |
 
 ## turbo-repeat
-| component | share % | status | evidence |
-|---|---|---|---|
-| everything | 100 | open | |
+| component | share % | status | category | evidence |
+|---|---|---|---|---|
+| everything | 100 | open | | |
 """
 WORKLOADS = {"original-10": "original", "turbo-repeat": "turbo"}
 
@@ -169,8 +190,10 @@ def log(n, model="original", verdict="REJECT", categories=("attention", "matmul"
             "targets": [model],
             "verdict": verdict,
             "category": categories[i % len(categories)],
+            "note": f"hypothesis {i}",
             "full": True,
             "correct": True,
+            "code_lines": 12,
             **extra,
         }
         for i in range(n)
@@ -196,19 +219,38 @@ def test_stopcheck_counts_only_after_last_accept(notes):
     assert decide.stopcheck(entries, LEDGER, notes, WORKLOADS)["original"]
 
 
-def test_stopcheck_ignores_broken_quick_and_incorrect(notes):
-    for weak in (log(6, verdict="BROKEN"), log(6, full=False), log(6, correct=False)):
-        assert decide.stopcheck(weak, LEDGER, notes, WORKLOADS)["original"]
+def test_stopcheck_ignores_weak_rejections(notes):
+    weak = (
+        log(6, verdict="BROKEN"),
+        log(6, full=False),
+        log(6, correct=False),
+        log(6, code_lines=0),
+        log(6, note="same idea"),
+    )
+    for entries in weak:
+        assert decide.stopcheck(entries, LEDGER, notes, WORKLOADS)["original"]
 
 
 def test_stopcheck_needs_evidence_and_limits_small_rows(tmp_path):
     unmet = decide.stopcheck(log(6, categories=("attention",)), LEDGER, tmp_path, WORKLOADS)["original"]
     assert any("categories" in p for p in unmet)
-    assert any("measurement file" in p for p in unmet)
-    split = LEDGER.replace(
-        "| attention | 28 | exhausted | G0001 G0002 |", "\n".join(["| a | 2.8 | open | |"] * 10)
-    )
+    assert any("measurements" in p for p in unmet)
+    rows = "\n".join(["| a | 2.8 | open | | |"] * 10)
+    split = LEDGER.replace("| attention | 28 | exhausted | attention | G0001 G0004 |", rows)
     assert any("rows under" in p for p in decide.stopcheck(log(6), split, tmp_path, WORKLOADS)["original"])
+
+
+def test_stopcheck_evidence_must_match(notes):
+    (notes / "LEDGER.md").write_text("x")
+    for evidence in ("LEDGER.md", "../measurements/matmul.md", "/etc/hosts"):
+        ledger = LEDGER.replace("measurements/matmul.md", evidence)
+        assert decide.stopcheck(log(6), ledger, notes, WORKLOADS)["original"]
+    wrong_category = LEDGER.replace("| attention | G0001 G0004 |", "| attention | G0002 G0005 |")
+    assert decide.stopcheck(log(6), wrong_category, notes, WORKLOADS)["original"]
+
+
+def test_malformed_share_is_not_a_row():
+    assert decide.ledger_rows("## w\n| a | . | open | | |\n", "w") == []
 
 
 JUNIT = """<testsuites><testsuite>

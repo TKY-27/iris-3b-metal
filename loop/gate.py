@@ -5,6 +5,7 @@
     python loop/gate.py merge --id G0012             # after ACCEPT and a PASS review
     python loop/gate.py stopcheck
     python loop/gate.py audit                        # final, holdout and 100 steps
+    python loop/gate.py finalcheck                   # before the pull request
 
 Every command ends with one line starting ``GATE``. See ``loop/README.md``.
 """
@@ -27,8 +28,10 @@ import decide
 import lint_comments
 import spec as spec_module
 from common import (
+    BASELINE,
     KIT,
     NOTES,
+    ORACLE,
     STATE,
     frozen_hashes,
     git,
@@ -39,6 +42,7 @@ from common import (
     low_power_mode,
     machine,
     on_ac_power,
+    quiet_lock,
     read_json,
     run_child,
     sha256_file,
@@ -48,8 +52,6 @@ from common import (
 )
 
 LOG = STATE / "log.jsonl"
-BASELINE = STATE / "baseline"
-ORACLE = STATE / "oracle"
 QUIET_GPU_PERCENT, QUIET_LOAD, QUIET_WAIT_S = 8.0, 4.0, 900
 SWAPOUT_LIMIT = 20_000  # swap-out pages per timing process
 LOW_MEMORY_GIB = "10"  # approximates a 16 GB Mac
@@ -60,24 +62,48 @@ BLOCKS = (
     ("reference", "candidate", "candidate", "reference"),
     ("candidate", "reference", "reference", "candidate"),
 )
+CONFIG_FILES = {"pytest.ini", "tox.ini", "setup.cfg", "ruff.toml", ".ruff.toml", "conftest.py"}
+CONFIG_FILES |= {"sitecustomize.py", "usercustomize.py"}
+PASSED_ENV = ("PATH", "LANG", "LC_ALL", "TERM", "HF_HOME", "HF_HUB_CACHE")
+NETWORK_ENV = ("HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "SSL_CERT_FILE", "HF_TOKEN")
 
 
 class Halt(Exception):
     """The reference checkout or the recorded evidence changed; a person must look."""
 
 
+class WorkerError(RuntimeError):
+    def __init__(self, tree: Path, message: str):
+        super().__init__(message)
+        self.tree = tree
+
+
+def worker_env(tree: Path, mode: str, out: Path, extra: dict | None) -> dict:
+    """A minimal environment: nothing from the gate's own process reaches the engine."""
+    passed = PASSED_ENV + (NETWORK_ENV if mode == "resolve" else ())
+    env = {key: os.environ[key] for key in passed if key in os.environ}
+    env.setdefault("HF_HOME", str(Path.home() / ".cache/huggingface"))
+    env.update(
+        PYTHONPATH=str(tree / "src"),
+        PYTHONDONTWRITEBYTECODE="1",
+        IRIS_LOOP_HOME=str(STATE),
+        HOME=str(Path.home()),
+        TMPDIR=str(out / "tmp"),
+    )
+    if mode != "resolve":
+        env["HF_HUB_OFFLINE"] = "1"
+    if mode == "time":
+        env.update(HOME=str(out / "home"), XDG_CACHE_HOME=str(out / "home/.cache"))
+    env.update(extra or {})
+    return env
+
+
 def worker(tree: Path, mode: str, arg: str, out: Path, extra_env: dict | None = None) -> dict:
     if (out / "result.json").exists():
         return read_json(out / "result.json")
-    out.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "PYTHONPATH": str(tree / "src"), "PYTHONDONTWRITEBYTECODE": "1", **(extra_env or {})}
-    if mode != "resolve":
-        env["HF_HUB_OFFLINE"] = "1"
-    if mode == "time":  # no state carried between timing processes except the model files
-        home = out / "home"
-        home.mkdir()
-        env["HF_HOME"] = os.environ.get("HF_HOME", str(Path.home() / ".cache/huggingface"))
-        env.update(HOME=str(home), TMPDIR=str(home), XDG_CACHE_HOME=str(home / ".cache"))
+    for scratch in (out / "home", out / "tmp"):
+        shutil.rmtree(scratch, ignore_errors=True)
+        scratch.mkdir(parents=True)
     minutes = TIME_MINUTES.get(arg, 30) if mode == "time" else MINUTES[mode]
     command = [
         sys.executable,
@@ -90,12 +116,17 @@ def worker(tree: Path, mode: str, arg: str, out: Path, extra_env: dict | None = 
         "--arg",
         arg,
     ]
-    code = run_child(command, out / "worker.log", minutes * 60, env=env, cwd=out)
-    if mode == "time":
-        shutil.rmtree(out / "home", ignore_errors=True)
+    try:
+        env = worker_env(tree, mode, out, extra_env)
+        code = run_child(command, out / "worker.log", minutes * 60, env=env, cwd=out)
+    except RuntimeError as error:
+        raise WorkerError(tree, str(error)) from None
+    finally:
+        for scratch in (out / "home", out / "tmp"):
+            shutil.rmtree(scratch, ignore_errors=True)
     if code:
         tail = (out / "worker.log").read_text()[-3000:]
-        raise RuntimeError(f"worker {mode} {arg} exited {code}:\n{tail}")
+        raise WorkerError(tree, f"worker {mode} {arg} exited {code}:\n{tail}")
     return read_json(out / "result.json")
 
 
@@ -119,7 +150,7 @@ def verify_state(config: dict) -> dict:
     if state_hashes() != manifest["state"]:
         raise Halt("recorded fixtures, baselines or inputs under STATE changed")
     baseline = STATE / "trees" / "baseline"
-    if head(baseline) != config["baseline_commit"] or not is_clean(baseline):
+    if head(baseline) != config["baseline_commit"] or not is_clean(baseline, untracked=True):
         raise Halt("the v0.6.1 baseline worktree moved or has changes")
     if changed := harness_changes(KIT.parent, manifest):
         raise Halt(f"the harness running this gate changed: {changed}")
@@ -128,6 +159,22 @@ def verify_state(config: dict) -> dict:
 
 def harness_changes(tree: Path, manifest: dict) -> list[str]:
     return [k for k, v in frozen_hashes(tree).items() if manifest["frozen"].get(k) != v]
+
+
+def added_config(repo: Path, reference: str, candidate: str) -> list[str]:
+    added = git(repo, "diff", "--name-only", "--diff-filter=A", reference, candidate).splitlines()
+    return [path for path in added if Path(path).name in CONFIG_FILES]
+
+
+def code_lines(repo: Path, reference: str, candidate: str) -> int:
+    """Changed source lines that are neither blank nor comments."""
+    diff = git(repo, "diff", "-U0", reference, candidate, "--", "src/*.py")
+    changed = [
+        line[1:].strip()
+        for line in diff.splitlines()
+        if line[:1] in "+-" and not line.startswith(("+++", "---"))
+    ]
+    return sum(1 for line in changed if line and not line.startswith("#"))
 
 
 def new_run() -> tuple[str, Path]:
@@ -153,6 +200,10 @@ def snapshots(repo: Path, commits: dict[str, str], run: Path):
     finally:
         for tree in trees.values():
             git(repo, "worktree", "remove", "--force", str(tree))
+
+
+def gains_text(timing: dict, separator: str = " ") -> str:
+    return separator.join(f"{n}={-100 * r['gain']:+.2f}%" for n, r in timing.items() if ":" not in n)
 
 
 # -- prepare -----------------------------------------------------------------
@@ -199,27 +250,31 @@ def prepare(args) -> None:
         if not (BASELINE / "tests.json").exists():
             write_new_json(BASELINE / "tests.json", run_tests(baseline_tree, STATE / "work" / "tests"))
         if not (BASELINE / "peaks.json").exists():
-            peaks = {
-                name: worker(baseline_tree, "time", name, STATE / "work" / f"peak-{name}")["peak_gib"]
-                for name in spec["gate_workloads"]
-            }
+            with quiet_lock(exclusive=True):
+                peaks = {
+                    name: worker(baseline_tree, "time", name, STATE / "work" / f"peak-{name}")["peak_gib"]
+                    for name in spec["gate_workloads"]
+                }
             write_new_json(BASELINE / "peaks.json", peaks)
     manifest = {"frozen": frozen_hashes(repo), "state": state_hashes()}
     if (STATE / "manifest.json").exists():
         if read_json(STATE / "manifest.json") != manifest:
-            raise SystemExit("an earlier prepare froze different files; remove STATE to start over")
+            raise SystemExit("an earlier prepare froze different files; remove manifest.json to refreeze")
     else:
         write_new_json(STATE / "manifest.json", manifest)
+        append_log({"type": "prepare", "head": head(repo), "time": now()})
     print(f"GATE PREPARED manifest sha256 {sha256_file(STATE / 'manifest.json')}")
 
 
 # -- measurements --------------------------------------------------------------
 def original_metrics(base: Path, cand: Path, split: str, spec: dict) -> dict:
+    files = [(f"traj-{job['id']}.npy", ORACLE / split) for job in spec["trajectories"][split]]
+    if split == "dev":
+        files += [(f"traj-1mp-{job['id']}.npy", ORACLE / "velocity") for job in spec["velocity"]]
     trajectory = {}
-    for job in spec["trajectories"][split]:
-        name = f"traj-{job['id']}.npy"
-        oracle = np.load(ORACLE / split / name)
-        trajectory[job["id"]] = (
+    for name, folder in files:
+        oracle = np.load(folder / name)
+        trajectory[name[5:-4]] = (
             decide.rel_l2(np.load(base / name), oracle),
             decide.rel_l2(np.load(cand / name), oracle),
         )
@@ -260,8 +315,8 @@ def machine_problems() -> list[str]:
         problems.append("Low Power Mode")
     if thermal_state() > 1:
         problems.append("thermal state serious or critical")
-    if os.getloadavg()[0] > QUIET_LOAD:
-        problems.append(f"CPU load {os.getloadavg()[0]:.1f}")
+    if (load := os.getloadavg()[0]) > QUIET_LOAD:
+        problems.append(f"CPU load {load:.1f}")
     if (utilization := gpu_utilization()) > QUIET_GPU_PERCENT:
         problems.append(f"background GPU {utilization:.0f}%")
     return problems
@@ -277,19 +332,21 @@ def wait_quiet() -> str | None:
 
 
 def timing(trees: dict[str, Path], names: list[str], out: Path, blocks=BLOCKS) -> tuple[dict, list[str]]:
-    """One discarded warm-up per workload, then ``blocks``."""
+    """Warm-up processes for both sides first, then ``blocks``; CPU work waits meanwhile."""
     samples, noisy = {}, []
-    for name in names:
-        worker(trees["reference"], "time", name, out / f"time-{name}-warmup")
-        samples[name] = {"reference": [], "candidate": []}
-        for b, block in enumerate(blocks):
-            for i, side in enumerate(block):
-                if problem := wait_quiet():
-                    noisy.append(f"{name}: {problem}")
-                result = worker(trees[side], "time", name, out / f"time-{name}-{b}{i}-{side}")
-                if result["swapouts"] > SWAPOUT_LIMIT:
-                    noisy.append(f"{name}: {result['swapouts']} swap-outs in one process")
-                samples[name][side].append(result)
+    with quiet_lock(exclusive=True):
+        for name in names:
+            for side in ("reference", "candidate"):
+                worker(trees[side], "time", name, out / f"time-{name}-warmup-{side}")
+            samples[name] = {"reference": [], "candidate": []}
+            for b, block in enumerate(blocks):
+                for i, side in enumerate(block):
+                    if problem := wait_quiet():
+                        noisy.append(f"{name}: {problem}")
+                    result = worker(trees[side], "time", name, out / f"time-{name}-{b}{i}-{side}")
+                    if result["swapouts"] > SWAPOUT_LIMIT:
+                        noisy.append(f"{name}: {result['swapouts']} swap-outs in one process")
+                    samples[name][side].append(result)
     return samples, noisy
 
 
@@ -311,17 +368,38 @@ def low_memory(tree: Path, out: Path, names: list[str], spec: dict, config: dict
     env = {"IRIS_AVAILABLE_MEMORY_GIB": LOW_MEMORY_GIB}
     found = correctness(tree, out / "low-memory", "dev", spec, config, env)
     peaks = read_json(BASELINE / "peaks.json")
-    found["peaks"] = {
-        name: worker(tree, "time", name, out / f"low-memory-time-{name}", env)["peak_gib"] for name in names
-    }
+    with quiet_lock(exclusive=True):
+        found["peaks"] = {
+            name: worker(tree, "time", name, out / f"low-memory-time-{name}", env)["peak_gib"]
+            for name in names
+        }
     found["peaks_ok"] = all(found["peaks"][n] <= peaks[n] + decide.MEMORY_SLACK_GIB for n in names)
     return found
 
 
+def cumulative(entry: dict, entries: list[dict]) -> dict[str, float]:
+    """Estimated warm time against v0.6.1 after every merged change and this one."""
+    checks = {e["id"]: e for e in entries if e.get("type") == "check"}
+    merged = [checks[e["id"]] for e in entries if e.get("type") == "merge" and e["id"] in checks]
+    ratios = {}
+    for name, result in entry["timing"].items():
+        if ":" in name:
+            continue
+        ratio = 1 - result["gain"]
+        for earlier in merged:
+            ratio *= 1 - earlier["timing"].get(name, {"gain": 0.0})["gain"]
+        ratios[name] = ratio
+    return ratios
+
+
 def code_checks(tree: Path, base: str) -> tuple[bool, list[str]]:
+    config = str(KIT.parent / "pyproject.toml")
+    commands = (["check", "--config", config, "."], ["format", "--check", "--config", config, "."])
     results = [
-        subprocess.run(command, cwd=tree, capture_output=True, text=True).returncode
-        for command in (["ruff", "check", "."], ["ruff", "format", "--check", "."])
+        subprocess.run(
+            [sys.executable, "-m", "ruff", *args], cwd=tree, capture_output=True, text=True
+        ).returncode
+        for args in commands
     ]
     return not any(results), lint_comments.flag(tree, base)
 
@@ -329,11 +407,11 @@ def code_checks(tree: Path, base: str) -> tuple[bool, list[str]]:
 def run_tests(tree: Path, out: Path) -> dict[str, str]:
     out.mkdir(parents=True, exist_ok=True)
     report_path = out / "junit.xml"
-    env = {**os.environ, "PYTHONPATH": str(tree / "src"), "HF_HUB_OFFLINE": "1"}
+    env = {**worker_env(tree, "tests", out, None), "TMPDIR": str(out)}
     command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", f"--junitxml={report_path}"]
     run_child(command, out / "pytest.log", TEST_MINUTES * 60, env=env, cwd=tree)
     if not report_path.exists():
-        raise RuntimeError(f"pytest wrote no report; see {out / 'pytest.log'}")
+        raise WorkerError(tree, f"pytest wrote no report; see {out / 'pytest.log'}")
     return decide.junit_outcomes(report_path.read_text())
 
 
@@ -366,12 +444,16 @@ def measure(entry: dict, trees: dict[str, Path], out: Path, spec: dict, config: 
         names = [n for n in names if entry["workload_models"][n] in entry["targets"]]
     samples, entry["noisy"] = timing(trees, names, out)
     entry["timing"], entry["memory"] = compare(samples, read_json(BASELINE / "peaks.json"))
+    entry["cumulative"] = cumulative(entry, log_entries())
     adaptive = (candidate / "src/iris_metal/memory.py").exists()
     if adaptive or any(r["status"] == "higher" for r in entry["memory"].values()):
         entry["low_memory"] = low_memory(candidate, out, names, spec, config)
-    pending = [n for n in decide.counted_gains({**entry, "confirmation": entry["timing"]}) if " " not in n]
-    if pending and not entry["noisy"]:
-        confirm, noisy = timing(trees, sorted({n.partition(":")[0] for n in pending}), out / "confirm")
+    if entry["noisy"] or (entry["low_memory"] and decide.correctness_reasons(entry["low_memory"])):
+        return
+    gains = [n for n in decide.counted_gains({**entry, "confirmation": entry["timing"]}) if " " not in n]
+    pending = {n.partition(":")[0] for n in gains + decide.suspected_slowdowns(entry)}
+    if pending:
+        confirm, noisy = timing(trees, sorted(pending), out / "confirm")
         entry["noisy"] += noisy
         entry["confirmation"] = compare(confirm, {})[0]
 
@@ -389,6 +471,7 @@ def new_entry(gate_id: str, args, spec: dict) -> dict:
         "workload_models": {n: spec["workloads"][n]["model"] for n in spec["gate_workloads"]},
         "reference": "",
         "candidate": "",
+        "code_lines": 0,
         "harness_changed": [],
         "lint_ok": False,
         "tests_ok": False,
@@ -403,48 +486,65 @@ def new_entry(gate_id: str, args, spec: dict) -> dict:
         "timing": {},
         "memory": {},
         "confirmation": {},
+        "cumulative": {},
     }
+
+
+def evaluate(entry: dict, repo: Path, out: Path, spec: dict, config: dict, quick: bool) -> None:
+    manifest = verify_state(config)
+    entry["reference"], entry["candidate"] = head(repo), head(Path(entry["tree"]))
+    ancestor = subprocess.run(
+        ["git", "-C", str(repo), "merge-base", "--is-ancestor", entry["reference"], entry["candidate"]]
+    )
+    if ancestor.returncode or entry["candidate"] == entry["reference"]:
+        entry["verdict"], entry["reasons"] = (
+            "STALE",
+            [f"rebase onto the reference head {entry['reference'][:12]}"],
+        )
+        return
+    entry["code_lines"] = code_lines(repo, entry["reference"], entry["candidate"])
+    with snapshots(repo, {"reference": entry["reference"], "candidate": entry["candidate"]}, out) as trees:
+        if changed := harness_changes(trees["reference"], manifest):
+            raise Halt(f"the reference head changes the frozen harness: {changed}")
+        changed = harness_changes(trees["candidate"], manifest)
+        entry["harness_changed"] = changed + added_config(repo, entry["reference"], entry["candidate"])
+        if not entry["harness_changed"]:
+            try:
+                measure(entry, trees, out, spec, config, quick)
+            except WorkerError as error:
+                if error.tree != trees["candidate"]:
+                    raise
+                entry["verdict"], entry["reasons"] = "BROKEN", [f"the candidate crashed: {str(error)[-800:]}"]
+                return
+    entry["verdict"], entry["reasons"] = decide.verdict(entry)
 
 
 def check(args) -> None:
     config = read_json(STATE / "config.json")
     spec = read_json(STATE / "spec.json")
-    repo, candidate = Path(config["repo"]), args.candidate.resolve()
-    if candidate == repo:
+    repo = Path(config["repo"])
+    if args.candidate.resolve() == repo:
         raise SystemExit("GATE ERROR the candidate must be a separate worktree, not the reference checkout")
-    with gpu_lock(f"gate check {candidate.name}"):
+    with gpu_lock(f"gate check {args.candidate.name}"):
         gate_id, out = new_run()
         entry = new_entry(gate_id, args, spec)
         try:
-            manifest = verify_state(config)
-            entry["reference"], entry["candidate"] = head(repo), head(candidate)
-            ancestry = [
-                "git",
-                "-C",
-                str(repo),
-                "merge-base",
-                "--is-ancestor",
-                entry["reference"],
-                entry["candidate"],
-            ]
-            if subprocess.run(ancestry).returncode or entry["candidate"] == entry["reference"]:
-                raise RuntimeError(f"rebase the candidate onto the reference head {entry['reference'][:12]}")
-            with snapshots(
-                repo, {"reference": entry["reference"], "candidate": entry["candidate"]}, out
-            ) as trees:
-                if changed := harness_changes(trees["reference"], manifest):
-                    raise Halt(f"the reference head changes the frozen harness: {changed}")
-                entry["harness_changed"] = harness_changes(trees["candidate"], manifest)
-                if not entry["harness_changed"]:
-                    measure(entry, trees, out, spec, config, args.quick)
-            entry["verdict"], entry["reasons"] = decide.verdict(entry)
+            evaluate(entry, repo, out, spec, config, args.quick)
         except Halt as error:
             entry["verdict"], entry["reasons"] = "ERROR", [f"HALT {error}"]
         except Exception as error:
             entry["verdict"], entry["reasons"] = "ERROR", [f"{type(error).__name__}: {str(error)[-800:]}"]
             (out / "error.txt").write_text(traceback.format_exc())
-        append_log(entry)
-        (out / "entry.json").write_text(json.dumps(entry, indent=2, sort_keys=True) + "\n")
+        except BaseException as error:
+            entry["verdict"], entry["reasons"] = "ERROR", [f"interrupted: {error}"]
+            record(entry, out)
+            raise
+        record(entry, out)
+
+
+def record(entry: dict, out: Path) -> None:
+    append_log(entry)
+    (out / "entry.json").write_text(json.dumps(entry, indent=2, sort_keys=True) + "\n")
     report(entry)
 
 
@@ -467,10 +567,11 @@ def report(entry: dict) -> None:
         print(
             f"  depth/restoration output changed {entry['tasks_changed']}: record it in the ledger for review"
         )
-    gains = " ".join(f"{n}={-100 * r['gain']:+.2f}%" for n, r in entry["timing"].items() if ":" not in n)
     print(
         f"GATE {entry['id']} VERDICT={entry['verdict']} targets={','.join(entry['targets'])} "
-        f"category={entry['category']} original={entry['original']['status']} {gains} | {'; '.join(entry['reasons'])}"
+        f"category={entry['category']} original={entry['original']['status']} {gains_text(entry['timing'])} "
+        f"| {'; '.join(entry['reasons'])}",
+        flush=True,
     )
 
 
@@ -494,17 +595,16 @@ def merge(args) -> None:
     except Halt as error:
         raise SystemExit(f"GATE ERROR HALT {error}") from None
     entry = next((e for e in log_entries() if e.get("type") == "check" and e["id"] == args.id), None)
-    if entry is None or entry["verdict"] != "ACCEPT":
-        raise SystemExit(f"GATE ERROR {args.id} is not an ACCEPT verdict")
+    recorded = STATE / "runs" / args.id / "entry.json"
+    if entry is None or entry["verdict"] != "ACCEPT" or not recorded.exists() or read_json(recorded) != entry:
+        raise SystemExit(f"GATE ERROR {args.id} is not an ACCEPT verdict recorded by the gate")
     review = checked_review(entry)
     if head(repo) != entry["reference"] or not is_clean(repo):
         raise SystemExit(
             "GATE ERROR the reference moved or is dirty since this check; rebase and check again"
         )
-    gains = ", ".join(f"{n} {-100 * r['gain']:+.2f}%" for n, r in entry["timing"].items() if ":" not in n)
-    message = (
-        f"{entry['id']}: {entry['note'] or entry['category']}\n\nGate timing: {gains}\nReview sha256 {review}"
-    )
+    message = f"{entry['id']}: {entry['note'] or entry['category']}\n\n"
+    message += f"Gate timing: {gains_text(entry['timing'], ', ')}\nReview sha256 {review}"
     git(repo, "merge", "--no-ff", "-m", message, entry["candidate"])
     append_log({"type": "merge", "id": args.id, "commit": head(repo), "review_sha256": review, "time": now()})
     print(f"GATE merged {args.id} as {head(repo)[:12]}")
@@ -524,10 +624,11 @@ def stopcheck(args) -> None:
     print(f"GATE STOPCHECK {'MET' if met else 'NOT MET'}")
 
 
-def merge_history(entries: list[dict]) -> tuple[list[str], list[str]]:
+def merge_history(entries: list[dict], repo: Path, final: str) -> tuple[list[str], list[str]]:
     lines, problems = [], []
     checks = {e["id"]: e for e in entries if e.get("type") == "check"}
-    for merged in (e for e in entries if e.get("type") == "merge"):
+    merges = [e for e in entries if e.get("type") == "merge"]
+    for merged in merges:
         entry = checks.get(merged["id"], {})
         review = NOTES / "reviews" / f"{merged['id']}.md"
         intact = review.exists() and sha256_file(review) == merged["review_sha256"]
@@ -535,10 +636,16 @@ def merge_history(entries: list[dict]) -> tuple[list[str], list[str]]:
             problems.append(f"{merged['id']}: not an intact ACCEPT with its reviewed PASS")
         status = "review ok" if intact else "review CHANGED"
         lines.append(f"  merged {merged['id']} {merged['commit'][:12]} {status}: {entry.get('note', '')}")
+    start = [e["head"] for e in entries if e.get("type") == "prepare"][-1]
+    history = git(repo, "rev-list", "--first-parent", f"{start}..{final}").splitlines()
+    if strays := sorted(set(history) - {m["commit"] for m in merges}):
+        problems.append(
+            f"commits on the integration branch that no gate merge made: {[c[:12] for c in strays]}"
+        )
     return lines, problems
 
 
-def audit_problems(result: dict, entries: list[dict]) -> list[str]:
+def audit_problems(result: dict, entries: list[dict], history_problems: list[str]) -> list[str]:
     problems = [
         f"{split}: {r}"
         for split, found in result["correctness"].items()
@@ -552,13 +659,13 @@ def audit_problems(result: dict, entries: list[dict]) -> list[str]:
     problems += [
         f"{n} slower than v0.6.1"
         for n, r in result["timing"].items()
-        if r["status"] == "slower" or r["gain"] < -decide.NON_INFERIORITY
+        if r["status"] == "slower" or (":" not in n and r["gain"] < -decide.NON_INFERIORITY)
     ]
     last_merge = max((e["time"] for e in entries if e.get("type") == "merge"), default="")
     stops = [e for e in entries if e.get("type") == "stopcheck" and e["time"] > last_merge]
     if not stops or not stops[-1]["met"]:
         problems.append("no GATE STOPCHECK MET after the last merge")
-    return problems + merge_history(entries)[1]
+    return problems + history_problems
 
 
 def audit(args) -> None:
@@ -572,25 +679,34 @@ def audit(args) -> None:
         final = head(repo)
         out = STATE / "audits" / f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{final[:12]}"
         out.mkdir(parents=True)
-        with snapshots(repo, {"final": final}, out) as trees:
-            if changed := harness_changes(trees["final"], manifest):
-                raise SystemExit(f"GATE AUDIT FAIL the final head changes the harness: {changed}")
-            sides = {"reference": STATE / "trees" / "baseline", "candidate": trees["final"]}
-            result = {"head": final, "baseline": config["baseline_commit"], "correctness": {}}
-            for split in ("dev", "holdout"):
-                result["correctness"][split] = correctness(trees["final"], out, split, spec, config)
-            samples, noisy = timing(sides, spec["gate_workloads"], out)
-            long_samples, long_noisy = timing(sides, long_runs, out, BLOCKS[:1])
-            times, memory = compare({**samples, **long_samples}, read_json(BASELINE / "peaks.json"))
-            if (trees["final"] / "src/iris_metal/memory.py").exists() or any(
-                r["status"] == "higher" for r in memory.values()
-            ):
-                result["low_memory"] = low_memory(trees["final"], out, spec["gate_workloads"], spec, config)
-        result.update(timing=times, memory=memory, noisy=noisy + long_noisy)
+        result = {"head": final, "baseline": config["baseline_commit"], "correctness": {}}
+        try:
+            with snapshots(repo, {"final": final}, out) as trees:
+                if changed := harness_changes(trees["final"], manifest):
+                    raise Halt(f"the final head changes the harness: {changed}")
+                sides = {"reference": STATE / "trees" / "baseline", "candidate": trees["final"]}
+                for split in ("dev", "holdout"):
+                    result["correctness"][split] = correctness(trees["final"], out, split, spec, config)
+                samples, noisy = timing(sides, spec["gate_workloads"], out)
+                long_samples, long_noisy = timing(sides, long_runs, out, BLOCKS[:1])
+                times, memory = compare({**samples, **long_samples}, read_json(BASELINE / "peaks.json"))
+                if (trees["final"] / "src/iris_metal/memory.py").exists() or any(
+                    r["status"] == "higher" for r in memory.values()
+                ):
+                    result["low_memory"] = low_memory(
+                        trees["final"], out, spec["gate_workloads"], spec, config
+                    )
+            result.update(timing=times, memory=memory, noisy=noisy + long_noisy)
+        except BaseException as error:
+            (out / "error.txt").write_text(traceback.format_exc())
+            print(f"GATE AUDIT FAIL {type(error).__name__}: {str(error)[-500:]} (see {out / 'error.txt'})")
+            raise
     entries = log_entries()
-    result["problems"] = audit_problems(result, entries)
+    history, history_problems = merge_history(entries, repo, final)
+    result["problems"] = audit_problems(result, entries, history_problems)
     (out / "audit.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-    print("\n".join(merge_history(entries)[0]))
+    append_log({"type": "audit", "head": final, "passed": not result["problems"], "time": now()})
+    print("\n".join(history))
     for name, value in times.items():
         print(f"  {name:22} {value['status']:7} {-100 * value['gain']:+6.2f}% vs {config['baseline']}")
     for name, value in memory.items():
@@ -601,6 +717,24 @@ def audit(args) -> None:
         )
     outcome = "PASS" if not result["problems"] else "FAIL " + "; ".join(result["problems"])
     print(f"GATE AUDIT {outcome} (written to {out})")
+
+
+def finalcheck(args) -> None:
+    """After a passing audit, only the report and the README may change."""
+    repo = Path(read_json(STATE / "config.json")["repo"])
+    audits = [e for e in log_entries() if e.get("type") == "audit"]
+    if not audits or not audits[-1]["passed"]:
+        raise SystemExit("GATE FINAL FAIL the last audit did not pass")
+    changed = git(repo, "diff", "--name-only", audits[-1]["head"], "HEAD").splitlines()
+    if outside := [
+        p for p in changed if p != "README.md" and not (p.startswith("benchmarks/") and p.endswith(".md"))
+    ]:
+        raise SystemExit(f"GATE FINAL FAIL files changed after the audit: {outside}")
+    if not is_clean(repo):
+        raise SystemExit("GATE FINAL FAIL the checkout has uncommitted changes")
+    print(
+        f"GATE FINAL READY {head(repo)[:12]} (audited {audits[-1]['head'][:12]}, then {len(changed)} files)"
+    )
 
 
 def main() -> None:
@@ -619,15 +753,22 @@ def main() -> None:
     p.add_argument(
         "--quick", action="store_true", help="only the targeted workloads; can PROMISE, never ACCEPT"
     )
-    p.add_argument("--note", default="", help="one line: the hypothesis")
+    p.add_argument("--note", required=True, help="one line: the hypothesis")
     p = commands.add_parser("merge")
     p.add_argument("--id", required=True)
-    commands.add_parser("stopcheck")
-    commands.add_parser("audit")
+    for name in ("stopcheck", "audit", "finalcheck"):
+        commands.add_parser(name)
     args = parser.parse_args()
     if args.command == "check" and (not args.targets or set(args.targets) - set(decide.MODELS)):
         parser.error(f"targets must be among {decide.MODELS}")
-    commands = {"prepare": prepare, "check": check, "merge": merge, "stopcheck": stopcheck, "audit": audit}
+    commands = {
+        "prepare": prepare,
+        "check": check,
+        "merge": merge,
+        "stopcheck": stopcheck,
+        "audit": audit,
+        "finalcheck": finalcheck,
+    }
     try:
         commands[args.command](args)
     except Halt as error:

@@ -9,6 +9,7 @@ import numpy as np
 
 MIN_GAIN = 0.005  # below whole-request noise on this Mac
 NON_INFERIORITY = 0.01  # a warm slowdown this large rejects even without separation
+COLD_SLOWDOWN = 0.02
 MEMORY_SLACK_GIB = 0.25
 VELOCITY_ITEM_SLACK = 1.02
 TRAJECTORY_ITEM_SLACK = 1.10  # trajectories amplify rounding; the means stay strict
@@ -113,7 +114,6 @@ def correctness_reasons(found: dict) -> list[str]:
 
 
 def counted_gains(entry: dict) -> list[str]:
-    """Targeted, confirmed gains; cold starts count only for loading work."""
     gains = []
     for name, result in entry["timing"].items():
         workload, _, phase = name.partition(":")
@@ -125,6 +125,22 @@ def counted_gains(entry: dict) -> list[str]:
             gains.append(name)
     gains += [f"{name} memory" for name, r in entry["memory"].items() if r["status"] == "lower"]
     return gains
+
+
+def slowdown(name: str, result: dict, category: str) -> bool:
+    """Cold starts of non-loading work are noisy single samples, so they need a larger margin."""
+    if name.endswith(":cold") and category != "loading":
+        return result["status"] == "slower" and result["gain"] <= -COLD_SLOWDOWN
+    return result["status"] == "slower" or (not name.endswith(":cold") and result["gain"] < -NON_INFERIORITY)
+
+
+def suspected_slowdowns(entry: dict) -> list[str]:
+    return [name for name, r in entry["timing"].items() if slowdown(name, r, entry["category"])]
+
+
+def drifted(entry: dict) -> list[str]:
+    """Workloads whose estimated time against v0.6.1, over every merge and this one, rose past the bound."""
+    return [name for name, ratio in entry["cumulative"].items() if ratio > 1 + NON_INFERIORITY]
 
 
 def verdict(entry: dict) -> tuple[str, list[str]]:
@@ -140,31 +156,40 @@ def verdict(entry: dict) -> tuple[str, list[str]]:
         return "REJECT", [f"with IRIS_AVAILABLE_MEMORY_GIB set: {r}" for r in reasons]
     if entry["noisy"]:
         return "NOISY", entry["noisy"]
-    timing, memory = entry["timing"], entry["memory"]
-    slower = [
-        name
-        for name, r in timing.items()
-        if r["status"] == "slower" or (":" not in name and r["gain"] < -NON_INFERIORITY)
-    ]
-    higher = [name for name, r in memory.items() if r["status"] == "higher"]
+    higher = [name for name, r in entry["memory"].items() if r["status"] == "higher"]
     if higher and not (entry["low_memory"] and entry["low_memory"]["peaks_ok"]):
         return "REJECT", [f"peak above v0.6.1 and not released when memory is short: {higher}"]
-    if slower:
-        return "REJECT", [f"slower: {slower}"]
+    confirmed = [
+        name
+        for name in suspected_slowdowns(entry)
+        if name in entry["confirmation"] and slowdown(name, entry["confirmation"][name], entry["category"])
+    ]
+    if confirmed:
+        return "REJECT", [f"slower, confirmed twice: {confirmed}"]
+    if drift := drifted(entry):
+        return "REJECT", [f"slower than v0.6.1 by more than {NON_INFERIORITY:.0%} after all merges: {drift}"]
     if not (gains := counted_gains(entry)):
         return "NO_GAIN", ["no confirmed improvement on the targeted workloads"]
     return ("ACCEPT" if entry["full"] else "PROMISING"), [f"improved: {gains}"]
 
 
 # -- stopping ----------------------------------------------------------------
-ROW = re.compile(r"^\|\s*([^|]+?)\s*\|\s*([\d.]+)\s*\|\s*([a-z-]+)\s*\|\s*([^|]*?)\s*\|\s*$")
+ROW = re.compile(
+    r"^\|\s*([^|]+?)\s*\|\s*(\d+(?:\.\d+)?)\s*\|\s*([a-z-]+)\s*\|\s*([a-z-]*)\s*\|\s*([^|]*?)\s*\|\s*$"
+)
 
 
-def ledger_rows(text: str, section: str) -> list[tuple[str, float, str, str]]:
+def ledger_rows(text: str, section: str) -> list[tuple[str, float, str, str, str]]:
     found = re.search(rf"^## {re.escape(section)}\s*$(.*?)(?=^## |\Z)", text, re.M | re.S)
     if not found:
         return []
-    return [(m[1], float(m[2]), m[3], m[4]) for line in found[1].splitlines() if (m := ROW.match(line))]
+    return [(m[1], float(m[2]), m[3], m[4], m[5]) for line in found[1].splitlines() if (m := ROW.match(line))]
+
+
+def measurement_files(evidence: str, notes: Path) -> list[Path]:
+    root = (notes / "measurements").resolve()
+    paths = [(notes / p).resolve() for p in evidence.split()]
+    return [p for p in paths if p.is_relative_to(root) and p.suffix == ".md" and p.is_file()]
 
 
 def stopcheck(log: list[dict], ledger: str, notes: Path, workloads: dict[str, str]) -> dict[str, list[str]]:
@@ -173,17 +198,19 @@ def stopcheck(log: list[dict], ledger: str, notes: Path, workloads: dict[str, st
     for model in MODELS:
         problems = []
         mine = [e for e in log if e.get("type") == "check" and model in e["targets"]]
+        counted = [e for e in mine if e["full"] and e["correct"] and e.get("code_lines", 0) > 0]
         last_accept = max((i for i, e in enumerate(mine) if e["verdict"] == "ACCEPT"), default=-1)
-        tail = [e for e in mine[last_accept + 1 :] if e["full"] and e["correct"] and e["verdict"] in FAILED]
-        if len(tail) < STOP_REJECTIONS:
+        tail = [e for e in mine[last_accept + 1 :] if e in counted and e["verdict"] in FAILED]
+        distinct = {e["note"].strip().lower() for e in tail}
+        if len(distinct) < STOP_REJECTIONS:
             problems.append(
-                f"{len(tail)}/{STOP_REJECTIONS} correct full candidates rejected since the last ACCEPT"
+                f"{len(distinct)}/{STOP_REJECTIONS} distinct hypotheses rejected since the last ACCEPT"
             )
         if len({e["category"] for e in tail}) < STOP_CATEGORIES:
             problems.append(
                 f"rejections span {len({e['category'] for e in tail})}/{STOP_CATEGORIES} categories"
             )
-        failed = {e["id"] for e in mine if e["full"] and e["correct"] and e["verdict"] in FAILED}
+        failed = {e["id"]: e["category"] for e in counted if e["verdict"] in FAILED}
         for section in (name for name, owner in workloads.items() if owner == model):
             rows = ledger_rows(ledger, section)
             if not 90 <= sum(r[1] for r in rows) <= 110:
@@ -194,15 +221,18 @@ def stopcheck(log: list[dict], ledger: str, notes: Path, workloads: dict[str, st
                 problems.append(
                     f"{section}: rows under {STOP_SHARE:.0f}% add up to more than {STOP_SMALL_TOTAL:.0f}%"
                 )
-            for name, share, status, evidence in rows:
+            for name, share, status, category, evidence in rows:
                 if share < STOP_SHARE:
                     continue
                 if status == "at-bound":
-                    if not any((notes / p).is_file() for p in evidence.split()):
-                        problems.append(f"{section} {name}: at-bound needs a measurement file under notes/")
+                    if not measurement_files(evidence, notes):
+                        problems.append(f"{section} {name}: at-bound needs a notes/measurements/*.md file")
                 elif status == "exhausted":
-                    if len(set(re.findall(r"G\d{4}", evidence)) & failed) < 2:
-                        problems.append(f"{section} {name}: exhausted needs two rejected correct full checks")
+                    cited = [i for i in set(re.findall(r"G\d{4}", evidence)) if failed.get(i) == category]
+                    if len(cited) < 2:
+                        problems.append(
+                            f"{section} {name}: exhausted needs two rejected {category or '?'} checks"
+                        )
                 else:
                     problems.append(f"{section} {name}: {share:.0f}% of the request is still {status}")
         unmet[model] = problems
