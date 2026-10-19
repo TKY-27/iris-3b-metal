@@ -37,6 +37,27 @@ final class ComposerModelTests: XCTestCase {
         XCTAssertEqual(settings.negativePrompt, "blur")
     }
 
+    func testExactAspectPresetsKeepTheirDimensionsAcrossRequestsAndReuse() throws {
+        let defaults = try scratchDefaults()
+        for (size, width, height) in [(ImageSize.landscape16x9, 1280, 720), (.portrait9x16, 720, 1280)] {
+            for model in [GenerationModel.original, .turbo] {
+                var settings = GenerationSettings(size: size, model: model)
+                let request = settings.request(for: "a fox")
+                XCTAssertEqual([request.width, request.height], [width, height])
+
+                let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: request.submissionData()) as? [String: Any])
+                XCTAssertEqual(payload["width"] as? Int, width)
+                XCTAssertEqual(payload["height"] as? Int, height)
+
+                var reused = GenerationSettings()
+                reused.reuse(request)
+                XCTAssertEqual(reused.size, size)
+                settings.save(to: defaults)
+                XCTAssertEqual(GenerationSettings.load(from: defaults).size, size)
+            }
+        }
+    }
+
     func testOldRequestsAndPreferencesDefaultToOriginal() throws {
         let request = Data(#"{"prompt":"fox","width":1024,"height":1024,"steps":50,"cfg_scale":3,"seed":7,"negative_prompt":""}"#.utf8)
         XCTAssertEqual(try JSONDecoder().decode(GenerationRequest.self, from: request).model, .original)
@@ -165,6 +186,8 @@ final class ComposerModelTests: XCTestCase {
 
     func testRatioLabelsAreShortAndHonest() {
         XCTAssertEqual(ImageSize.square.ratioLabel, "1:1")
+        XCTAssertEqual(ImageSize.landscape16x9.ratioLabel, "16:9")
+        XCTAssertEqual(ImageSize.portrait9x16.ratioLabel, "9:16")
         XCTAssertEqual(ImageSize(width: 1152, height: 896).ratioLabel, "9:7")
         XCTAssertEqual(ImageSize(width: 1344, height: 768).ratioLabel, "7:4")
         XCTAssertEqual(ImageSize(width: 1280, height: 832).ratioLabel, "≈3:2")

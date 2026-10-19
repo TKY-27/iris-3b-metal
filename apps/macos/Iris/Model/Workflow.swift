@@ -86,8 +86,6 @@ extension String {
     }
 }
 
-/// The native Iris-3B resolutions: the aspect buckets of its 1024-pixel
-/// training stages (`src/iris3b/data/buckets.py`), about one megapixel each.
 struct ImageSize: Hashable, Identifiable, Codable, Sendable {
     let width: Int
     let height: Int
@@ -97,6 +95,8 @@ struct ImageSize: Hashable, Identifiable, Codable, Sendable {
     var aspectRatio: Double { Double(width) / Double(height) }
 
     static let square = ImageSize(width: 1024, height: 1024)
+    static let landscape16x9 = ImageSize(width: 1280, height: 720)
+    static let portrait9x16 = ImageSize(width: 720, height: 1280)
     static let landscape: [ImageSize] = [
         (1088, 960), (1152, 896), (1280, 832), (1344, 768), (1472, 704),
         (1600, 640), (1664, 640), (1792, 576), (1856, 576), (2048, 512),

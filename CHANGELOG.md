@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add exact 16:9 (1280 × 720) and 9:16 (720 × 1280) image sizes. Keep square and these two ratios at the top of the shape menu, with the existing sizes under More sizes.
+- Document v0.6.0's real-text Turbo speedup separately from the historical v0.5.0 measurements, including sample counts, timing boundaries and validation limits.
+
 ## 0.6.0 — 2026-10-19 (engine and macOS app)
 
 - Distribute an arm64 macOS app ZIP, matching engine wheel and tested Python dependency constraints. The app is ad-hoc signed without Developer ID signing or notarization; Python and the engine remain separately installed. HTTP API 1 is unchanged; the app accepts compatible 0.3.x, 0.5.x and 0.6.x engines.

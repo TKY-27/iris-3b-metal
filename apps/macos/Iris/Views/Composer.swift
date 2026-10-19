@@ -280,8 +280,12 @@ private struct AspectMenu: View {
         let size = workspace.settings.size
         Menu {
             item(.square, name: String(localized: "Square"))
-            Section(String(localized: "Landscape")) { ForEach(ImageSize.landscape) { item($0) } }
-            Section(String(localized: "Portrait")) { ForEach(ImageSize.portrait) { item($0) } }
+            item(.landscape16x9)
+            item(.portrait9x16)
+            Menu(String(localized: "More sizes")) {
+                Section(String(localized: "Landscape")) { ForEach(ImageSize.landscape) { item($0) } }
+                Section(String(localized: "Portrait")) { ForEach(ImageSize.portrait) { item($0) } }
+            }
         } label: {
             Label(size.ratioLabel, systemImage: size.aspectRatio > 1.05 ? "rectangle" : size.aspectRatio < 0.95 ? "rectangle.portrait" : "square")
                 .foregroundStyle(.secondary)
