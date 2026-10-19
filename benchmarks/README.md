@@ -1,10 +1,11 @@
 # Benchmarks
 
-The [v0.5.0 measurements](release-0.5.0.md) cover Original 10/20 steps and
-official Turbo 4 steps, including the previous BF16 and current Metal FP16
-paths. The [October 18 record](optimization-2026-10-18.md) covers later
-bit-identical optimizations. The records below retain the October 11 Original
-comparisons.
+The [October 19 independent audit](optimization-2026-10-18.md#independent-release-audit--2026-10-19)
+records v0.6.0's real-text Turbo comparisons and fixed-input exactness checks.
+The separate [v0.5.0 measurements](release-0.5.0.md) cover Original 10/20 steps,
+official BF16 Turbo and a rejected FP16 candidate. Their timing conditions
+differ; do not pool the sessions. The records below retain the October 11
+Original comparisons.
 
 Release measurements of Python engine 0.3.0, taken on 2026-10-11. The
 repository and macOS app release tag is `v0.4.0`; the engine remained

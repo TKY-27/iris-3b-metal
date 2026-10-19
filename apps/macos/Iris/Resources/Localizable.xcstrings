@@ -2606,6 +2606,23 @@
         }
       }
     },
+    "More sizes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More sizes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のサイズ"
+          }
+        }
+      }
+    },
     "More steps refine detail and take longer. Iris-3B was evaluated at %lld.": {
       "extractionState": "manual",
       "localizations": {
