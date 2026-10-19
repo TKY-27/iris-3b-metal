@@ -2,15 +2,17 @@
 
 import re
 import statistics
+import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
 import numpy as np
 
 MIN_GAIN = 0.005  # below whole-request noise on this Mac
+NON_INFERIORITY = 0.01  # a warm slowdown this large rejects even without separation
 MEMORY_SLACK_GIB = 0.25
 VELOCITY_ITEM_SLACK = 1.02
 TRAJECTORY_ITEM_SLACK = 1.10  # trajectories amplify rounding; the means stay strict
-STOP_REJECTIONS, STOP_CATEGORIES, STOP_SHARE = 6, 3, 3.0
+STOP_REJECTIONS, STOP_CATEGORIES, STOP_SHARE, STOP_SMALL_TOTAL = 6, 3, 3.0, 10.0
 CATEGORIES = (
     "kernel-fusion",
     "matmul",
@@ -49,15 +51,17 @@ def compare_times(reference: list[list[float]], candidate: list[list[float]]) ->
     return {"status": status, "gain": gain, "reference": ref, "candidate": cand}
 
 
-def compare_memory(reference: list[float], candidate: list[float]) -> dict:
+def compare_memory(reference: list[float], candidate: list[float], baseline_peak: float) -> dict:
+    """``higher`` is measured against v0.6.1, so small increases cannot accumulate."""
     delta = statistics.median(candidate) - statistics.median(reference)
-    if delta > MEMORY_SLACK_GIB:
-        status = "higher"
-    elif delta < -MEMORY_SLACK_GIB and max(candidate) < min(reference):
+    over = statistics.median(candidate) - baseline_peak
+    if delta < -MEMORY_SLACK_GIB and max(candidate) < min(reference):
         status = "lower"
+    elif over > MEMORY_SLACK_GIB:
+        status = "higher"
     else:
         status = "same"
-    return {"status": status, "delta_gib": delta}
+    return {"status": status, "delta_gib": delta, "over_baseline_gib": over}
 
 
 def mismatches(baseline: dict, candidate: dict, prefix: str = "") -> list[str]:
@@ -73,61 +77,82 @@ def mismatches(baseline: dict, candidate: dict, prefix: str = "") -> list[str]:
 
 def original_quality(baseline: dict, candidate: dict, metrics: dict, words: list[str]) -> dict:
     """``metrics``: {"velocity"|"trajectory": {item: (baseline_error, candidate_error)}}."""
-    encodings = [
-        k
-        for k, v in baseline["trajectories"].items()
-        if candidate["trajectories"][k]["encoding"] != v["encoding"]
-    ]
-    if encodings:
-        return {"status": "fail", "reasons": [f"text encodings changed: {encodings}"]}
+    pairs = list(baseline["trajectories"].items())
+    if changed := [k for k, v in pairs if candidate["trajectories"][k]["encoding"] != v["encoding"]]:
+        return {"status": "fail", "reasons": [f"text encodings changed: {changed}"]}
+    if changed := [
+        k for k, v in pairs if candidate["trajectories"][k]["metadata_keys"] != v["metadata_keys"]
+    ]:
+        return {"status": "fail", "reasons": [f"metadata keys changed: {changed}"]}
     if not mismatches(baseline, candidate):
         return {"status": "exact", "reasons": []}
     reasons = []
     for kind, slack in (("velocity", VELOCITY_ITEM_SLACK), ("trajectory", TRAJECTORY_ITEM_SLACK)):
-        pairs = metrics[kind]
-        base_mean = statistics.fmean(b for b, _ in pairs.values())
-        cand_mean = statistics.fmean(c for _, c in pairs.values())
+        errors = metrics[kind]
+        if not errors:
+            continue
+        base_mean = statistics.fmean(b for b, _ in errors.values())
+        cand_mean = statistics.fmean(c for _, c in errors.values())
         if cand_mean > base_mean:
             reasons.append(f"{kind} error vs FP32 rose: mean {base_mean:.5g} -> {cand_mean:.5g}")
         reasons += [
             f"{kind} {item}: {b:.5g} -> {c:.5g} (over {slack}x)"
-            for item, (b, c) in pairs.items()
+            for item, (b, c) in errors.items()
             if c > b * slack
         ]
-    required = set(words) & set(baseline["ocr"]["words"])
-    if missing := required - set(candidate["ocr"]["words"]):
+    if missing := set(words) - set(candidate["ocr"]["words"]):
         reasons.append(f"OCR lost {sorted(missing)}")
     return {"status": "fail" if reasons else "within", "reasons": reasons}
 
 
+def correctness_reasons(found: dict) -> list[str]:
+    reasons = [f"Turbo not bit-exact: {found['turbo_mismatches'][:8]}"] if found["turbo_mismatches"] else []
+    if found["original"]["status"] == "fail":
+        reasons += found["original"]["reasons"]
+    return reasons
+
+
+def counted_gains(entry: dict) -> list[str]:
+    """Targeted, confirmed gains; cold starts count only for loading work."""
+    gains = []
+    for name, result in entry["timing"].items():
+        workload, _, phase = name.partition(":")
+        if entry["workload_models"][workload] not in entry["targets"]:
+            continue
+        if phase == "cold" and entry["category"] != "loading":
+            continue
+        if result["status"] == "faster" and entry["confirmation"].get(name, {}).get("status") == "faster":
+            gains.append(name)
+    gains += [f"{name} memory" for name, r in entry["memory"].items() if r["status"] == "lower"]
+    return gains
+
+
 def verdict(entry: dict) -> tuple[str, list[str]]:
-    reasons = []
+    if entry["harness_changed"]:
+        return "REJECT", [f"the candidate changes the frozen harness: {entry['harness_changed']}"]
     if not entry["lint_ok"]:
-        reasons.append("ruff failed")
-    elif not entry["tests_ok"]:
-        reasons.append(f"tests that passed on v0.6.1 fail: {entry.get('test_failures', [])[:5]}")
-    if entry["turbo_mismatches"]:
-        reasons.append(f"Turbo not bit-exact: {entry['turbo_mismatches'][:8]}")
-    if entry["original"]["status"] == "fail":
-        reasons += entry["original"]["reasons"]
-    if reasons:
+        return "BROKEN", ["ruff failed"]
+    if not entry["tests_ok"]:
+        return "BROKEN", [f"tests that passed on v0.6.1 fail: {entry['test_failures'][:5]}"]
+    if reasons := correctness_reasons(entry):
         return "REJECT", reasons
+    if entry["low_memory"] and (reasons := correctness_reasons(entry["low_memory"])):
+        return "REJECT", [f"with IRIS_AVAILABLE_MEMORY_GIB set: {r}" for r in reasons]
     if entry["noisy"]:
         return "NOISY", entry["noisy"]
     timing, memory = entry["timing"], entry["memory"]
-    slower = [name for name, r in timing.items() if r["status"] == "slower"]
-    higher = [
-        name for name, r in memory.items() if r["status"] == "higher" and not entry["low_memory_ok"].get(name)
+    slower = [
+        name
+        for name, r in timing.items()
+        if r["status"] == "slower" or (":" not in name and r["gain"] < -NON_INFERIORITY)
     ]
-    if slower or higher:
-        reasons = [f"slower: {slower}"] if slower else []
-        if higher:
-            reasons.append(f"more memory when memory is short: {higher}")
-        return "REJECT", reasons
-    gains = [name for name, r in timing.items() if r["status"] == "faster"]
-    gains += [f"{name} memory" for name, r in memory.items() if r["status"] == "lower"]
-    if not gains:
-        return "NO_GAIN", ["no measurable improvement"]
+    higher = [name for name, r in memory.items() if r["status"] == "higher"]
+    if higher and not (entry["low_memory"] and entry["low_memory"]["peaks_ok"]):
+        return "REJECT", [f"peak above v0.6.1 and not released when memory is short: {higher}"]
+    if slower:
+        return "REJECT", [f"slower: {slower}"]
+    if not (gains := counted_gains(entry)):
+        return "NO_GAIN", ["no confirmed improvement on the targeted workloads"]
     return ("ACCEPT" if entry["full"] else "PROMISING"), [f"improved: {gains}"]
 
 
@@ -135,56 +160,56 @@ def verdict(entry: dict) -> tuple[str, list[str]]:
 ROW = re.compile(r"^\|\s*([^|]+?)\s*\|\s*([\d.]+)\s*\|\s*([a-z-]+)\s*\|\s*([^|]*?)\s*\|\s*$")
 
 
-def ledger_rows(text: str, model: str) -> list[tuple[str, float, str, str]]:
-    section = re.search(rf"^## {model}\s*$(.*?)(?=^## |\Z)", text, re.M | re.S)
-    if not section:
+def ledger_rows(text: str, section: str) -> list[tuple[str, float, str, str]]:
+    found = re.search(rf"^## {re.escape(section)}\s*$(.*?)(?=^## |\Z)", text, re.M | re.S)
+    if not found:
         return []
-    return [(m[1], float(m[2]), m[3], m[4]) for line in section[1].splitlines() if (m := ROW.match(line))]
+    return [(m[1], float(m[2]), m[3], m[4]) for line in found[1].splitlines() if (m := ROW.match(line))]
 
 
-def stopcheck(log: list[dict], ledger: str, notes: Path) -> dict[str, list[str]]:
-    """Unmet stopping conditions per model."""
+def stopcheck(log: list[dict], ledger: str, notes: Path, workloads: dict[str, str]) -> dict[str, list[str]]:
+    """Unmet stopping conditions per model; ``workloads`` maps ledger sections to models."""
     unmet = {}
     for model in MODELS:
         problems = []
-        mine = [
-            e
-            for e in log
-            if model in e.get("targets", ()) and e["verdict"] in (*FAILED, "ACCEPT", "PROMISING")
-        ]
+        mine = [e for e in log if e.get("type") == "check" and model in e["targets"]]
         last_accept = max((i for i, e in enumerate(mine) if e["verdict"] == "ACCEPT"), default=-1)
-        tail = [e for e in mine[last_accept + 1 :] if e["verdict"] in FAILED]
+        tail = [e for e in mine[last_accept + 1 :] if e["full"] and e["correct"] and e["verdict"] in FAILED]
         if len(tail) < STOP_REJECTIONS:
-            problems.append(f"{len(tail)}/{STOP_REJECTIONS} rejected candidates since the last ACCEPT")
+            problems.append(
+                f"{len(tail)}/{STOP_REJECTIONS} correct full candidates rejected since the last ACCEPT"
+            )
         if len({e["category"] for e in tail}) < STOP_CATEGORIES:
             problems.append(
                 f"rejections span {len({e['category'] for e in tail})}/{STOP_CATEGORIES} categories"
             )
-        rows = ledger_rows(ledger, model)
-        total = sum(share for _, share, _, _ in rows)
-        if not 90 <= total <= 110:
-            problems.append(f"ledger shares sum to {total:.0f}%, expected about 100%")
-        failed_ids = {e["id"] for e in mine if e["verdict"] in FAILED}
-        for name, share, status, evidence in rows:
-            if share < STOP_SHARE:
-                continue
-            if status == "at-bound":
-                paths = [p for p in evidence.split() if (notes / p).is_file()]
-                if not paths:
-                    problems.append(f"{name}: at-bound needs a measurement file under notes/")
-            elif status == "exhausted":
-                cited = set(re.findall(r"G\d{4}", evidence)) & failed_ids
-                if len(cited) < 2:
-                    problems.append(f"{name}: exhausted needs two rejected gate ids for {model}")
-            else:
-                problems.append(f"{name}: {share:.0f}% of time is still {status}")
+        failed = {e["id"] for e in mine if e["full"] and e["correct"] and e["verdict"] in FAILED}
+        for section in (name for name, owner in workloads.items() if owner == model):
+            rows = ledger_rows(ledger, section)
+            if not 90 <= sum(r[1] for r in rows) <= 110:
+                problems.append(
+                    f"{section}: ledger shares sum to {sum(r[1] for r in rows):.0f}%, not about 100%"
+                )
+            if sum(r[1] for r in rows if r[1] < STOP_SHARE) > STOP_SMALL_TOTAL:
+                problems.append(
+                    f"{section}: rows under {STOP_SHARE:.0f}% add up to more than {STOP_SMALL_TOTAL:.0f}%"
+                )
+            for name, share, status, evidence in rows:
+                if share < STOP_SHARE:
+                    continue
+                if status == "at-bound":
+                    if not any((notes / p).is_file() for p in evidence.split()):
+                        problems.append(f"{section} {name}: at-bound needs a measurement file under notes/")
+                elif status == "exhausted":
+                    if len(set(re.findall(r"G\d{4}", evidence)) & failed) < 2:
+                        problems.append(f"{section} {name}: exhausted needs two rejected correct full checks")
+                else:
+                    problems.append(f"{section} {name}: {share:.0f}% of the request is still {status}")
         unmet[model] = problems
     return unmet
 
 
 def junit_outcomes(xml: str) -> dict[str, str]:
-    import xml.etree.ElementTree as ElementTree
-
     outcomes = {}
     for case in ElementTree.fromstring(xml).iter("testcase"):
         kinds = {child.tag for child in case}

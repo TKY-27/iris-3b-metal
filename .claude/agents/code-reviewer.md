@@ -32,9 +32,10 @@ Fail the review for any of these:
 - a new Metal kernel without a test against a reference implementation
 - an existing test whose assertions were weakened or removed, unless it only
   pinned an internal detail the change removes and the commit says so
-- numbers in code without the measurement behind them in the commit message
+- numbers in code without the micro-benchmark behind them in the commit message
 - anything that detects or special-cases the gate's prompts, sizes or seeds,
-  or caches generated images or samples between requests
+  caches generated images or samples, or keeps caches of encodings, weights
+  or kernels across processes
 
 Complexity that the speedup needs is allowed: hand-fused kernels, manual
 layouts, unrolled or shape-specialized paths, duplicated hot code. It needs

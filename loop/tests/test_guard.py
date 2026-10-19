@@ -1,3 +1,8 @@
+import json
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 import guard
@@ -7,14 +12,18 @@ import guard
     "command",
     [
         "python loop/gate.py check --candidate ../iris-wt/a --category attention --targets original",
+        ".venv/bin/python loop/gate.py stopcheck",
         "python loop/gpu.py run -- python -m pytest -q tests/test_metal_engine.py > /tmp/log.txt",
-        "IRIS_SKIP_GPU_TESTS=1 python -m pytest -q",
-        "IRIS_CPU_ONLY=1 python scripts/flops.py",
+        "nohup python loop/gate.py check --candidate x --category matmul --targets turbo"
+        " > ~/.iris-loop/notes/out/x.log 2>&1 &",
+        "cd ../iris-wt/a && IRIS_SKIP_GPU_TESTS=1 python -m pytest -q",
+        "IRIS_SKIP_GPU_TESTS=1 .venv/bin/python -m pytest -q tests/test_flow.py",
         "cat loop/decide.py",
         "git diff opt/loop -- src",
         "ruff check . && ruff format --check .",
         "echo '# result' >> ~/.iris-loop/notes/LEDGER.md",
         "git worktree add ../iris-wt/fuse-gates -b opt/fuse-gates opt/loop",
+        "pip list",
     ],
 )
 def test_allowed(command):
@@ -29,41 +38,58 @@ def test_allowed(command):
         "rm -rf ~/.iris-loop/baseline",
         "cp /tmp/fake.json ~/.iris-loop/log.jsonl",
         "git checkout HEAD~3 -- loop/gate.py",
+        "git -C ~/.iris-loop/trees/baseline switch -d HEAD~1",
         "python -m pytest tests/test_metal_engine.py",
         "python scripts/benchmark.py --steps 10",
+        ".venv/bin/python scripts/benchmark.py --steps 10",
+        "bash -c 'python scripts/flops.py'",
+        "echo IRIS_SKIP_GPU_TESTS=1; python -m pytest",
+        "uv run scripts/flops.py",
         "pip install mlx",
         "python -c \"open('loop/spec.py', 'w')\"",
+        "python loop/gpu.py run -- sed -i 's/a/b/' loop/decide.py",
     ],
 )
 def test_blocked(command):
     assert guard.bash_problem(command) is not None
 
 
-def test_protected_paths(tmp_path, monkeypatch):
+def make_repo(tmp_path):
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True)
-    state = tmp_path / "state"
+    return repo
+
+
+def test_protected_paths(tmp_path, monkeypatch):
+    repo, state = make_repo(tmp_path), tmp_path / "state"
     monkeypatch.setattr(guard, "STATE", state)
     monkeypatch.setattr(guard, "NOTES", state / "notes")
-    assert guard.protected_path(repo / "loop/gate.py")
-    assert guard.protected_path(repo / ".claude/settings.json")
-    assert guard.protected_path(repo / "CLAUDE.md")
-    assert guard.protected_path(repo / "benchmarks/prompts.json")
+    for path in ("loop/gate.py", ".claude/settings.json", "CLAUDE.md", "benchmarks/prompts.json"):
+        assert guard.protected_path(repo / path)
     assert guard.protected_path(state / "manifest.json")
     assert not guard.protected_path(state / "notes/LEDGER.md")
     assert not guard.protected_path(repo / "src/iris_metal/model.py")
-    assert not guard.protected_path(repo / "benchmarks/optimization-loop-2026-11-01.md")
+    assert not guard.protected_path(repo)
 
 
-def test_edit_event(tmp_path, monkeypatch):
-    repo = tmp_path / "repo"
-    (repo / ".git").mkdir(parents=True)
-    event = {"tool_name": "Edit", "tool_input": {"file_path": "loop/decide.py"}, "cwd": str(repo)}
-    assert guard.problem(event)
-    event["tool_input"]["file_path"] = str(repo / "src/iris_metal/kernels.py")
-    assert guard.problem(event) is None
+def test_tool_events(tmp_path):
+    repo = make_repo(tmp_path)
+    edit = {"tool_name": "Edit", "tool_input": {"file_path": "loop/decide.py"}, "cwd": str(repo)}
+    assert guard.problem(edit)
+    assert guard.problem({**edit, "tool_name": "Read"}) is None
+    assert guard.problem({**edit, "tool_name": "mcp__files__write_file", "tool_input": {"path": "loop/x.py"}})
+    shell = {"tool_name": "mcp__shell__run", "tool_input": {"command": "python scripts/benchmark.py"}}
+    assert guard.problem(shell)
+    allowed = {"tool_name": "Edit", "tool_input": {"file_path": str(repo / "src/iris_metal/kernels.py")}}
+    assert guard.problem({**allowed, "cwd": str(repo)}) is None
 
 
-def test_harness_call_cannot_smuggle_writes():
-    assert guard.bash_problem("python loop/gpu.py run -- sed -i 's/a/b/' loop/decide.py")
-    assert guard.bash_problem(".venv/bin/python loop/gate.py stopcheck") is None
+def test_hook_fails_closed():
+    hook = Path(guard.__file__)
+    broken = subprocess.run([sys.executable, str(hook)], input="not json", capture_output=True, text=True)
+    assert broken.returncode == 2
+    event = json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls"}})
+    assert (
+        subprocess.run([sys.executable, str(hook)], input=event, capture_output=True, text=True).returncode
+        == 0
+    )

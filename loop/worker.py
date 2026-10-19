@@ -2,13 +2,13 @@
 
 import argparse
 import ctypes
-import gc
 import hashlib
 import json
 import os
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -47,9 +47,12 @@ def tensor_digest(tensor: torch.Tensor) -> str:
 
 
 def image_digests(image: Image.Image) -> dict:
-    pixels = hashlib.sha256(f"{image.mode}{image.size}".encode() + image.tobytes()).hexdigest()
-    metadata = hashlib.sha256(image.info.get("iris", "").encode()).hexdigest()
-    return {"pixels": pixels, "metadata": metadata}
+    metadata = image.info.get("iris", "")
+    return {
+        "pixels": hashlib.sha256(f"{image.mode}{image.size}".encode() + image.tobytes()).hexdigest(),
+        "metadata": hashlib.sha256(metadata.encode()).hexdigest(),
+        "metadata_keys": sorted(json.loads(metadata)) if metadata else [],
+    }
 
 
 def encoding_digest(encodings) -> str:
@@ -82,11 +85,6 @@ class ClampProbe:
         return sample
 
 
-def release() -> None:
-    gc.collect()
-    torch.mps.empty_cache()
-
-
 def ocr_words(path: Path) -> list[str]:
     import Quartz
     import Vision
@@ -108,7 +106,7 @@ def ocr_words(path: Path) -> list[str]:
 
 
 # -- modes -------------------------------------------------------------------
-def resolve() -> dict:
+def resolve(run) -> dict:
     from iris_metal.cache import cached_snapshot
     from iris_metal.cli import REPO_ID, REVISION, resolve_checkpoint
     from iris_metal.tasks import TASK_FOLDERS
@@ -121,32 +119,31 @@ def resolve() -> dict:
     return found
 
 
-def oracle(tree: Path, out: Path, split: str, config: dict, spec: dict) -> dict:
+def oracle(run) -> dict:
     """Upstream FP32 forward and sampler, no autocast."""
     from iris3b.flow.solver import FlowDPMSolver
     from iris_metal.loading import load_config, load_dit
-    from iris_metal.pipeline import IrisPipeline
+    from iris_metal.pipeline import IrisPipeline, release_memory
 
-    checkpoint = Path(config["checkpoints"]["original"])
+    checkpoint = Path(run.config["checkpoints"]["original"])
     cfg = load_config(checkpoint)
     sample = cfg.sample
-    jobs = spec["velocity"] if split == "velocity" else spec["trajectories"][split]
+    jobs = run.spec["velocity"] if run.arg == "velocity" else run.spec["trajectories"][run.arg]
     pipe = IrisPipeline(checkpoint)
     encoded = []
-    for job in jobs:  # the encoder batches the capture will form
+    for job in jobs:
         (cond, cond_mask), (neg, neg_mask) = pipe.encode([job["prompt"], sample.negative_prompt])
-        encoded.append((torch.cat([neg, cond]), torch.cat([neg_mask, cond_mask])))
+        encoded.append((torch.cat([neg, cond]).float(), torch.cat([neg_mask, cond_mask])))
     del pipe
-    release()
+    release_memory()
     model = load_dit(checkpoint, cfg, DEVICE, torch.float32)
-    result = {}
     for job, (states, mask) in zip(jobs, encoded, strict=True):
         device_states, device_mask = states.to(DEVICE), mask.to(DEVICE)
         calls = []
 
         def velocity(x, t, rows, states=device_states, mask=device_mask, calls=calls):
             v = model(x, t, states[rows], y_mask=mask[rows]).x.float()
-            if split == "velocity":
+            if run.arg == "velocity":
                 calls.append((x.cpu(), t.cpu(), rows.cpu(), v.cpu()))
             return v
 
@@ -171,27 +168,31 @@ def oracle(tree: Path, out: Path, split: str, config: dict, spec: dict) -> dict:
                 order=sample.order,
                 shift=cfg.flow.shift,
             ).cpu()
-        if split == "velocity":
-            k = spec["velocity_probes"]
+        if run.arg == "velocity":
+            k = run.spec["velocity_probes"]
             picks = sorted({round(i * (len(calls) - 1) / (k - 1)) for i in range(k)})
             for j, index in enumerate(picks):
                 x, t, rows_used, v = calls[index]
                 np.savez(
-                    out / f"vel-{job['id']}-{j}.npz", x=x, t=t, rows=rows_used, v=v, states=states, mask=mask
+                    run.out / f"vel-{job['id']}-{j}.npz",
+                    x=x,
+                    t=t,
+                    rows=rows_used,
+                    v=v,
+                    states=states,
+                    mask=mask,
                 )
-            result[job["id"]] = {"calls": len(calls), "picked": picks}
         else:
-            np.save(out / f"traj-{job['id']}.npy", final.numpy())
-            result[job["id"]] = {"seconds": time.perf_counter() - start}
-        print(f"oracle {split} {job['id']}: {time.perf_counter() - start:.0f}s", flush=True)
-    return result
+            np.save(run.out / f"traj-{job['id']}.npy", final.numpy())
+        print(f"oracle {run.arg} {job['id']}: {time.perf_counter() - start:.0f}s", flush=True)
+    return {"jobs": [job["id"] for job in jobs]}
 
 
-def capture_turbo(tree: Path, out: Path, split: str, config: dict, spec: dict) -> dict:
+def capture_turbo(run) -> dict:
     from iris_metal.pipeline import IrisPipeline
 
-    probe, pipe, result = ClampProbe(), IrisPipeline(Path(config["checkpoints"]["turbo"])), {}
-    for job in spec["turbo"][split]:
+    probe, pipe, result = ClampProbe(), IrisPipeline(Path(run.config["checkpoints"]["turbo"])), {}
+    for job in run.spec["turbo"][run.arg]:
         [image] = pipe([job["prompt"]], height=job["height"], width=job["width"], seed=job["seed"])
         result[job["id"]] = {
             "preclamp": tensor_digest(probe.take()),
@@ -201,88 +202,103 @@ def capture_turbo(tree: Path, out: Path, split: str, config: dict, spec: dict) -
     return result
 
 
-def capture_original(tree: Path, out: Path, split: str, config: dict, spec: dict) -> dict:
+def ocr_capture(run, pipe, probe) -> dict:
+    """The baseline picks the first seed that renders every word; candidates reuse it."""
+    job = run.spec["ocr"][run.arg]
+    recorded = STATE / "baseline" / f"original-{run.arg}" / "result.json"
+    seeds = [read_json(recorded)["ocr"]["seed"]] if recorded.exists() else job["seeds"]
+    for seed in seeds:
+        [image] = pipe(
+            [job["prompt"]], height=job["height"], width=job["width"], steps=job["steps"], seed=seed
+        )
+        path = run.out / f"ocr-{job['id']}-{seed}.png"
+        image.save(path)
+        found = {"seed": seed, "preclamp": tensor_digest(probe.take()), **image_digests(image)}
+        found["words"] = ocr_words(path)
+        if set(job["words"]) <= set(found["words"]):
+            break
+    return found
+
+
+def capture_original(run) -> dict:
     from iris_metal.pipeline import IrisPipeline
 
-    probe, pipe = ClampProbe(), IrisPipeline(Path(config["checkpoints"]["original"]))
+    probe, pipe = ClampProbe(), IrisPipeline(Path(run.config["checkpoints"]["original"]))
     negative = pipe.cfg.sample.negative_prompt
     result = {"trajectories": {}, "velocity": {}}
-    for job in spec["trajectories"][split]:
+    for job in run.spec["trajectories"][run.arg]:
         [image] = pipe(
             [job["prompt"]], height=job["height"], width=job["width"], steps=job["steps"], seed=job["seed"]
         )
         sample = probe.take()
-        np.save(out / f"traj-{job['id']}.npy", sample.float().numpy())
+        np.save(run.out / f"traj-{job['id']}.npy", sample.float().numpy())
         result["trajectories"][job["id"]] = {
             "preclamp": tensor_digest(sample),
             "encoding": encoding_digest(pipe.encode([job["prompt"], negative])),
             **image_digests(image),
         }
-    if split == "dev":
+    if run.arg == "dev":
         engine = pipe.engine
         for path in sorted((STATE / "oracle" / "velocity").glob("vel-*.npz")):
             with np.load(path) as data:
                 x, t, rows = (torch.from_numpy(data[key]).to(DEVICE) for key in ("x", "t", "rows"))
                 text = engine.encode_text(torch.from_numpy(data["states"]), torch.from_numpy(data["mask"]))
             v = engine(x, t, text[rows]).cpu()
-            np.save(out / f"{path.stem}.npy", v.numpy())
+            np.save(run.out / f"{path.stem}.npy", v.numpy())
             result["velocity"][path.stem] = tensor_digest(v)
-    job = spec["ocr"][split]
-    [image] = pipe(
-        [job["prompt"]], height=job["height"], width=job["width"], steps=job["steps"], seed=job["seed"]
-    )
-    result["ocr"] = {"preclamp": tensor_digest(probe.take()), **image_digests(image)}
-    image.save(out / f"ocr-{job['id']}.png")
-    result["ocr"]["words"] = ocr_words(out / f"ocr-{job['id']}.png")
+    result["ocr"] = ocr_capture(run, pipe, probe)
     return result
 
 
-def capture_tasks(tree: Path, out: Path, split: str, config: dict, spec: dict) -> dict:
+def capture_tasks(run) -> dict:
     from iris3b.downstream.restoration import fit_budget
+    from iris_metal.pipeline import release_memory
     from iris_metal.tasks import MetalDepth, MetalRestorer
 
-    inputs = STATE / "trees" / "baseline"  # frozen copies of the demo inputs
-    result = {}
-    if "depth" in config["checkpoints"]:
-        model = MetalDepth(Path(config["checkpoints"]["depth"]))
-        with Image.open(inputs / spec["tasks"]["depth"]) as image:
+    exports, inputs, result = run.config["checkpoints"], STATE / "inputs", {}
+    if "depth" in exports:
+        model = MetalDepth(Path(exports["depth"]))
+        with Image.open(inputs / "depth" / Path(run.spec["tasks"]["depth"]).name) as image:
             depth = model(image, max_side=1024)
-        np.save(out / "depth.npy", depth)
+        np.save(run.out / "depth.npy", depth)
         result["depth"] = hashlib.sha256(depth.tobytes()).hexdigest()
         del model
-        release()
-    if "restoration" in config["checkpoints"]:
-        model = MetalRestorer(Path(config["checkpoints"]["restoration"]))
-        with Image.open(inputs / spec["tasks"]["restoration"]) as image:
+        release_memory()
+    if "restoration" in exports:
+        model = MetalRestorer(Path(exports["restoration"]))
+        with Image.open(inputs / "restoration" / Path(run.spec["tasks"]["restoration"]).name) as image:
             restored = model(fit_budget(image))
-        restored.save(out / "restoration.png")
+        restored.save(run.out / "restoration.png")
         result["restoration"] = image_digests(restored)["pixels"]
     return result
 
 
-def timing(tree: Path, out: Path, workload: str, config: dict, spec: dict) -> dict:
+def timing(run) -> dict:
+    """Cold covers construction and the first request; unique workloads get a per-process nonce."""
     from iris_metal.pipeline import IrisPipeline
 
-    job = spec["workloads"][workload]
-    width, height = spec["workload_size"]
+    job = run.spec["workloads"][run.arg]
+    width, height = run.spec["workload_size"]
     extra = {"steps": job["steps"]} if job["model"] == "original" else {}
-    before = swapouts()
-    pipe = IrisPipeline(Path(config["checkpoints"][job["model"]]))
-    times = []
-    for prompt in job["prompts"]:
-        start = time.perf_counter()
-        pipe([prompt], height=height, width=width, seed=0, **extra)
+    nonce = os.urandom(3).hex()
+    prompts = [f"{p}, study {nonce}{i}" if job.get("unique") else p for i, p in enumerate(job["prompts"])]
+    before, times = swapouts(), []
+    start = time.perf_counter()
+    pipe = IrisPipeline(Path(run.config["checkpoints"][job["model"]]))
+    for seed, prompt in enumerate(prompts):
+        pipe([prompt], height=height, width=width, seed=seed, **extra)
         times.append(time.perf_counter() - start)
+        start = time.perf_counter()
     return {
         "cold": times[0],
         "warm": times[1:],
         "peak_gib": lifetime_peak_gib(),
         "swapouts": swapouts() - before,
-        "memory_override": os.environ.get("IRIS_AVAILABLE_MEMORY_GIB"),
     }
 
 
 MODES = {
+    "resolve": resolve,
     "oracle": oracle,
     "capture-turbo": capture_turbo,
     "capture-original": capture_original,
@@ -293,20 +309,16 @@ MODES = {
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=["resolve", *MODES])
+    parser.add_argument("mode", choices=MODES)
     parser.add_argument("--tree", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--arg", default="dev", help="split, or the workload for time")
     args = parser.parse_args()
-    tree = args.tree.resolve()
-    check_imports(tree)
+    check_imports(args.tree.resolve())
     args.out.mkdir(parents=True, exist_ok=True)
-    if args.mode == "resolve":
-        value = resolve()
-    else:
-        value = MODES[args.mode](
-            tree, args.out, args.arg, read_json(STATE / "config.json"), read_json(STATE / "spec.json")
-        )
+    known = {name: read_json(STATE / f"{name}.json") for name in ("config", "spec") if args.mode != "resolve"}
+    run = SimpleNamespace(out=args.out, arg=args.arg, **known)
+    value = MODES[args.mode](run)
     (args.out / "result.json").write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 

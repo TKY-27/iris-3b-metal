@@ -34,10 +34,10 @@ TRAJECTORY_IDS = {
 TRAJECTORY_SIZE, TRAJECTORY_STEPS = 512, 20
 VELOCITY_IDS, VELOCITY_STEPS, VELOCITY_PROBES = ("portrait-fisherman", "sign-bread"), 10, 3
 OCR = {"dev": ("sign-bread", ("FRESH", "BREAD")), "holdout": ("chalkboard-menu", ("TOMATO", "SOUP"))}
-OCR_STEPS = 20
+OCR_STEPS, OCR_SEEDS = 20, (0, 1, 2, 3, 4, 5, 6, 7)
 WORKLOADS = {
     "turbo-repeat": {"model": "turbo", "prompts": [FOX] * 7},
-    "turbo-new": {"model": "turbo", "prompts": [FOX, *NEW_PROMPTS]},
+    "turbo-new": {"model": "turbo", "prompts": [FOX, *NEW_PROMPTS], "unique": True},
     "original-10": {"model": "original", "steps": 10, "prompts": [FOX] * 4},
 }
 AUDIT_WORKLOADS = {"original-100": {"model": "original", "steps": 100, "prompts": [FOX] * 2}}
@@ -81,10 +81,11 @@ def build(repo: Path) -> dict:
         ],
         "velocity_probes": VELOCITY_PROBES,
         "ocr": {
-            split: {**fixture(split, key, 0, None, OCR_STEPS), "words": list(words)}
+            split: {**fixture(split, key, 0, None, OCR_STEPS), "seeds": list(OCR_SEEDS), "words": list(words)}
             for split, (key, words) in OCR.items()
         },
         "workloads": {**WORKLOADS, **AUDIT_WORKLOADS},
+        "gate_workloads": list(WORKLOADS),
         "workload_size": [1024, 1024],
         "tasks": {"depth": DEPTH_INPUT, "restoration": RESTORE_INPUT},
     }

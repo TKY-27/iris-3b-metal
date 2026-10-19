@@ -17,6 +17,7 @@ def g(x):
     # This now uses the optimized version of the fused kernel here.
     source = """
     float y = x; // the kernel keeps FP32 here because of the rounding
+    /* this block comment also runs well past the eight word limit */
     """
     return x
 '''
@@ -40,7 +41,7 @@ def test_flags_only_added_long_texts(tmp_path):
     git(tmp_path, "commit", "-qam", "b")
     flagged = lint_comments.flag(tmp_path, base.strip())
     text = "\n".join(flagged)
-    assert len(flagged) == 3, flagged
+    assert len(flagged) == 4, flagged
     assert "Return the input" in text
     assert "optimized version" in text
     assert "rounding" in text

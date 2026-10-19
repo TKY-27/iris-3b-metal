@@ -14,7 +14,7 @@ from common import git
 
 LIMIT = 8
 HUNK = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@")
-METAL_COMMENT = re.compile(r"//\s*(.+)")
+METAL_COMMENT = re.compile(r"//\s*(.+)|/\*\s*(.+?)\s*\*/")
 
 
 def added_lines(tree: Path, base: str) -> dict[str, set[int]]:
@@ -37,7 +37,7 @@ def long_texts(source: str):
             for offset, text in enumerate(token.string.splitlines()):
                 if match := METAL_COMMENT.search(text):
                     line = token.start[0] + offset
-                    yield line, line, match[1].strip()
+                    yield line, line, (match[1] or match[2]).strip()
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
             doc = ast.get_docstring(node)

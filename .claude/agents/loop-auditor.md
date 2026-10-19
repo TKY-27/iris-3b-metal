@@ -26,7 +26,7 @@ For Original and for Turbo separately:
    GPU, Metal or MPS techniques when useful. Estimate each one's gain in
    seconds per request.
 
-Write `~/.iris-loop/notes/audits/<UTC date and time>.md`. Its last line is
-exactly `AUDIT: AGREE` when no listed hypothesis is expected to gain at
-least 0.5% of a request, otherwise `AUDIT: DISAGREE` after the list of
-hypotheses, strongest first. Do not edit code.
+Write `~/.iris-loop/notes/audits/<UTC date and time>.md`. Its last line,
+and the last line of your reply, is exactly `AUDIT: AGREE` when no
+hypothesis is expected to gain at least 0.5% of a request, otherwise
+`AUDIT: DISAGREE` after the hypotheses, strongest first. Do not edit code.
