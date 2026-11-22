@@ -303,7 +303,7 @@ def decode_upload(data: bytes) -> Image.Image:
 
 def png(image: Image.Image) -> bytes:
     buffer = io.BytesIO()
-    image.save(buffer, format="PNG", pnginfo=png_info(image))
+    image.save(buffer, format="PNG", compress_level=1, pnginfo=png_info(image))
     return buffer.getvalue()
 
 
