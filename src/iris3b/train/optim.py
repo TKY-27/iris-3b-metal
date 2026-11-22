@@ -104,12 +104,11 @@ def _muon_split_map(model: nn.Module) -> dict[int, tuple[int, ...]]:
         if isinstance(module, SelfAttention):
             width = module.qkv.out_features // 3
             _record_split(splits, module.qkv.weight, (width, width, width))
-        elif isinstance(module, JointAttention):
-            if module.qkv_x is not None:
-                width = module.qkv_x.out_features // 3
-                sizes = (width, width, width)
-                _record_split(splits, module.qkv_x.weight, sizes)
-                _record_split(splits, module.qkv_y.weight, sizes)
+        elif isinstance(module, JointAttention) and module.qkv_x is not None:
+            width = module.qkv_x.out_features // 3
+            sizes = (width, width, width)
+            _record_split(splits, module.qkv_x.weight, sizes)
+            _record_split(splits, module.qkv_y.weight, sizes)
 
         if isinstance(module, MMDiTBlock):
             _record_modulation_split(splits, module.adaln_img, 6)
