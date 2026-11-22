@@ -28,7 +28,9 @@ Modified upstream files: README.md (now about this engine; the upstream README
 is kept unchanged as UPSTREAM_README.md), pyproject.toml (package name,
 inference-only default dependencies, a "train" extra for the upstream training
 stack, the iris-metal command), and .gitignore. Upstream Python sources,
-scripts and tests use consistent formatting; src/iris3b/data/datasets.py
+scripts and tests use consistent formatting; src/iris3b/train/optim.py
+merges a nested condition for the linter without changing behavior;
+src/iris3b/data/datasets.py
 also keeps corrupt-sample retries within the batch's shape bucket.
 src/iris3b/sampling.py includes the official deterministic Turbo sampler from
 Speridlabs revision cee0c130a62a9c288ad8918f1f7cdf23cc228d69.
