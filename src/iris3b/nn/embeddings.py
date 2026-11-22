@@ -277,15 +277,18 @@ def _sincos_1d(embed_dim: int, pos: torch.Tensor) -> torch.Tensor:
 def sincos_pos_embed_2d(embed_dim: int, height: int, width: int) -> torch.Tensor:
     """Fixed 2D sincos table ``[height*width, embed_dim]`` (float32).
 
-    Follows the MAE/DiT grid convention: meshgrid built width-first, first
-    half of channels from the first grid axis, second half from the second.
+    Follows the MAE/DiT grid convention: first half of channels from the
+    width coordinate, second half from the height coordinate (row-major).
     """
     grid_h = torch.arange(height, dtype=torch.float32)
     grid_w = torch.arange(width, dtype=torch.float32)
-    grid = torch.meshgrid(grid_w, grid_h, indexing="xy")  # each [H, W]
-    grid = torch.stack(grid, dim=0).reshape(2, 1, height, width)
-    emb = torch.cat([_sincos_1d(embed_dim // 2, grid[0]), _sincos_1d(embed_dim // 2, grid[1])], dim=1)
-    return emb.float()
+    emb_w = _sincos_1d(embed_dim // 2, grid_w).float()
+    emb_h = _sincos_1d(embed_dim // 2, grid_h).float()
+    emb = torch.cat(
+        [emb_w[None, :, :].expand(height, -1, -1), emb_h[:, None, :].expand(-1, width, -1)],
+        dim=-1,
+    )
+    return emb.reshape(height * width, emb.shape[-1])
 
 
 class PixelEmbedder(nn.Module):
