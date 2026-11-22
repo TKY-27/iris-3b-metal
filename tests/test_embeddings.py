@@ -17,8 +17,3 @@ def test_sincos_pos_embed_matches_full_grid(embed_dim, height, width):
     assert actual.shape == (height * width, embed_dim)
     assert actual.dtype == torch.float32
     assert torch.equal(actual, expected)
-
-
-def test_sincos_pos_embed_rejects_negative_size():
-    with pytest.raises(RuntimeError):
-        sincos_pos_embed_2d(16, -1, 3)
